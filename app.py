@@ -33,12 +33,18 @@ def get_supabase() -> Client:
 supabase = get_supabase()
 
 # Cliente de Google
-client_id = st.secrets["client_id"]
-client_secret = st.secrets["client_secret"]
-redirect_url = (
-    st.secrets["redirect_url_test"] if testing_mode else st.secrets["redirect_url"]
-)
-google_client = GoogleOAuth2(client_id=client_id, client_secret=client_secret)
+try:
+    client_id = st.secrets["client_id"]
+    client_secret = st.secrets["client_secret"]
+    redirect_url = (
+        st.secrets["redirect_url_test"] if testing_mode else st.secrets["redirect_url"]
+    )
+    google_client = GoogleOAuth2(client_id=client_id, client_secret=client_secret)
+except KeyError:
+    # Si faltan las secrets de Google, inicializar el cliente con placeholders
+    # Esto permite que la app cargue aunque Google OAuth falle más tarde.
+    st.warning("Advertencia: Faltan secretos de Google (client_id, etc.). Google OAuth no funcionará.")
+    google_client = None
 
 # ============================================================
 # 1. FUNCIONES AUXILIARES DE GOOGLE OAUTH
@@ -46,7 +52,6 @@ google_client = GoogleOAuth2(client_id=client_id, client_secret=client_secret)
 
 def _decode_google_token(token: str):
     """Decodifica el token JWT de Google."""
-    # Deshabilitamos la verificación de firma ya que el token viene de httpx-oauth
     return jwt.decode(jwt=token, options={"verify_signature": False})
 
 async def _get_authorization_url(client: GoogleOAuth2, redirect_url: str) -> str:
@@ -61,10 +66,22 @@ async def _get_access_token(client: GoogleOAuth2, redirect_url: str, code: str) 
     """Obtiene el token de acceso usando el código de la URL."""
     return await client.get_access_token(code, redirect_url)
 
+def _ensure_async_loop():
+    """Asegura que haya un loop de asyncio en ejecución o crea uno nuevo."""
+    try:
+        return asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        return loop
+
 def get_google_user_email() -> Optional[str]:
     """Maneja la respuesta de Google y obtiene el email del usuario."""
     if "google_email" in st.session_state:
         return st.session_state.google_email
+        
+    if google_client is None:
+        return None # No intentar si el cliente no se inicializó
 
     try:
         code = st.query_params.get("code")
@@ -72,14 +89,15 @@ def get_google_user_email() -> Optional[str]:
             return None
 
         # --- Manejo de asyncio seguro en Streamlit ---
-        # Garantiza que el código async se ejecute correctamente.
-        loop = asyncio.get_event_loop()
+        loop = _ensure_async_loop()
+        
+        # Ejecutar corrutina de forma síncrona
         if loop.is_running():
             token = asyncio.run_coroutine_threadsafe(
                 _get_access_token(google_client, redirect_url, code), loop
             ).result()
         else:
-            token = asyncio.run(_get_access_token(google_client, redirect_url, code))
+            token = loop.run_until_complete(_get_access_token(google_client, redirect_url, code))
         
         # Limpiar query params para evitar loops
         st.experimental_set_query_params() 
@@ -89,7 +107,9 @@ def get_google_user_email() -> Optional[str]:
         return user_info["email"]
 
     except Exception as e:
-        # st.error(f"Error al procesar Google OAuth: {e}") # Descomentar para debug
+        # st.error(f"Error al procesar Google OAuth: {e}") 
+        # Es común que falle en el primer load, solo imprimir en console para no asustar al usuario.
+        print(f"Error silencioso de Google OAuth: {e}")
         return None
 
 # ============================================================
@@ -101,23 +121,25 @@ def _get_user_role_from_db(user_id: Optional[str] = None, email: Optional[str] =
     st.session_state["user_role"] = "guest"
     st.session_state["user_id"] = None
 
-    # Si por ahora no usas roles, puedes simplemente retornar aquí:
-    # return
-
     if user_id:
-        query = supabase.from("profiles").select("role").eq("id", user_id).single()
+        # Aquí está la línea original 108:
+        query = supabase.from("profiles").select("role").eq("id", user_id)
+        # Aseguramos que solo devuelva un resultado
+        response = query.limit(1).execute()
     elif email:
-        query = supabase.from("profiles").select("role").eq("email", email).single()
+        query = supabase.from("profiles").select("role").eq("email", email)
+        response = query.limit(1).execute()
     else:
         return
 
     try:
-        profile = query.execute()
-        if profile.data:
-            st.session_state["user_role"] = profile.data.get("role", "guest")
+        # Reemplazamos .single() por un limit(1) y verificamos el resultado
+        if response.data and len(response.data) > 0:
+            profile = response.data[0]
+            st.session_state["user_role"] = profile.get("role", "guest")
             st.session_state["user_id"] = user_id or None
-    except Exception:
-        # No se encontró perfil o la tabla no existe
+    except Exception as e:
+        print(f"Error al obtener rol: {e}")
         st.session_state["user_role"] = "guest"
         st.session_state["user_id"] = None
 
@@ -246,29 +268,32 @@ def render_auth_page():
     """Renderiza la página de autenticación híbrida (Google + Email/Pass)."""
     st.title("🔐 Acceso Requerido")
 
-    # Botón de Google (Siempre visible)
-    authorization_url = asyncio.run(_get_authorization_url(client=google_client, redirect_url=redirect_url))
-    
-    st.markdown("## Elegir Método de Acceso")
-    
-    st.markdown(
-        f"""
-        <a href="{authorization_url}" target="_self" style="text-decoration: none;">
-            <div style="
-                display: inline-flex; justify-content: center; align-items: center;
-                font-weight: 600; padding: 0.5rem 1rem; border-radius: 0.5rem;
-                background-color: #4285F4; color: white; border: none;
-                width: 100%; text-align: center; margin-bottom: 20px;">
-                <img src="https://upload.wikimedia.org/wikipedia/commons/4/4a/Logo_2013_Google.png" style="width: 20px; margin-right: 10px; background-color: white; border-radius: 50%;">
-                Continuar con Google
-            </div>
-        </a>
-        """,
-        unsafe_allow_html=True,
-    )
+    if google_client is not None:
+        # Botón de Google (Solo si el cliente se inicializó)
+        authorization_url = asyncio.run(_get_authorization_url(client=google_client, redirect_url=redirect_url))
+        
+        st.markdown("## Elegir Método de Acceso")
+        
+        st.markdown(
+            f"""
+            <a href="{authorization_url}" target="_self" style="text-decoration: none;">
+                <div style="
+                    display: inline-flex; justify-content: center; align-items: center;
+                    font-weight: 600; padding: 0.5rem 1rem; border-radius: 0.5rem;
+                    background-color: #4285F4; color: white; border: none;
+                    width: 100%; text-align: center; margin-bottom: 20px;">
+                    <img src="https://upload.wikimedia.org/wikipedia/commons/4/4a/Logo_2013_Google.png" style="width: 20px; margin-right: 10px; background-color: white; border-radius: 50%;">
+                    Continuar con Google
+                </div>
+            </a>
+            """,
+            unsafe_allow_html=True,
+        )
 
-    st.markdown("---")
-    st.markdown("### O usar Email y Contraseña")
+        st.markdown("---")
+        st.markdown("### O usar Email y Contraseña")
+    else:
+        st.markdown("## Usar Email y Contraseña")
 
     # Pestañas para los formularios de Supabase
     tabs = st.tabs(["Iniciar Sesión", "Registrarse", "Recuperar Contraseña"]) 
