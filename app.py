@@ -197,12 +197,15 @@ def update_user_profile(new_name: str, new_dob: datetime.date, new_avatar_url: O
 # 3. FUNCIONES PRINCIPALES DE AUTENTICACIÓN HÍBRIDA
 # ============================================================
 
+def set_page(page_name):
+    """Callback para establecer la nueva página y forzar la recarga (FIX)."""
+    st.session_state.current_page = page_name
+    st.experimental_rerun()
+
 def check_session_state_hybrid() -> bool:
     """Verifica sesión activa e inicializa el perfil si es necesario."""
     
     # 0. CRÍTICO: Garantizar que la variable de navegación (current_page) siempre exista.
-    # Esto previene errores de AttributeError en el sidebar después de un clear/logout, 
-    # forzando su inicialización primero, fuera del bloque de autenticación.
     if "current_page" not in st.session_state:
         st.session_state["current_page"] = "Dashboard"
 
@@ -461,8 +464,7 @@ def render_auth_page():
 def render_sidebar():
     """Renderiza la barra lateral con información de la sesión y navegación."""
     
-    # FIX: Acceder a current_page de forma segura con .get() y un valor por defecto.
-    # Esta línea ahora es completamente segura porque 'current_page' está garantizada al inicio.
+    # Acceder a current_page de forma segura con .get() y un valor por defecto.
     current_page = st.session_state.get("current_page", "Dashboard") 
     
     with st.sidebar:
@@ -498,7 +500,7 @@ def render_sidebar():
         # Menú de Navegación
         st.markdown("### Navegación")
         
-        # Botones de navegación
+        # Botones de navegación (FIX: Usando on_click para estabilidad)
         for page in PAGES:
             # Asignar iconos
             icon_map = {
@@ -514,9 +516,15 @@ def render_sidebar():
             # Resaltar el botón de la página actual, usando la variable segura current_page
             button_style = "primary" if current_page == page else "secondary"
             
-            if st.button(f"{icon} {page}", key=f"nav_{page}", use_container_width=True, type=button_style):
-                st.session_state.current_page = page
-                st.experimental_rerun()
+            # Uso de on_click para manejar la navegación de forma segura
+            st.button(
+                f"{icon} {page}", 
+                key=f"nav_{page}", 
+                use_container_width=True, 
+                type=button_style,
+                on_click=set_page, # Función callback
+                args=(page,)      # Argumento de la función callback
+            )
             
         st.markdown("---")
         # Sección de la cuenta (Cerrar Sesión)
