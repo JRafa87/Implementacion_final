@@ -112,7 +112,7 @@ def render_login_form():
 # UI SIGNUP
 # ============================================================
 def render_signup_form():
-    st.subheader("Registro")
+    st.subheader("Registrarse")
 
     name = st.text_input("Nombre completo")
     email = st.text_input("Correo electrónico")
@@ -125,7 +125,7 @@ def render_signup_form():
             st.error("Completa todos los campos.")
 
 # ============================================================
-# AUTH PAGE
+# AUTH PAGE (LOGIN + REGISTRO)
 # ============================================================
 def render_auth_page():
     tabs = st.tabs(["Iniciar Sesión", "Registrarse"])
