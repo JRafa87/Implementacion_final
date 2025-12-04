@@ -296,5 +296,166 @@ def handle_logout():
     st.session_state.clear()
     st.experimental_rerun()        
 
+# ============================================================
+# 5. FUNCIONES DE UI (Interfaz de Usuario) - Renderizado
+# ============================================================
 
+def render_login_form():
+    with st.form("login_form", clear_on_submit=False):
+        st.text_input("Correo", key="login_email")
+        st.text_input("Contraseña", type="password", key="login_password")
+        if st.form_submit_button("Iniciar Sesión"):
+            sign_in_manual(st.session_state.login_email, st.session_state.login_password)
+
+def render_signup_form():
+    with st.form("signup_form", clear_on_submit=True):
+        st.text_input("Nombre completo", key="signup_name")
+        st.text_input("Correo", key="signup_email")
+        st.text_input("Contraseña (mín. 6 caracteres)", type="password", key="signup_password")
+        if st.form_submit_button("Registrarse"):
+            if st.session_state.signup_name and st.session_state.signup_email and st.session_state.signup_password:
+                sign_up(st.session_state.signup_email, st.session_state.signup_password, st.session_state.signup_name)
+            else:
+                st.error("Completa todos los campos.")
+
+def render_password_reset_form():
+    with st.form("reset_form", clear_on_submit=True):
+        st.text_input("Correo registrado", key="reset_email_input")
+        if st.form_submit_button("Solicitar Enlace"):
+            if st.session_state.reset_email_input:
+                request_password_reset(st.session_state.reset_email_input)
+            else:
+                st.warning("Debes ingresar un correo.")
+
+def render_auth_page():
+    """Renderiza la página de autenticación híbrida (Google + Email/Pass)."""
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.title("Acceso a la Plataforma")
+        st.markdown("---")
+
+        # --- Botón de Google Rediseñado ---
+        if google_client is not None:
+            try:
+                loop = _ensure_async_loop()
+                authorization_url = loop.run_until_complete(
+                    _get_authorization_url(client=google_client, redirect_url=redirect_url)
+                )
+            except Exception as e:
+                authorization_url = "#"
+                st.error(f"Error al inicializar Google OAuth. Revisa secrets.toml. ({e})")
+            
+            # Estilo minimalista para el botón de Google (usando HTML/CSS simple)
+            st.markdown(
+                f"""
+                <a href="{authorization_url}" target="_self" style="text-decoration: none;">
+                    <button style="
+                        width: 100%; 
+                        height: 40px; 
+                        background-color: white; 
+                        color: #333; 
+                        border: 1px solid #ccc;
+                        border-radius: 0.5rem; 
+                        font-weight: 500; 
+                        cursor: pointer;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        gap: 10px;
+                        margin-bottom: 20px;">
+                        <img src="https://upload.wikimedia.org/wikipedia/commons/4/4a/Logo_2013_Google.png" 
+                             style="width: 18px; height: 18px;">
+                        Continuar con Google
+                    </button>
+                </a>
+                """,
+                unsafe_allow_html=True,
+            )
+
+        st.markdown("<p style='text-align: center; font-style: italic; color: #666;'>o usa tus credenciales</p>", unsafe_allow_html=True)
+        st.markdown("---")
+
+        # Pestañas para los formularios de Supabase
+        tabs = st.tabs(["Iniciar Sesión", "Registrarse", "Recuperar Contraseña"])
+        with tabs[0]:
+            st.subheader("Ingreso Manual")
+            render_login_form()
+        with tabs[1]:
+            st.subheader("Crear Cuenta")
+            render_signup_form()
+        with tabs[2]:
+            st.subheader("Restablecer")
+            render_password_reset_form()
+
+def render_sidebar():
+    """Renderiza la barra lateral con información de la sesión y navegación."""
+    
+    # Acceder a current_page de forma segura con .get() y un valor por defecto.
+    current_page = st.session_state.get("current_page", "Dashboard") 
+    
+    with st.sidebar:
+        # Mini perfil en la barra lateral
+        col1, col2 = st.columns([1, 3])
+        with col1:
+            avatar_url = st.session_state.get("avatar_url")
+            # Usar un placeholder si no hay URL válida
+            if not avatar_url:
+                avatar_url = "https://placehold.co/100x100/A0A0A0/ffffff?text=U"
+            
+            # CSS para hacer la imagen redonda
+            st.markdown(f"""
+                <style>
+                    .sidebar-img {{
+                        border-radius: 50%;
+                        width: 60px;
+                        height: 60px;
+                        object-fit: cover;
+                        border: 2px solid #007ACC;
+                    }}
+                </style>
+                <img src="{avatar_url}" class="sidebar-img">
+            """, unsafe_allow_html=True)
+
+        with col2:
+            # Mostrar el nombre del usuario autenticado
+            st.title(f"👋 {st.session_state.get('full_name', 'Usuario').split(' ')[0]}")
+            st.caption(f"Rol: **{st.session_state.get('user_role', 'guest').capitalize()}**")
+
+        st.markdown("---")
+        
+        # Menú de Navegación
+        st.markdown("### Navegación")
+        
+        # Botones de navegación (FIX: Usando on_click para estabilidad)
+        for page in PAGES:
+            # Asignar iconos
+            icon_map = {
+                "Mi Perfil": "👤",
+                "Dashboard": "📊",
+                "Gestión de Empleados": "👥",
+                "Predicción desde Archivo": "📁",
+                "Predicción Manual": "✏️",
+                "Reconocimiento": "⭐"
+            }
+            icon = icon_map.get(page, "➡️")
+            
+            # Resaltar el botón de la página actual, usando la variable segura current_page
+            button_style = "primary" if current_page == page else "secondary"
+            
+            # Uso de on_click para manejar la navegación de forma segura
+            st.button(
+                f"{icon} {page}", 
+                key=f"nav_{page}", 
+                use_container_width=True, 
+                type=button_style,
+                on_click=set_page, # Función callback
+                args=(page,)      # Argumento de la función callback
+            )
+            
+        st.markdown("---")
+        # Sección de la cuenta (Cerrar Sesión)
+        st.markdown(f"**Cuenta:** `{st.session_state.get('user_email', 'Desconocido')}`")
+        
+        if st.button("Cerrar Sesión", use_container_width=True):
+            handle_logout()
 
