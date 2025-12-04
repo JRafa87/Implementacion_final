@@ -1,3 +1,7 @@
+
+import streamlit as st
+import authentication as auth_module
+
 # 1. Configuración de página (DEBE SER LO PRIMERO)
 st.set_page_config(page_title="App Deserción Work", layout="wide")
 
