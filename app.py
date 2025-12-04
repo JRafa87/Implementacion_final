@@ -107,7 +107,6 @@ def get_google_user_email() -> Optional[str]:
         return user_info["email"]
 
     except Exception as e:
-        # st.error(f"Error al procesar Google OAuth: {e}") 
         # Es común que falle en el primer load, solo imprimir en console para no asustar al usuario.
         print(f"Error silencioso de Google OAuth: {e}")
         return None
@@ -117,23 +116,25 @@ def get_google_user_email() -> Optional[str]:
 # ============================================================
 
 def _get_user_role_from_db(user_id: Optional[str] = None, email: Optional[str] = None):
-    """Obtiene rol desde la tabla profiles (puede usar ID o Email)."""
+    """
+    Obtiene el rol desde la tabla profiles (puede usar ID o Email).
+    Esta función es necesaria para mapear usuarios de Supabase/Google a roles.
+    """
     st.session_state["user_role"] = "guest"
     st.session_state["user_id"] = None
 
     if user_id:
-        # Aquí está la línea original 108:
+        # Consulta por ID de usuario
         query = supabase.from("profiles").select("role").eq("id", user_id)
-        # Aseguramos que solo devuelva un resultado
         response = query.limit(1).execute()
     elif email:
+        # Consulta por Email (usado para Google OAuth)
         query = supabase.from("profiles").select("role").eq("email", email)
         response = query.limit(1).execute()
     else:
         return
 
     try:
-        # Reemplazamos .single() por un limit(1) y verificamos el resultado
         if response.data and len(response.data) > 0:
             profile = response.data[0]
             st.session_state["user_role"] = profile.get("role", "guest")
@@ -270,7 +271,13 @@ def render_auth_page():
 
     if google_client is not None:
         # Botón de Google (Solo si el cliente se inicializó)
-        authorization_url = asyncio.run(_get_authorization_url(client=google_client, redirect_url=redirect_url))
+        # Se usa asyncio.run aquí porque Streamlit se ejecuta de forma sincrónica.
+        try:
+            loop = _ensure_async_loop()
+            authorization_url = loop.run_until_complete(_get_authorization_url(client=google_client, redirect_url=redirect_url))
+        except Exception:
+            authorization_url = "#" # Fallback si falla la inicialización de asyncio
+            st.error("Error al inicializar el flujo de Google OAuth. Revisa tus secretos.")
         
         st.markdown("## Elegir Método de Acceso")
         
@@ -322,7 +329,6 @@ def render_main_content():
     st.title("App Deserción Laboral 📊")
     
     email = st.session_state.get("user_email", "Desconocido")
-    # role = st.session_state.get("user_role", "guest") # Ya no lo necesitas si no hay discriminación
     
     st.success(f"👋 Bienvenido, {email}. Tienes acceso completo a la aplicación.")
     
