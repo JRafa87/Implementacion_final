@@ -8,6 +8,7 @@ import asyncio
 import httpx
 import datetime
 import pandas as pd
+from profile_page import render_profile_page
 
 # ============================================================
 # 0. CONFIGURACIÓN E INICIALIZACIÓN
