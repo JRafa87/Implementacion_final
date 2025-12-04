@@ -1,4 +1,7 @@
+import os
 import streamlit as st
-import authentication
-st.write("OK")
+
+st.write("Archivos en la carpeta:")
+st.write(os.listdir("."))
+
 
