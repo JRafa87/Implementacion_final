@@ -5,7 +5,7 @@ from supabase import create_client, Client
 from httpx_oauth.clients.google import GoogleOAuth2
 from httpx_oauth.oauth2 import OAuth2Token
 import asyncio
-import httpx  # Necesario para GoogleOAuth2
+import httpx # Necesario para GoogleOAuth2
 
 # ============================================================
 # 0. CONFIGURACIÓN E INICIALIZACIÓN
@@ -26,7 +26,7 @@ def get_supabase() -> Client:
     url = st.secrets.get("SUPABASE_URL")
     key = st.secrets.get("SUPABASE_KEY")
     if not url or not key:
-        st.error("ERROR: Faltan SUPABASE_URL o SUPABASE_KEY en secrets.toml")
+        st.error("ERROR: Faltan SUPABASE_URL o SUPABASE_KEY en secrets.toml. La autenticación fallará.")
         st.stop()
     return create_client(url, key)
 
@@ -86,12 +86,16 @@ def get_google_user_email() -> Optional[str]:
         if not code:
             return None
 
+        # --- Manejo de asyncio seguro en Streamlit ---
         loop = _ensure_async_loop()
+        
         if loop.is_running():
+            # Ejecutar de forma concurrente si el loop ya está activo
             token = asyncio.run_coroutine_threadsafe(
                 _get_access_token(google_client, redirect_url, code), loop
             ).result()
         else:
+            # Ejecutar de forma síncrona si el loop no está activo
             token = loop.run_until_complete(_get_access_token(google_client, redirect_url, code))
 
         st.experimental_set_query_params()  # Limpiar params
@@ -111,23 +115,21 @@ def get_google_user_email() -> Optional[str]:
 def _get_user_role_from_db(user_id: Optional[str] = None, email: Optional[str] = None):
     """
     Obtiene el rol de un usuario desde la tabla 'profiles' de Supabase.
-    Puede buscar por user_id o por email.
-    Actualiza st.session_state con 'user_role' y 'user_id'.
+    Busca por user_id o por email.
     """
     st.session_state["user_role"] = "guest"
     st.session_state["user_id"] = None
 
-    if user_id:
+    # Determinamos la columna y valor de búsqueda
+    search_col = "id" if user_id else "email"
+    search_val = user_id if user_id else email
+
+    if search_val:
         try:
-            response = supabase.table("profiles").select("role").eq("id", user_id).limit(1).execute()
+            # Ejecutamos la consulta
+            response = supabase.table("profiles").select("role").eq(search_col, search_val).limit(1).execute()
         except Exception as e:
-            print(f"Error al consultar por user_id: {e}")
-            return
-    elif email:
-        try:
-            response = supabase.table("profiles").select("role").eq("email", email).limit(1).execute()
-        except Exception as e:
-            print(f"Error al consultar por email: {e}")
+            print(f"Error al consultar Supabase por {search_col}: {e}")
             return
     else:
         return
@@ -175,7 +177,7 @@ def check_session_state_hybrid() -> bool:
                 _get_user_role_from_db(user_id=user.id)
             return True
     except Exception:
-        pass
+        pass # No hay sesión Supabase válida
 
     # C. No autenticado
     st.session_state.update({
@@ -196,7 +198,11 @@ def sign_in_manual(email, password):
         st.error(f"Error al iniciar sesión: {e}")
 
 def sign_up(email, password, name):
-    """Registra un nuevo usuario."""
+    """
+    Registra un nuevo usuario en Supabase.
+    NOTA: Para que funcione el envío de correo de verificación, debes configurar
+    el SMTP en el dashboard de Supabase (Settings -> Auth -> Email Settings).
+    """
     try:
         supabase.auth.sign_up({
             "email": email,
@@ -204,14 +210,19 @@ def sign_up(email, password, name):
             "options": {"data": {"full_name": name, "role": "supervisor", "email": email}}
         })
         st.success("Registro exitoso. Revisa tu correo electrónico para verificar tu cuenta.")
+        st.info("⚠️ Si no recibes el correo, verifica la configuración SMTP en el panel de Supabase.")
     except Exception as e:
         st.error(f"Error al registrar: {e}")
 
 def request_password_reset(email):
-    """Solicita un enlace para restablecer la contraseña."""
+    """
+    Solicita un enlace para restablecer la contraseña.
+    NOTA: Requiere la configuración SMTP de Supabase.
+    """
     try:
         supabase.auth.reset_password_for_email(email)
         st.success("Correo de recuperación enviado.")
+        st.info("⚠️ Si no recibes el correo, verifica la configuración SMTP en el panel de Supabase.")
     except Exception as e:
         st.error(f"Error al solicitar recuperación: {e}")
 
@@ -229,117 +240,149 @@ def handle_logout():
 # ============================================================
 
 def render_login_form():
-    st.subheader("Iniciar Sesión")
-    with st.form("login_form"):
-        email = st.text_input("Correo", key="login_email")
-        password = st.text_input("Contraseña", type="password", key="login_password")
+    with st.form("login_form", clear_on_submit=False):
+        st.text_input("Correo", key="login_email")
+        st.text_input("Contraseña", type="password", key="login_password")
         if st.form_submit_button("Iniciar Sesión"):
-            sign_in_manual(email, password)
+            sign_in_manual(st.session_state.login_email, st.session_state.login_password)
 
 def render_signup_form():
-    st.subheader("Crear Cuenta")
-    with st.form("signup_form"):
-        name = st.text_input("Nombre completo", key="signup_name")
-        email = st.text_input("Correo", key="signup_email")
-        password = st.text_input("Contraseña", type="password", key="signup_password")
+    with st.form("signup_form", clear_on_submit=True):
+        st.text_input("Nombre completo", key="signup_name")
+        st.text_input("Correo", key="signup_email")
+        st.text_input("Contraseña (mín. 6 caracteres)", type="password", key="signup_password")
         if st.form_submit_button("Registrarse"):
-            if name and email and password:
-                sign_up(email, password, name)
+            if st.session_state.signup_name and st.session_state.signup_email and st.session_state.signup_password:
+                sign_up(st.session_state.signup_email, st.session_state.signup_password, st.session_state.signup_name)
             else:
                 st.error("Completa todos los campos.")
 
 def render_password_reset_form():
-    st.subheader("Recuperar Contraseña")
-    st.info("Ingresa tu correo. Recibirás un enlace por email.")
-    with st.form("reset_form"):
-        email = st.text_input("Correo registrado", key="reset_email")
+    with st.form("reset_form", clear_on_submit=True):
+        st.text_input("Correo registrado", key="reset_email_input")
         if st.form_submit_button("Solicitar Enlace"):
-            if email:
-                request_password_reset(email)
+            if st.session_state.reset_email_input:
+                request_password_reset(st.session_state.reset_email_input)
             else:
                 st.warning("Debes ingresar un correo.")
 
 def render_auth_page():
     """Renderiza la página de autenticación híbrida (Google + Email/Pass)."""
-    st.title("🔐 Acceso Requerido")
-
-    if google_client is not None:
-        try:
-            loop = _ensure_async_loop()
-            authorization_url = loop.run_until_complete(
-                _get_authorization_url(client=google_client, redirect_url=redirect_url)
-            )
-        except Exception:
-            authorization_url = "#"
-            st.error("Error al inicializar el flujo de Google OAuth. Revisa tus secretos.")
-        
-        st.markdown("## Elegir Método de Acceso")
-        st.markdown(
-            f"""
-            <a href="{authorization_url}" target="_self" style="text-decoration: none;">
-                <div style="
-                    display: inline-flex; justify-content: center; align-items: center;
-                    font-weight: 600; padding: 0.5rem 1rem; border-radius: 0.5rem;
-                    background-color: #4285F4; color: white; border: none;
-                    width: 100%; text-align: center; margin-bottom: 20px;">
-                    <img src="https://upload.wikimedia.org/wikipedia/commons/4/4a/Logo_2013_Google.png" 
-                         style="width: 20px; margin-right: 10px; background-color: white; border-radius: 50%;">
-                    Continuar con Google
-                </div>
-            </a>
-            """,
-            unsafe_allow_html=True,
-        )
-
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.title("Acceso a la Plataforma")
         st.markdown("---")
-        st.markdown("### O usar Email y Contraseña")
-    else:
-        st.markdown("## Usar Email y Contraseña")
 
-    tabs = st.tabs(["Iniciar Sesión", "Registrarse", "Recuperar Contraseña"])
-    with tabs[0]:
-        render_login_form()
-    with tabs[1]:
-        render_signup_form()
-    with tabs[2]:
-        render_password_reset_form()
+        # --- Botón de Google Rediseñado ---
+        if google_client is not None:
+            try:
+                loop = _ensure_async_loop()
+                authorization_url = loop.run_until_complete(
+                    _get_authorization_url(client=google_client, redirect_url=redirect_url)
+                )
+            except Exception as e:
+                authorization_url = "#"
+                st.error(f"Error al inicializar Google OAuth. Revisa secrets.toml. ({e})")
+            
+            # Estilo minimalista para el botón de Google (usando HTML/CSS simple)
+            st.markdown(
+                f"""
+                <a href="{authorization_url}" target="_self" style="text-decoration: none;">
+                    <button style="
+                        width: 100%; 
+                        height: 40px; 
+                        background-color: white; 
+                        color: #333; 
+                        border: 1px solid #ccc;
+                        border-radius: 0.5rem; 
+                        font-weight: 500; 
+                        cursor: pointer;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        gap: 10px;
+                        margin-bottom: 20px;">
+                        <img src="https://upload.wikimedia.org/wikipedia/commons/4/4a/Logo_2013_Google.png" 
+                             style="width: 18px; height: 18px;">
+                        Continuar con Google
+                    </button>
+                </a>
+                """,
+                unsafe_allow_html=True,
+            )
+
+        st.markdown("<p style='text-align: center; font-style: italic; color: #666;'>o usa tus credenciales</p>", unsafe_allow_html=True)
+        st.markdown("---")
+
+        # Pestañas para los formularios de Supabase
+        tabs = st.tabs(["Iniciar Sesión", "Registrarse", "Recuperar Contraseña"])
+        with tabs[0]:
+            st.subheader("Ingreso Manual")
+            render_login_form()
+        with tabs[1]:
+            st.subheader("Crear Cuenta")
+            render_signup_form()
+        with tabs[2]:
+            st.subheader("Restablecer")
+            render_password_reset_form()
 
 def render_sidebar():
+    """Renderiza la barra lateral con información de la sesión."""
     with st.sidebar:
-        st.title("Menú")
-        st.write(f"**Email:** {st.session_state.get('user_email', 'Desconocido')}")
-        st.write(f"**Rol:** {st.session_state.get('user_role', 'guest')}")
-        st.write(f"**Estado:** {'Autenticado' if st.session_state.get('authenticated') else 'No autenticado'}")
+        st.title("⚙️ Sesión")
         st.markdown("---")
-        if st.button("Cerrar Sesión"):
+        st.markdown(f"**Email:** `{st.session_state.get('user_email', 'Desconocido')}`")
+        st.markdown(f"**Rol:** `{st.session_state.get('user_role', 'guest')}`")
+        st.markdown("---")
+        if st.button("Cerrar Sesión", use_container_width=True):
             handle_logout()
 
 def render_main_content():
+    """Contenido principal de la aplicación con diseño minimalista."""
     st.title("App Deserción Laboral 📊")
-    email = st.session_state.get("user_email", "Desconocido")
-    st.success(f"👋 Bienvenido, {email}. Tienes acceso completo a la aplicación.")
-
-    st.subheader("Datos Generales")
-    col1, col2 = st.columns(2)
-    with col1:
-        st.metric(label="Tasa de Deserción", value="12%", delta="-2%")
-    with col2:
-        st.metric(label="Empleados Activos", value="128", delta="+5%")
     
-    st.subheader("Gráfico de Retención")
-    st.bar_chart({"Departamentos": [20, 15, 30, 45], "Retención": [95, 88, 75, 92]})
+    email = st.session_state.get("user_email", "Desconocido")
+    st.success(f"Bienvenido, {email}. Acceso Nivel: {st.session_state.get('user_role', 'guest').upper()}")
+
+    st.markdown("## Resumen Ejecutivo")
+    
+    # Contenedor para métricas clave
+    with st.container(border=True):
+        st.subheader("Métricas de Retención")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric(label="Tasa de Deserción", value="12%", delta="-2% (vs. mes anterior)", delta_color="inverse")
+        with col2:
+            st.metric(label="Empleados Activos", value="1,280", delta="+5% (vs. trimestre)", delta_color="normal")
+        with col3:
+            st.metric(label="Rotación Voluntaria", value="8.5%", delta="-1.5%", delta_color="inverse")
+    
+    st.markdown("## Análisis de Tendencias por Departamento")
+    
+    # Gráfico de retención con datos simulados
+    chart_data = {
+        "Departamento": ["Ventas", "Marketing", "Ingeniería", "Soporte"], 
+        "Deserción %": [15, 12, 8, 20]
+    }
+    st.bar_chart(chart_data, x="Departamento", y="Deserción %", color="#007ACC")
+    
+    st.markdown("---")
+    st.info("La plataforma está lista para recibir sus datos de deserción para el análisis avanzado.")
 
 # ============================================================
 # 5. CONTROL DE FLUJO PRINCIPAL
 # ============================================================
 
+# 1. Se ejecuta al inicio para determinar el estado de la sesión
 session_is_active = check_session_state_hybrid()
 
+# 2. Control de Acceso
 if session_is_active:
+    # Si está autenticado
     render_sidebar()
     render_main_content()
 else:
-    st.warning("No estás autenticado. Por favor inicia sesión.")
+    # Si NO está autenticado
     render_auth_page()
 
 
