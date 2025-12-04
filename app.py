@@ -186,6 +186,7 @@ def update_user_profile(new_name: str, new_dob: datetime.date, new_avatar_url: O
                 
             st.success("¡Perfil actualizado con éxito!")
             # Recargar para que los cambios (como el avatar) se reflejen en el sidebar
+            # Usamos rerun aquí porque es una acción de guardado, no navegación
             st.experimental_rerun() 
 
         except Exception as e:
@@ -198,9 +199,13 @@ def update_user_profile(new_name: str, new_dob: datetime.date, new_avatar_url: O
 # ============================================================
 
 def set_page(page_name):
-    """Callback para establecer la nueva página y forzar la recarga (FIX)."""
+    """
+    Callback para establecer la nueva página. 
+    Se elimina st.experimental_rerun() para evitar conflictos de ciclo de vida.
+    Streamlit detectará el cambio en st.session_state y hará el rerun automáticamente.
+    """
     st.session_state.current_page = page_name
-    st.experimental_rerun()
+    # st.experimental_rerun() <-- LÍNEA ELIMINADA para estabilidad
 
 def check_session_state_hybrid() -> bool:
     """Verifica sesión activa e inicializa el perfil si es necesario."""
