@@ -119,13 +119,13 @@ def _get_user_role_from_db(user_id: Optional[str] = None, email: Optional[str] =
 
     if user_id:
         try:
-            response = supabase.from("profiles").select("role").eq("id", user_id).limit(1).execute()
+            response = supabase.table("profiles").select("role").eq("id", user_id).limit(1).execute()
         except Exception as e:
             print(f"Error al consultar por user_id: {e}")
             return
     elif email:
         try:
-            response = supabase.from("profiles").select("role").eq("email", email).limit(1).execute()
+            response = supabase.table("profiles").select("role").eq("email", email).limit(1).execute()
         except Exception as e:
             print(f"Error al consultar por email: {e}")
             return
