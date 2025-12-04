@@ -5,9 +5,35 @@ import base64
 import time
 
 # ====================================================================
-# === 1. FUNCIÓN DE ACTUALIZACIÓN (AJUSTADA) ===
+# === 1. FUNCIÓN CALLBACK PARA MANEJAR SUBIDA DE ARCHIVO (CORREGIDA) ===
 # ====================================================================
 
+def handle_file_upload():
+    """
+    Maneja la subida de un archivo del uploader, guarda los bytes temporalmente
+    y fuerza el rerun para actualizar el display.
+    """
+    uploaded_file = st.session_state.get("avatar_uploader_widget")
+    
+    if uploaded_file is not None:
+        # 1. Leer los bytes
+        uploaded_file.seek(0)
+        new_avatar_bytes = uploaded_file.read()
+        
+        # 2. Guardar los bytes en el estado temporal para el display y submit
+        st.session_state["temp_avatar_bytes"] = new_avatar_bytes 
+        
+        # 3. Borrar el estado de la imagen guardada para que el display use la temporal
+        # y forzar que el uploader se resetee al rerenderizar.
+        if "avatar_image" in st.session_state:
+            del st.session_state["avatar_image"]
+        if "avatar_url" in st.session_state:
+            del st.session_state["avatar_url"]
+        
+        # 4. Forzar el rerun para actualizar la imagen mostrada.
+        st.rerun()
+
+# --- FUNCIÓN DE ACTUALIZACIÓN ---
 def update_user_profile(new_name: str, new_dob: datetime.date, avatar_bytes: Optional[bytes], user_id: str, supabase):
     """Actualiza nombre, fecha de nacimiento y avatar del usuario en Supabase."""
     data_to_update = {}
@@ -24,14 +50,15 @@ def update_user_profile(new_name: str, new_dob: datetime.date, avatar_bytes: Opt
         data_to_update["date_of_birth"] = dob_str 
 
     # Manejo del Avatar:
-    if avatar_bytes:
+    # Se usa 'avatar_bytes' (el valor final de la lógica del form) para determinar qué hacer.
+    if avatar_bytes is not None and avatar_bytes != st.session_state.get("avatar_image"):
+        # Hay bytes nuevos o diferentes a los guardados -> Actualizar.
         avatar_base64 = f"data:image/png;base64,{base64.b64encode(avatar_bytes).decode()}"
-        if avatar_base64 != st.session_state.get("avatar_url"):
-            data_to_update["avatar_url"] = avatar_base64
-            st.session_state["avatar_image"] = avatar_bytes # Guardar los bytes de la nueva imagen
+        data_to_update["avatar_url"] = avatar_base64
+        st.session_state["avatar_image"] = avatar_bytes # Guardar los bytes de la nueva imagen
             
     elif avatar_bytes is None and st.session_state.get("avatar_url"):
-        # Se quiere eliminar la foto
+        # Se quiere eliminar la foto.
         data_to_update["avatar_url"] = None
         st.session_state["avatar_image"] = None # Eliminar los bytes de la imagen guardada
 
@@ -51,7 +78,7 @@ def update_user_profile(new_name: str, new_dob: datetime.date, avatar_bytes: Opt
             # -----------------------------------
 
             st.success("¡Perfil actualizado con éxito!")
-            st.rerun() # <--- CORRECCIÓN 1: Usar st.rerun()
+            st.rerun() 
         except Exception as e:
             st.error(f"Error al actualizar el perfil: {e}")
     else:
@@ -59,7 +86,7 @@ def update_user_profile(new_name: str, new_dob: datetime.date, avatar_bytes: Opt
 
 
 # ====================================================================
-# === 2. RENDERIZADO CORREGIDO (REEMPLAZO Y ELIMINACIÓN) ===
+# === 2. RENDERIZADO CORREGIDO (Lógica de display simplificada) ===
 # ====================================================================
 
 def render_profile_page(supabase, request_password_reset):
@@ -89,47 +116,45 @@ def render_profile_page(supabase, request_password_reset):
             with col_avatar:
                 st.subheader("Foto de Perfil")
                 
-                # --- Lógica de REEMPLAZO: Mostrar la imagen temporal (si existe), sino la guardada, sino el placeholder. ---
+                # --- Lógica de REEMPLAZO: Muestra la imagen temporal (subida), sino la guardada, sino el placeholder. ---
                 if temp_bytes is not None:
-                    display_image = temp_bytes
+                    # Usar la imagen recién subida/marcada para eliminación
+                    display_image = temp_bytes 
                 elif avatar_bytes_saved is not None:
+                    # Usar la imagen guardada en memoria
                     display_image = avatar_bytes_saved
                 elif avatar_url is not None:
+                    # Usar la URL guardada (si es base64 o una URL externa)
                     display_image = avatar_url
                 else:
+                    # Placeholder
                     display_image = "https://placehold.co/200x200/A0A0A0/ffffff?text=U"
-                    
+                        
                 st.image(display_image, width=150)
                 
-                # Subir/Cambiar Foto
-                uploaded_file = st.file_uploader("Subir/Cambiar Foto", type=["png","jpg","jpeg"], key="avatar_uploader")
-                
-                # Si se sube un nuevo archivo, lo guardamos en el estado temporal y forzamos un rerun
-                if uploaded_file:
-                    uploaded_file.seek(0)
-                    new_avatar_bytes = uploaded_file.read()
-                    st.session_state["temp_avatar_bytes"] = new_avatar_bytes 
-                    
-                    # CORRECCIÓN: Si se sube una nueva foto, nos aseguramos de que el estado guardado no interfiera.
-                    st.session_state["avatar_image"] = None
-                    st.session_state["avatar_url"] = None
-                    
-                    st.rerun() # <--- CORRECCIÓN 2: Usar st.rerun()
+                # Subir/Cambiar Foto: Usamos el callback para limpiar el widget al hacer st.rerun()
+                st.file_uploader(
+                    "Subir/Cambiar Foto", 
+                    type=["png","jpg","jpeg"], 
+                    key="avatar_uploader_widget", # Clave para el widget
+                    on_change=handle_file_upload # Llama a la función de manejo
+                )
                 
                 # Opción para Quitar
-                if st.button("❌ Quitar Foto Actual", help="Elimina la foto de perfil al guardar."):
-                    st.session_state["temp_avatar_bytes"] = None # Marcar para eliminación
-                    
-                    # *** SOLUCIÓN AL PROBLEMA DE LA PERSISTENCIA ***
-                    # Borramos temporalmente las claves de la foto guardada para que el display_image caiga en el 'else'.
-                    # Si el usuario no guarda, la foto se recargará de la DB en el siguiente script run normal.
-                    if "avatar_image" in st.session_state:
-                         del st.session_state["avatar_image"]
-                    if "avatar_url" in st.session_state:
-                         del st.session_state["avatar_url"]
-                    # **********************************************
-                    
-                    st.rerun() # <--- CORRECCIÓN 3: Usar st.rerun()
+                # Solo mostrar el botón si hay una foto actualmente visible (guardada o temporal)
+                if temp_bytes is not None or avatar_bytes_saved is not None or avatar_url is not None:
+                    if st.button("❌ Quitar Foto Actual", help="Elimina la foto de perfil al guardar."):
+                        # 1. Marcar el estado temporal como nulo (para que update_user_profile sepa que debe eliminar)
+                        st.session_state["temp_avatar_bytes"] = None 
+                        
+                        # 2. Eliminar las claves guardadas para que el display_image caiga en el 'else' (placeholder).
+                        if "avatar_image" in st.session_state:
+                            del st.session_state["avatar_image"]
+                        if "avatar_url" in st.session_state:
+                            del st.session_state["avatar_url"]
+                        
+                        st.rerun() # Forzar rerun para mostrar el placeholder
+                        
             # -------------------------------------------------------------
             
             # 2. Campos de datos personales (Columna Derecha)
@@ -154,16 +179,12 @@ def render_profile_page(supabase, request_password_reset):
             # 3. Botón de Guardar
             if st.form_submit_button("💾 Guardar Cambios"):
                 
-                final_avatar_bytes = temp_bytes 
+                final_avatar_bytes = st.session_state.get("temp_avatar_bytes")
                 
-                # Si no se subió una nueva foto (temp_bytes is None) ni se tocó el uploader, conservamos la guardada
-                if final_avatar_bytes is None and st.session_state.get("avatar_image") is not None and uploaded_file is None:
+                # Si el estado temporal no está seteado (ni subida ni eliminación),
+                # y SÍ había una imagen guardada previamente, la conservamos.
+                if final_avatar_bytes is None and "temp_avatar_bytes" not in st.session_state:
                     final_avatar_bytes = st.session_state.get("avatar_image")
-
-                # Si el file_uploader tiene un archivo, debemos leerlo aquí por si el usuario no hizo rerun previo
-                if uploaded_file and final_avatar_bytes is None:
-                    uploaded_file.seek(0)
-                    final_avatar_bytes = uploaded_file.read()
                 
                 update_user_profile(new_name, new_dob, final_avatar_bytes, user_id, supabase)
 
@@ -172,24 +193,5 @@ def render_profile_page(supabase, request_password_reset):
     if st.button("🔒 Cambiar Contraseña", use_container_width=True):
         request_password_reset(st.session_state.get("user_email"))
 
-def handle_file_upload():
-    """Maneja la subida de un archivo del uploader, guarda los bytes y fuerza el rerun."""
-    uploaded_file = st.session_state.get("avatar_uploader_widget")
-    
-    if uploaded_file is not None:
-        # 1. Leer los bytes
-        uploaded_file.seek(0)
-        new_avatar_bytes = uploaded_file.read()
-        
-        # 2. Guardar los bytes en el estado temporal para el display y submit
-        st.session_state["temp_avatar_bytes"] = new_avatar_bytes 
-        
-        # 3. Borrar el estado de la imagen guardada para que el display use la temporal
-        st.session_state["avatar_image"] = None
-        st.session_state["avatar_url"] = None
-        
-        # 4. Forzar el rerun (Solo una vez al subir, no constantemente)
-        st.rerun()
-        
 
 
