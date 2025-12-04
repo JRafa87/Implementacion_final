@@ -459,3 +459,42 @@ def render_sidebar():
         if st.button("Cerrar Sesión", use_container_width=True):
             handle_logout()
 
+def render_placeholder_page(page_title):
+    """Función de marcador de posición para páginas futuras (sin la gestión de empleados)."""
+    st.title(page_title)
+    st.info(f"Esta es la página de **{page_title}**. El contenido detallado se desarrollará en el siguiente paso.")
+    st.markdown("---")
+    if page_title == "Predicción desde Archivo 📁":
+        st.warning("Se incluirá una sección para subir un archivo CSV y obtener predicciones de deserción masiva.")
+    elif page_title == "Predicción Manual ✏️":
+        st.warning("Se mostrará un formulario para ingresar manualmente las características de un empleado y obtener la probabilidad de deserción.")
+    elif page_title == "Reconocimiento ⭐":
+        st.warning("Esta sección será para gestionar y visualizar reconocimientos o premios a empleados.")
+
+# ============================================================
+# 6. CONTROL DE FLUJO PRINCIPAL
+# ============================================================
+
+# 1. Se ejecuta al inicio para determinar el estado de la sesión
+session_is_active = check_session_state_hybrid()
+
+# 2. Control de Acceso
+if session_is_active:
+    render_sidebar()
+    # 3. Renderizar la página actual
+    page_map = {
+        "Dashboard": render_dashboard,
+        "Mi Perfil": render_profile_page,
+        "Gestión de Empleados": render_employee_management_page, # Función CRUD dedicada
+        "Predicción desde Archivo": lambda: render_placeholder_page("Predicción desde Archivo 📁"),
+        "Predicción Manual": lambda: render_placeholder_page("Predicción Manual ✏️"),
+        "Reconocimiento": lambda: render_placeholder_page("Reconocimiento ⭐")
+    }
+    
+    # Ejecutar la función de renderizado para la página actual
+    page_map.get(st.session_state.get("current_page", "Dashboard"), render_dashboard)()
+    
+else:
+    # Si NO está autenticado
+    render_auth_page()                    
+
