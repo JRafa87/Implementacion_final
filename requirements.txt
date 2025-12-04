@@ -1,3 +1,6 @@
 streamlit
 supabase
+httpx-oauth
+pyjwt
+httpx
 pandas
