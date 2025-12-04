@@ -5,7 +5,7 @@ from supabase import create_client, Client
 from httpx_oauth.clients.google import GoogleOAuth2
 from httpx_oauth.oauth2 import OAuth2Token
 import asyncio
-import httpx # Necesario para GoogleOAuth2
+import httpx  # Necesario para GoogleOAuth2
 
 # ============================================================
 # 0. CONFIGURACIÓN E INICIALIZACIÓN
@@ -32,7 +32,7 @@ def get_supabase() -> Client:
 
 supabase = get_supabase()
 
-# Cliente de Google
+# Cliente de Google OAuth
 try:
     client_id = st.secrets["client_id"]
     client_secret = st.secrets["client_secret"]
@@ -41,8 +41,6 @@ try:
     )
     google_client = GoogleOAuth2(client_id=client_id, client_secret=client_secret)
 except KeyError:
-    # Si faltan las secrets de Google, inicializar el cliente con placeholders
-    # Esto permite que la app cargue aunque Google OAuth falle más tarde.
     st.warning("Advertencia: Faltan secretos de Google (client_id, etc.). Google OAuth no funcionará.")
     google_client = None
 
@@ -51,7 +49,7 @@ except KeyError:
 # ============================================================
 
 def _decode_google_token(token: str):
-    """Decodifica el token JWT de Google."""
+    """Decodifica el token JWT de Google sin verificar firma."""
     return jwt.decode(jwt=token, options={"verify_signature": False})
 
 async def _get_authorization_url(client: GoogleOAuth2, redirect_url: str) -> str:
@@ -79,35 +77,30 @@ def get_google_user_email() -> Optional[str]:
     """Maneja la respuesta de Google y obtiene el email del usuario."""
     if "google_email" in st.session_state:
         return st.session_state.google_email
-        
+
     if google_client is None:
-        return None # No intentar si el cliente no se inicializó
+        return None
 
     try:
         code = st.query_params.get("code")
         if not code:
             return None
 
-        # --- Manejo de asyncio seguro en Streamlit ---
         loop = _ensure_async_loop()
-        
-        # Ejecutar corrutina de forma síncrona
         if loop.is_running():
             token = asyncio.run_coroutine_threadsafe(
                 _get_access_token(google_client, redirect_url, code), loop
             ).result()
         else:
             token = loop.run_until_complete(_get_access_token(google_client, redirect_url, code))
-        
-        # Limpiar query params para evitar loops
-        st.experimental_set_query_params() 
+
+        st.experimental_set_query_params()  # Limpiar params
 
         user_info = _decode_google_token(token["id_token"])
         st.session_state["google_email"] = user_info["email"]
         return user_info["email"]
 
     except Exception as e:
-        # Es común que falle en el primer load, solo imprimir en console para no asustar al usuario.
         print(f"Error silencioso de Google OAuth: {e}")
         return None
 
@@ -117,20 +110,25 @@ def get_google_user_email() -> Optional[str]:
 
 def _get_user_role_from_db(user_id: Optional[str] = None, email: Optional[str] = None):
     """
-    Obtiene el rol desde la tabla profiles (puede usar ID o Email).
-    Esta función es necesaria para mapear usuarios de Supabase/Google a roles.
+    Obtiene el rol de un usuario desde la tabla 'profiles' de Supabase.
+    Puede buscar por user_id o por email.
+    Actualiza st.session_state con 'user_role' y 'user_id'.
     """
     st.session_state["user_role"] = "guest"
     st.session_state["user_id"] = None
 
     if user_id:
-        # Consulta por ID de usuario
-        query = supabase.from("profiles").select("role").eq("id", user_id)
-        response = query.limit(1).execute()
+        try:
+            response = supabase.from("profiles").select("role").eq("id", user_id).limit(1).execute()
+        except Exception as e:
+            print(f"Error al consultar por user_id: {e}")
+            return
     elif email:
-        # Consulta por Email (usado para Google OAuth)
-        query = supabase.from("profiles").select("role").eq("email", email)
-        response = query.limit(1).execute()
+        try:
+            response = supabase.from("profiles").select("role").eq("email", email).limit(1).execute()
+        except Exception as e:
+            print(f"Error al consultar por email: {e}")
+            return
     else:
         return
 
@@ -140,7 +138,7 @@ def _get_user_role_from_db(user_id: Optional[str] = None, email: Optional[str] =
             st.session_state["user_role"] = profile.get("role", "guest")
             st.session_state["user_id"] = user_id or None
     except Exception as e:
-        print(f"Error al obtener rol: {e}")
+        print(f"Error procesando respuesta de Supabase: {e}")
         st.session_state["user_role"] = "guest"
         st.session_state["user_id"] = None
 
@@ -163,7 +161,6 @@ def check_session_state_hybrid() -> bool:
     if email_google:
         st.session_state["authenticated"] = True
         st.session_state["user_email"] = email_google
-        # Mapea el email de Google a tu base de datos de perfiles (obtiene el rol)
         _get_user_role_from_db(email=email_google)
         return True
 
@@ -174,12 +171,11 @@ def check_session_state_hybrid() -> bool:
         if user:
             st.session_state["authenticated"] = True
             st.session_state["user_email"] = user.email
-            # Lee el rol solo si el ID cambió o es la primera carga
             if st.session_state.get("user_id") != user.id:
                 _get_user_role_from_db(user_id=user.id)
             return True
     except Exception:
-        pass # No hay sesión Supabase válida
+        pass
 
     # C. No autenticado
     st.session_state.update({
@@ -225,9 +221,7 @@ def handle_logout():
         supabase.auth.sign_out()
     except Exception as e:
         print(f"Error logout Supabase: {e}")
-    
-    # Limpia el estado de Streamlit por completo
-    st.session_state.clear() 
+    st.session_state.clear()
     st.experimental_rerun()
 
 # ============================================================
@@ -270,17 +264,16 @@ def render_auth_page():
     st.title("🔐 Acceso Requerido")
 
     if google_client is not None:
-        # Botón de Google (Solo si el cliente se inicializó)
-        # Se usa asyncio.run aquí porque Streamlit se ejecuta de forma sincrónica.
         try:
             loop = _ensure_async_loop()
-            authorization_url = loop.run_until_complete(_get_authorization_url(client=google_client, redirect_url=redirect_url))
+            authorization_url = loop.run_until_complete(
+                _get_authorization_url(client=google_client, redirect_url=redirect_url)
+            )
         except Exception:
-            authorization_url = "#" # Fallback si falla la inicialización de asyncio
+            authorization_url = "#"
             st.error("Error al inicializar el flujo de Google OAuth. Revisa tus secretos.")
         
         st.markdown("## Elegir Método de Acceso")
-        
         st.markdown(
             f"""
             <a href="{authorization_url}" target="_self" style="text-decoration: none;">
@@ -289,7 +282,8 @@ def render_auth_page():
                     font-weight: 600; padding: 0.5rem 1rem; border-radius: 0.5rem;
                     background-color: #4285F4; color: white; border: none;
                     width: 100%; text-align: center; margin-bottom: 20px;">
-                    <img src="https://upload.wikimedia.org/wikipedia/commons/4/4a/Logo_2013_Google.png" style="width: 20px; margin-right: 10px; background-color: white; border-radius: 50%;">
+                    <img src="https://upload.wikimedia.org/wikipedia/commons/4/4a/Logo_2013_Google.png" 
+                         style="width: 20px; margin-right: 10px; background-color: white; border-radius: 50%;">
                     Continuar con Google
                 </div>
             </a>
@@ -302,8 +296,7 @@ def render_auth_page():
     else:
         st.markdown("## Usar Email y Contraseña")
 
-    # Pestañas para los formularios de Supabase
-    tabs = st.tabs(["Iniciar Sesión", "Registrarse", "Recuperar Contraseña"]) 
+    tabs = st.tabs(["Iniciar Sesión", "Registrarse", "Recuperar Contraseña"])
     with tabs[0]:
         render_login_form()
     with tabs[1]:
@@ -312,27 +305,20 @@ def render_auth_page():
         render_password_reset_form()
 
 def render_sidebar():
-    """Renderiza la barra lateral con información de la sesión."""
     with st.sidebar:
         st.title("Menú")
         st.write(f"**Email:** {st.session_state.get('user_email', 'Desconocido')}")
         st.write(f"**Rol:** {st.session_state.get('user_role', 'guest')}")
-        st.write(f"**Estado:** {'Autenticado' if st.session_state['authenticated'] else 'No autenticado'}")
-        
+        st.write(f"**Estado:** {'Autenticado' if st.session_state.get('authenticated') else 'No autenticado'}")
         st.markdown("---")
-        
         if st.button("Cerrar Sesión"):
             handle_logout()
 
 def render_main_content():
-    """Contenido principal de la aplicación (Visible para todos los autenticados)."""
     st.title("App Deserción Laboral 📊")
-    
     email = st.session_state.get("user_email", "Desconocido")
-    
     st.success(f"👋 Bienvenido, {email}. Tienes acceso completo a la aplicación.")
-    
-    # Ejemplo de métricas
+
     st.subheader("Datos Generales")
     col1, col2 = st.columns(2)
     with col1:
@@ -347,18 +333,15 @@ def render_main_content():
 # 5. CONTROL DE FLUJO PRINCIPAL
 # ============================================================
 
-# 1. Se ejecuta al inicio para determinar el estado de la sesión
 session_is_active = check_session_state_hybrid()
 
-# 2. Control de Acceso
 if session_is_active:
-    # Si está autenticado
     render_sidebar()
     render_main_content()
 else:
-    # Si NO está autenticado
     st.warning("No estás autenticado. Por favor inicia sesión.")
     render_auth_page()
+
 
 
 
