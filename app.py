@@ -57,9 +57,6 @@ PAGES = [
     "Reconocimiento" 
 ]
 
-# Nota de corrección: La inicialización de "current_page" se movió a check_session_state_hybrid 
-# para asegurar que siempre esté presente, incluso después de un st.session_state.clear().
-
 # ============================================================
 # 1. FUNCIONES AUXILIARES DE GOOGLE OAUTH
 # ============================================================
@@ -202,7 +199,7 @@ def update_user_profile(new_name: str, new_dob: datetime.date, new_avatar_url: O
 
 def check_session_state_hybrid() -> bool:
     """Verifica sesión activa e inicializa el perfil si es necesario."""
-    # CORRECCIÓN CLAVE: Inicializar todo el estado de sesión si falta el flag de autenticación.
+    # Inicializar todo el estado de sesión si falta el flag de autenticación.
     if "authenticated" not in st.session_state:
         st.session_state.update({
             "authenticated": False,
@@ -212,7 +209,7 @@ def check_session_state_hybrid() -> bool:
             "full_name": "Usuario",
             "date_of_birth": None,
             "avatar_url": None,
-            "current_page": "Dashboard" # <<< ¡Inicialización de página aquí!
+            "current_page": "Dashboard"
         })
 
     # 1. Manejo de tokens de Supabase desde la URL (Verificación/Reset)
@@ -263,7 +260,7 @@ def check_session_state_hybrid() -> bool:
         "full_name": "Usuario",
         "date_of_birth": None,
         "avatar_url": None,
-        "current_page": "Dashboard" # <<< ¡Inicialización de página aquí también!
+        "current_page": "Dashboard"
     })
     return False
 
@@ -456,6 +453,10 @@ def render_auth_page():
 
 def render_sidebar():
     """Renderiza la barra lateral con información de la sesión y navegación."""
+    
+    # FIX: Acceder a current_page de forma segura con .get() y un valor por defecto.
+    current_page = st.session_state.get("current_page", "Dashboard") 
+    
     with st.sidebar:
         # Mini perfil en la barra lateral
         col1, col2 = st.columns([1, 3])
@@ -502,8 +503,10 @@ def render_sidebar():
             }
             icon = icon_map.get(page, "➡️")
             
-            # Resaltar el botón de la página actual
-            button_style = "primary" if st.session_state.current_page == page else "secondary"
+            # Resaltar el botón de la página actual, usando la variable segura current_page
+            # LÍNEA 506 CORREGIDA:
+            button_style = "primary" if current_page == page else "secondary"
+            
             if st.button(f"{icon} {page}", key=f"nav_{page}", use_container_width=True, type=button_style):
                 st.session_state.current_page = page
                 st.experimental_rerun()
@@ -794,8 +797,8 @@ if session_is_active:
     }
     
     # Ejecutar la función de renderizado para la página actual
-    # Ahora 'st.session_state.current_page' está garantizado
-    page_map.get(st.session_state.current_page, render_dashboard)()
+    # Usamos .get() aquí también por seguridad, aunque la lógica de inicialización debería haberlo cubierto.
+    page_map.get(st.session_state.get("current_page", "Dashboard"), render_dashboard)()
     
 else:
     # Si NO está autenticado
