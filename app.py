@@ -1,35 +1,25 @@
 import streamlit as st
-import authentication as auth_module  # Importa tu módulo de autenticación
+import auth as auth_module # Importa tu módulo de autenticación
 
 # ============================================================
-# 1. Configuración de página (DEBE SER LO PRIMERO)
+# 1. Configuración y Chequeo de Sesión Único
 # ============================================================
 st.set_page_config(page_title="App Deserción Work", layout="wide")
 
-# Debug opcional
-# st.write("Contenido de auth_module:", dir(auth_module))
+# Llama a la función de control de sesión UNIFICADA. 
+# Esto establece el estado de st.session_state en cada ejecución.
+session_is_active = auth_module.check_session_state_hybrid()
 
-# ============================================================
-# 2. Inicialización de Estado de Sesión
-# ============================================================
-if "authenticated" not in st.session_state:
-    st.session_state["authenticated"] = False
+# app.py
 
-if "user_role" not in st.session_state:
-    st.session_state["user_role"] = "guest"
-
-if "user_id" not in st.session_state:
-    st.session_state["user_id"] = None
-
-# ============================================================
-# 3. Función principal de la app
-# ============================================================
 def main_app():
     # Sidebar
     with st.sidebar:
         st.title("Menú")
-        st.write(f"**Usuario:** {st.session_state.get('user_id', 'Desconocido')}")
-        st.write(f"**Rol:** {st.session_state.get('user_role', 'guest')}")
+        st.write(f"**Email:** {st.session_state.get('user_email', 'Desconocido')}")
+        
+        # Como no hay roles, la información es más simple
+        st.write(f"**Estado:** Autenticado") 
         
         st.markdown("---")
         if st.button("Cerrar Sesión"):
@@ -38,20 +28,10 @@ def main_app():
     # Contenido principal
     st.title("App Deserción Laboral 📊")
 
-    if st.session_state["user_role"] == "supervisor":
-        st.success("👋 Bienvenido, Supervisor. Aquí tienes acceso a los datos sensibles.")
-        st.metric(label="Tasa de Deserción", value="12%", delta="-2%")
-    else:
-        st.info("👋 Bienvenido. Estás viendo la vista estándar.")
-        st.write("Aquí puedes ver información general sobre deserción laboral.")
-
-# ============================================================
-# 4. Control de acceso
-# ============================================================
-if st.session_state["authenticated"]:
-    main_app()
-else:
-    auth_module.render_auth_page()
+    # Muestra el mismo contenido para TODOS los usuarios autenticados
+    st.success(f"👋 Bienvenido, {st.session_state['user_email']}. Tienes acceso completo a la aplicación.")
+    st.metric(label="Tasa de Deserción", value="12%", delta="-2%")
+    # ... (el resto de tu contenido)
 
 
 
