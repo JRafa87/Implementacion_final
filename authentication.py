@@ -21,7 +21,6 @@ def get_supabase():
 # ============================================================
 def sign_in_manual(email, password):
     supabase = get_supabase()
-
     try:
         res = supabase.auth.sign_in_with_password({
             "email": email,
@@ -49,7 +48,6 @@ def sign_in_manual(email, password):
 
 def sign_up(email, password, name):
     supabase = get_supabase()
-
     try:
         supabase.auth.sign_up({
             "email": email,
@@ -58,7 +56,6 @@ def sign_up(email, password, name):
                 "data": {"full_name": name, "role": "supervisor"}
             }
         })
-
         st.success("Registro exitoso. Revisa tu correo.")
     except Exception as e:
         st.error(f"Error al registrar: {e}")
@@ -66,24 +63,12 @@ def sign_up(email, password, name):
 def sign_in_with_google():
     supabase = get_supabase()
     redirect_url = st.secrets.get("REDIRECT_URL", "http://localhost:8501")
-
     try:
         url = supabase.auth.sign_in_with_oauth({
             "provider": "google",
             "options": {"redirectTo": redirect_url}
         }).url
-
-        st.markdown(
-            f"""
-            <a href="{url}">
-                <button style="width:100%;height:40px;border-radius:5px;">
-                    Iniciar sesión con Google 🚀
-                </button>
-            </a>
-            """,
-            unsafe_allow_html=True
-        )
-
+        st.write("Inicia sesión con Google aquí:", url)
     except Exception as e:
         st.error(f"Error Google OAuth: {e}")
 
@@ -100,7 +85,7 @@ def render_login_form():
 
     sign_in_with_google()
 
-    st.markdown("<hr>", unsafe_allow_html=True)
+    st.markdown("---")
 
     email = st.text_input("Correo")
     password = st.text_input("Contraseña", type="password")
@@ -125,13 +110,12 @@ def render_signup_form():
             st.error("Completa todos los campos.")
 
 # ============================================================
-# AUTH PAGE (LOGIN + REGISTRO)
+# AUTH PAGE
 # ============================================================
 def render_auth_page():
     tabs = st.tabs(["Iniciar Sesión", "Registrarse"])
-
     with tabs[0]:
         render_login_form()
-
     with tabs[1]:
         render_signup_form()
+
