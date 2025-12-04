@@ -199,7 +199,14 @@ def update_user_profile(new_name: str, new_dob: datetime.date, new_avatar_url: O
 
 def check_session_state_hybrid() -> bool:
     """Verifica sesión activa e inicializa el perfil si es necesario."""
-    # Inicializar todo el estado de sesión si falta el flag de autenticación.
+    
+    # 0. CRÍTICO: Garantizar que la variable de navegación (current_page) siempre exista.
+    # Esto previene errores de AttributeError en el sidebar después de un clear/logout, 
+    # forzando su inicialización primero, fuera del bloque de autenticación.
+    if "current_page" not in st.session_state:
+        st.session_state["current_page"] = "Dashboard"
+
+    # Inicializar el resto del estado de sesión si falta el flag de autenticación.
     if "authenticated" not in st.session_state:
         st.session_state.update({
             "authenticated": False,
@@ -209,7 +216,7 @@ def check_session_state_hybrid() -> bool:
             "full_name": "Usuario",
             "date_of_birth": None,
             "avatar_url": None,
-            "current_page": "Dashboard"
+            # 'current_page' ya no se inicializa aquí
         })
 
     # 1. Manejo de tokens de Supabase desde la URL (Verificación/Reset)
@@ -260,7 +267,7 @@ def check_session_state_hybrid() -> bool:
         "full_name": "Usuario",
         "date_of_birth": None,
         "avatar_url": None,
-        "current_page": "Dashboard"
+        # 'current_page' no se toca aquí para mantener el estado de navegación si no hay logout
     })
     return False
 
@@ -455,6 +462,7 @@ def render_sidebar():
     """Renderiza la barra lateral con información de la sesión y navegación."""
     
     # FIX: Acceder a current_page de forma segura con .get() y un valor por defecto.
+    # Esta línea ahora es completamente segura porque 'current_page' está garantizada al inicio.
     current_page = st.session_state.get("current_page", "Dashboard") 
     
     with st.sidebar:
@@ -504,7 +512,6 @@ def render_sidebar():
             icon = icon_map.get(page, "➡️")
             
             # Resaltar el botón de la página actual, usando la variable segura current_page
-            # LÍNEA 506 CORREGIDA:
             button_style = "primary" if current_page == page else "secondary"
             
             if st.button(f"{icon} {page}", key=f"nav_{page}", use_container_width=True, type=button_style):
@@ -797,7 +804,6 @@ if session_is_active:
     }
     
     # Ejecutar la función de renderizado para la página actual
-    # Usamos .get() aquí también por seguridad, aunque la lógica de inicialización debería haberlo cubierto.
     page_map.get(st.session_state.get("current_page", "Dashboard"), render_dashboard)()
     
 else:
