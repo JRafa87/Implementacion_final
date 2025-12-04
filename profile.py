@@ -1,8 +1,38 @@
+# profile.py
 import streamlit as st
 import datetime
 from typing import Optional
-from auth import supabase  # Importamos el cliente Supabase desde auth.py
+from supabase import create_client, Client
 
+# ========================
+# Inicializar Supabase
+# ========================
+@st.cache_resource
+def get_supabase() -> Client:
+    url = st.secrets.get("SUPABASE_URL")
+    key = st.secrets.get("SUPABASE_KEY")
+    if not url or not key:
+        st.error("Faltan SUPABASE_URL o SUPABASE_KEY en secrets.toml")
+        st.stop()
+    return create_client(url, key)
+
+supabase = get_supabase()
+
+# ========================
+# Función para reset de contraseña
+# ========================
+def request_password_reset(email: str):
+    try:
+        supabase.auth.reset_password_for_email(email)
+        st.success("Correo de recuperación enviado.")
+        st.info("⚠️ Revisa tu carpeta de spam si no lo recibes.")
+    except Exception as e:
+        st.error(f"Error al solicitar recuperación: {e}")
+
+
+# ========================
+# Función para actualizar perfil
+# ========================
 def update_user_profile(new_name: str, new_dob: datetime.date, new_avatar_path: Optional[str], user_id: str):
     """Actualiza nombre, fecha de nacimiento y avatar del usuario."""
     data_to_update = {}
@@ -31,6 +61,9 @@ def update_user_profile(new_name: str, new_dob: datetime.date, new_avatar_path: 
         st.info("No se detectaron cambios para guardar.")
 
 
+# ========================
+# Renderizado de la página
+# ========================
 def render_profile_page():
     """Renderiza el perfil del usuario y permite actualizarlo."""
     user_id = st.session_state.get("user_id")
@@ -78,5 +111,5 @@ def render_profile_page():
             with col_password:
                 st.markdown("<div style='margin-top: 25px;'></div>", unsafe_allow_html=True)
                 if st.button("🔒 Cambiar Contraseña", use_container_width=True):
-                    from auth import request_password_reset
                     request_password_reset(st.session_state.get("user_email"))
+
