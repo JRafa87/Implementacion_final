@@ -116,12 +116,12 @@ def render_profile_page(supabase, request_password_reset):
                     st.session_state["temp_avatar_bytes"] = new_avatar_bytes 
                     
                     # **IMPORTANTE:** Forzar el rerun para que la lógica de 'display_image' de arriba use 'temp_bytes'
-                    st.experimental_rerun()
+                    st.rerun()
                 
                 # Opción para Quitar
                 if st.button("❌ Quitar Foto Actual", help="Elimina la foto de perfil al guardar."):
                     st.session_state["temp_avatar_bytes"] = None # Marcar para eliminación
-                    st.experimental_rerun() # Forzar rerun para mostrar el placeholder inmediatamente
+                    st.rerun() # Forzar rerun para mostrar el placeholder inmediatamente
             # -------------------------------------------------------------
             
             # 2. Campos de datos personales (Columna Derecha)
