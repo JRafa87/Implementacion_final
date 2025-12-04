@@ -841,7 +841,7 @@ if st.session_state.get("show_add_form", False):
 
     if df.empty:
         st.warning("No hay empleados registrados en la base de datos.")
-        return
+    return
         
     # --- SELECTOR ÚNICO (Evita la saturación de botones) ---
     employee_ids_list = df['ID'].tolist()
