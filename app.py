@@ -772,66 +772,66 @@ def render_employee_management_page():
             
     st.markdown("---")
 
-    # --- 1.1 Formulario de Creación ---
-    if st.session_state.get("show_add_form", False):
-        st.header("Formulario de Nuevo Empleado")
+    # ... (código anterior) ...
+
+# --- 1.1 Formulario de Creación (Se muestra al hacer clic en 'Añadir Nuevo') ---
+if st.session_state.get("show_add_form", False):
+    st.header("Formulario de Nuevo Empleado")
+    
+    # Opciones para campos de selección (solo ejemplos, debes completar todos los posibles valores)
+    # JOB_ROLES, DEPARTMENTS, etc. deben estar definidas globalmente.
+    
+    with st.form("add_employee_form", clear_on_submit=True):
+        st.subheader("Datos Básicos")
+        # ... (todos tus inputs aquí) ...
+        # Ejemplo:
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            new_employee_number = st.number_input("EmployeeNumber (ID)", min_value=1, step=1, key="new_emp_num")
+            new_age = st.number_input("Age", min_value=18, max_value=100, step=1)
+            new_department = st.selectbox("Department", DEPARTMENTS)
+        # ... (más columnas) ...
         
-        with st.form("add_employee_form", clear_on_submit=True):
-            st.subheader("Datos Básicos")
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                new_employee_number = st.number_input("EmployeeNumber (ID)", min_value=1, step=1, key="new_emp_num")
-                new_age = st.number_input("Age", min_value=18, max_value=100, step=1)
-                new_department = st.selectbox("Department", DEPARTMENTS)
-            with col2:
-                new_jobrole = st.selectbox("JobRole", JOB_ROLES)
-                new_monthlyincome = st.number_input("MonthlyIncome", min_value=0)
-                new_maritalstatus = st.selectbox("MaritalStatus", MARITAL_STATUS)
-            with col3:
-                new_totalworkingyears = st.number_input("TotalWorkingYears", min_value=0)
-                new_tipocontrato = st.selectbox("Tipo Contrato", ["Termino Fijo", "Indefinido", "Servicios"])
-                # Aseguramos que la fecha sea un objeto date
-                new_fechaingreso = st.date_input("FechaIngreso", value="today", max_value=datetime.date.today()).isoformat()
+        # --- Campos restantes ---
+        with st.expander("Otros Datos del Empleado"):
+            # ... (todos tus inputs aquí) ...
+            new_overtime = st.radio("OverTime", ("Yes", "No"))
+        
+        col_save, col_cancel = st.columns(2)
+        with col_save:
+            if st.form_submit_button("💾 Guardar Nuevo Empleado"):
+                if new_employee_number and new_monthlyincome: # Validación básica
+                    employee_data = {
+                        "employeenumber": new_employee_number,
+                        "age": new_age,
+                        "department": new_department,
+                        "jobrole": new_jobrole,
+                        "monthlyincome": new_monthlyincome,
+                        "maritalstatus": new_maritalstatus,
+                        "totalworkingyears": new_totalworkingyears,
+                        "fechaingreso": new_fechaingreso,
+                        "tipocontrato": new_tipocontrato,
+                        "overtime": new_overtime, 
+                        # ... (Incluir todos los 26 campos recopilados)
+                    }
+                    
+                    add_employee(employee_data)
+                    st.session_state["show_add_form"] = False # Ocultar formulario
+                    st.cache_data.clear() # Limpiar la caché
+                    
+                    # 🌟 Limpieza de estados de edición/eliminación ANTES de RERUN
+                    st.session_state["employee_to_edit"] = None
+                    st.session_state["employee_to_delete"] = None
+                    
+                    st.experimental_rerun() # Recargar la página
+                else:
+                    st.error("Por favor, complete al menos EmployeeNumber y MonthlyIncome.")
+        with col_cancel:
+            if st.form_submit_button("❌ Cancelar"):
+                st.session_state["show_add_form"] = False
+                st.experimental_rerun()
 
-            st.markdown("---")
-            # Los campos restantes
-            with st.expander("Otros Datos del Empleado (Completar 20+ campos)"):
-                st.info("Aquí faltan 17+ campos. Por favor, complétalos en tu código (ejemplo: BusinessTravel, Education, etc.).")
-                # Ejemplo de un campo faltante
-                new_overtime = st.radio("OverTime", ("Yes", "No"))
-                new_gender = st.selectbox("Gender", GENDERS)
-                # ...
-                
-            col_save, col_cancel = st.columns(2)
-            with col_save:
-                if st.form_submit_button("💾 Guardar Nuevo Empleado"):
-                    if new_employee_number and new_monthlyincome:
-                        employee_data = {
-                            "employeenumber": new_employee_number,
-                            "age": new_age,
-                            "department": new_department,
-                            "jobrole": new_jobrole,
-                            "monthlyincome": new_monthlyincome,
-                            "maritalstatus": new_maritalstatus,
-                            "totalworkingyears": new_totalworkingyears,
-                            "fechaingreso": new_fechaingreso,
-                            "tipocontrato": new_tipocontrato,
-                            "overtime": new_overtime,
-                            "gender": new_gender,
-                            # ... (Incluir todos los campos)
-                        }
-                        add_employee(employee_data)
-                        st.session_state["show_add_form"] = False
-                        st.cache_data.clear()
-                        st.experimental_rerun()
-                    else:
-                        st.error("Por favor, complete al menos EmployeeNumber y MonthlyIncome.")
-            with col_cancel:
-                if st.form_submit_button("❌ Cancelar"):
-                    st.session_state["show_add_form"] = False
-                    st.experimental_rerun()
-
-        st.markdown("---")
+    st.markdown("---")
 
 
     # --- 2. Listado de Empleados para SELECCIÓN y Acciones (SOLUCIÓN AL ERROR) ---
