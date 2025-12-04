@@ -486,7 +486,7 @@ if session_is_active:
     page_map = {
         "Dashboard": lambda: render_placeholder_page,
         "Mi Perfil": render_profile_page,
-        "Gestión de Empleados": render_employee_management_page, # Función CRUD dedicada
+        "Gestión de Empleados":lambda: render_placeholder_page , # Función CRUD dedicada
         "Predicción desde Archivo": lambda: render_placeholder_page("Predicción desde Archivo 📁"),
         "Predicción Manual": lambda: render_placeholder_page("Predicción Manual ✏️"),
         "Reconocimiento": lambda: render_placeholder_page("Reconocimiento ⭐")
