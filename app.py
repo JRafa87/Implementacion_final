@@ -484,7 +484,7 @@ if session_is_active:
     render_sidebar()
     # 3. Renderizar la página actual
     page_map = {
-        "Dashboard": render_dashboard,
+        "Dashboard": lambda: render_placeholder_page,
         "Mi Perfil": render_profile_page,
         "Gestión de Empleados": render_employee_management_page, # Función CRUD dedicada
         "Predicción desde Archivo": lambda: render_placeholder_page("Predicción desde Archivo 📁"),
