@@ -340,37 +340,68 @@ def handle_logout():
 # 4. FUNCIONES CRUD DE EMPLEADOS
 # ============================================================
 
+# ============================================================
+# 4. FUNCIONES CRUD DE EMPLEADOS (ADAPTADAS A TABLA 'empleados')
+# ============================================================
+
 def fetch_employees():
-    """Obtiene todos los empleados de la tabla 'employees'."""
+    """Obtiene todos los empleados de la tabla 'empleados'."""
     try:
-        # Nota: La tabla 'employees' debe existir en Supabase
-        response = supabase.table("employees").select("*").order("employee_id").execute()
-        return response.data
+        # Usamos la columna 'EmployeeNumber' para ordenar, ya que es la PK
+        response = supabase.table("empleados").select("*").order("EmployeeNumber").execute()
+        # Convertimos las claves del diccionario a minúsculas para un manejo más fácil en Python/Pandas
+        data = [{k.lower(): v for k, v in record.items()} for record in response.data]
+        return data
     except Exception as e:
         st.error(f"Error al cargar empleados: {e}")
         return []
 
 def add_employee(employee_data: dict):
-    """Agrega un nuevo empleado a la tabla 'employees'."""
+    """Agrega un nuevo empleado a la tabla 'empleados'."""
+    # Nota: Aquí las claves del diccionario deben coincidir exactamente con las columnas de PostgreSQL
+    # (respetando mayúsculas y minúsculas si el nombre de la columna las tiene)
+    pg_data = {
+        "EmployeeNumber": employee_data["employeenumber"],
+        "Age": employee_data["age"],
+        "BusinessTravel": employee_data["businesstravel"],
+        "Department": employee_data["department"],
+        # ... (Agregar todas las 26 columnas aquí con el formato "NombreExacto": employee_data["nombre_en_minuscula"])
+        "JobRole": employee_data["jobrole"],
+        "MaritalStatus": employee_data["maritalstatus"],
+        "MonthlyIncome": employee_data["monthlyincome"],
+        "TotalWorkingYears": employee_data["totalworkingyears"],
+        "FechaIngreso": employee_data["fechaingreso"],
+        "Tipocontrato": employee_data["tipocontrato"],
+        # Ejemplo completo para una columna:
+        "YearsAtCompany": employee_data["yearsatcompany"]
+        # Es CRÍTICO mapear las 26 columnas completas aquí. 
+        # Dado que no proporcionaste todos los datos del formulario, solo incluyo un ejemplo.
+    }
+    
     try:
-        supabase.table("employees").insert(employee_data).execute()
-        st.success(f"Empleado {employee_data['name']} (ID: {employee_data['employee_id']}) añadido con éxito.")
+        # La inserción se hace con los nombres exactos de la columna de la base de datos
+        supabase.table("empleados").insert(pg_data).execute()
+        st.success(f"Empleado con ID {employee_data['employeenumber']} añadido con éxito.")
     except Exception as e:
         st.error(f"Error al añadir empleado: {e}")
 
-def update_employee_record(record_id: str, update_data: dict):
-    """Actualiza un empleado existente por su ID de registro de Supabase."""
+def update_employee_record(employee_number: int, update_data: dict):
+    """Actualiza un empleado existente por su EmployeeNumber (PK)."""
+    # Usamos EmployeeNumber, que es la PRIMARY KEY
     try:
-        supabase.table("employees").update(update_data).eq("id", record_id).execute()
-        st.success(f"Empleado actualizado con éxito.")
+        # Necesitas mapear las claves de Python (minusculas) a las de PG (Mayusculas)
+        pg_update_data = {k.capitalize(): v for k, v in update_data.items()} 
+        
+        supabase.table("empleados").update(pg_update_data).eq("EmployeeNumber", employee_number).execute()
+        st.success(f"Empleado {employee_number} actualizado con éxito.")
     except Exception as e:
         st.error(f"Error al actualizar empleado: {e}")
 
-def delete_employee_record(record_id: str):
-    """Elimina un empleado por su ID de registro de Supabase."""
+def delete_employee_record(employee_number: int):
+    """Elimina un empleado por su EmployeeNumber (PK)."""
     try:
-        supabase.table("employees").delete().eq("id", record_id).execute()
-        st.success("Empleado eliminado con éxito.")
+        supabase.table("empleados").delete().eq("EmployeeNumber", employee_number).execute()
+        st.success(f"Empleado {employee_number} eliminado con éxito.")
     except Exception as e:
         st.error(f"Error al eliminar empleado: {e}")
 
@@ -650,8 +681,10 @@ def render_profile_page():
                 if st.button("🔒 Cambiar Contraseña", use_container_width=True):
                     request_password_reset(st.session_state.get("user_email"))
 
+# Reemplazar la función `render_employee_management_page` con esta:
+
 def render_employee_management_page():
-    """Página de Gestión de Empleados (CRUD)."""
+    """Página de Gestión de Empleados (CRUD con Streamlit nativo)."""
     st.title("👥 Gestión de Empleados")
     st.markdown("Administración de perfiles y estados de los colaboradores de la empresa.")
 
@@ -660,127 +693,245 @@ def render_employee_management_page():
         st.error("🚫 Acceso Denegado. Solo administradores y supervisores pueden gestionar empleados.")
         return
 
-    # --- 1. Formulario de Creación de Empleados ---
-    st.header("1. Añadir Nuevo Empleado")
+    # --- 1. Botones de Acción Global y Recarga ---
+    col_add, col_refresh = st.columns([1, 6])
     
-    with st.form("add_employee_form", clear_on_submit=True):
-        col1, col2, col3 = st.columns(3)
-        
-        # Opciones para campos de selección
-        departments = ["Ventas", "Marketing", "Ingeniería", "Soporte", "RR.HH.", "Finanzas"]
-        
-        with col1:
-            new_id = st.text_input("ID de Empleado (Único)", key="new_emp_id")
-            new_department = st.selectbox("Departamento", departments, key="new_emp_dept")
+    with col_add:
+        # Botón para insertar un nuevo empleado (el 'Add new' verde de la foto)
+        if st.button("➕ Añadir Nuevo", type="primary"):
+            st.session_state["show_add_form"] = True
+    
+    with col_refresh:
+        # Botón para recargar los datos
+        if st.button("🔄 Recargar Datos"):
+            st.cache_data.clear() # Limpiar la caché de datos para recargar de Supabase
+            st.experimental_rerun()
             
-        with col2:
-            new_name = st.text_input("Nombre Completo", key="new_emp_name")
-            new_position = st.text_input("Puesto", key="new_emp_pos")
-
-        with col3:
-            # Usar un valor por defecto sensato para la fecha
-            default_hire_date = datetime.date.today()
-            new_hire_date = st.date_input("Fecha de Contratación", value=default_hire_date, max_value=datetime.date.today(), key="new_emp_hire_date")
-            new_is_active = st.checkbox("Activo", value=True, key="new_emp_is_active")
-        
-        if st.form_submit_button("➕ Añadir Empleado"):
-            if new_id and new_name and new_department and new_position:
-                employee_data = {
-                    "employee_id": new_id,
-                    "name": new_name,
-                    "department": new_department,
-                    "position": new_position,
-                    "date_of_hire": new_hire_date.isoformat(),
-                    "is_active": new_is_active
-                }
-                add_employee(employee_data)
-                st.experimental_rerun() # Recargar para ver el nuevo empleado en la lista
-            else:
-                st.error("Por favor, complete todos los campos obligatorios.")
-
-
     st.markdown("---")
 
-    # --- 2. Listado y Gestión de Empleados ---
-    st.header("2. Empleados Actuales")
-    
-    employees = fetch_employees()
-    if not employees:
+    # --- 1.1 Formulario de Creación (Se muestra al hacer clic en 'Añadir Nuevo') ---
+    if st.session_state.get("show_add_form", False):
+        st.header("Formulario de Nuevo Empleado")
+        
+        # Opciones para campos de selección (solo ejemplos, debes completar todos los posibles valores)
+        job_roles = ["Sales Executive", "Research Scientist", "Laboratory Technician", "Manufacturing Director", "Healthcare Representative"]
+        departments = ["Research & Development", "Sales", "Human Resources"]
+        
+        with st.form("add_employee_form", clear_on_submit=True):
+            st.subheader("Datos Básicos")
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                # EmployeeNumber es la PK, debe ser INT
+                new_employee_number = st.number_input("EmployeeNumber (ID)", min_value=1, step=1, key="new_emp_num")
+                new_age = st.number_input("Age", min_value=18, max_value=100, step=1)
+                new_department = st.selectbox("Department", departments)
+            with col2:
+                new_jobrole = st.selectbox("JobRole", job_roles)
+                new_monthlyincome = st.number_input("MonthlyIncome", min_value=0)
+                new_maritalstatus = st.selectbox("MaritalStatus", ["Single", "Married", "Divorced"])
+            with col3:
+                new_totalworkingyears = st.number_input("TotalWorkingYears", min_value=0)
+                new_tipocontrato = st.selectbox("Tipo Contrato", ["Termino Fijo", "Indefinido", "Servicios"])
+                # FechaIngreso como texto (asumiendo formato ISO 'YYYY-MM-DD')
+                new_fechaingreso = st.date_input("FechaIngreso", value="today", max_value=datetime.date.today()).isoformat()
+
+            st.markdown("---")
+            # Los campos restantes pueden ir en una expansión para no saturar
+            with st.expander("Otros Datos del Empleado"):
+                # Aquí irían los demás 17+ campos restantes de tu tabla `empleados`
+                st.info("Aquí faltan 17+ campos: BusinessTravel, DistanceFromHome, Education, etc. Por favor, complétalos en tu código.")
+                # Ejemplo de un campo faltante
+                new_overtime = st.radio("OverTime", ("Yes", "No"))
+                # ...
+                
+            col_save, col_cancel = st.columns(2)
+            with col_save:
+                if st.form_submit_button("💾 Guardar Nuevo Empleado"):
+                    if new_employee_number and new_monthlyincome: # Validación básica
+                        employee_data = {
+                            "employeenumber": new_employee_number,
+                            "age": new_age,
+                            "department": new_department,
+                            "jobrole": new_jobrole,
+                            "monthlyincome": new_monthlyincome,
+                            "maritalstatus": new_maritalstatus,
+                            "totalworkingyears": new_totalworkingyears,
+                            "fechaingreso": new_fechaingreso,
+                            "tipocontrato": new_tipocontrato,
+                            "overtime": new_overtime, # Ejemplo
+                            # ... (Incluir todos los campos)
+                        }
+                        # Llamar a la función adaptada (Asegúrate de que 'add_employee' maneje todos los 26 campos)
+                        add_employee(employee_data)
+                        st.session_state["show_add_form"] = False # Ocultar formulario
+                        st.experimental_rerun() # Recargar la página
+                    else:
+                        st.error("Por favor, complete al menos EmployeeNumber y MonthlyIncome.")
+            with col_cancel:
+                if st.form_submit_button("❌ Cancelar"):
+                    st.session_state["show_add_form"] = False
+                    st.experimental_rerun()
+
+        st.markdown("---")
+
+    # --- 2. Listado de Empleados con Acciones (Estilo de la Imagen) ---
+    st.header("Lista de Empleados")
+
+    # Usamos st.cache_data para evitar recargar la DB en cada interacción de Streamlit
+    @st.cache_data(ttl=600) # Caché por 10 minutos
+    def get_employees_data():
+        data = fetch_employees()
+        if data:
+            df = pd.DataFrame(data)
+            # Renombrar algunas columnas clave para la visualización
+            df.rename(columns={
+                'employeenumber': 'ID',
+                'jobrole': 'Puesto',
+                'department': 'Depto',
+                'monthlyincome': 'Salario Mensual',
+                'fechaingreso': 'F. Ingreso',
+                'tipocontrato': 'T. Contrato'
+            }, inplace=True)
+            return df
+        return pd.DataFrame()
+
+    df = get_employees_data()
+
+    if df.empty:
         st.warning("No hay empleados registrados en la base de datos.")
         return
 
-    # Convertir a DataFrame para mejor visualización y filtrado
-    df = pd.DataFrame(employees)
-    df.rename(columns={
-        "employee_id": "ID Empleado",
-        "name": "Nombre",
-        "department": "Departamento",
-        "position": "Puesto",
-        "date_of_hire": "F. Contratación",
-        "is_active": "Activo",
-        "id": "Supabase ID" # Mantener el ID de Supabase
-    }, inplace=True)
+    # Definir las columnas a mostrar en la tabla principal (las "minisecciones" visibles)
+    display_cols = ['ID', 'Puesto', 'Depto', 'Salario Mensual', 'F. Ingreso', 'T. Contrato']
     
-    # Filtrar por Activo
-    active_filter = st.checkbox("Mostrar solo Activos", value=True, help="Desmarca para ver empleados inactivos.")
-    if active_filter:
-        df_display = df[df['Activo'] == True]
-    else:
-        df_display = df
+    # --- Cabecera de la Tabla ---
+    cols = st.columns([1, 3, 2, 2, 2, 2, 1.5, 1.5]) # Columnas para datos + 2 para Acciones
+    headers = ['**ID**', '**Puesto**', '**Departamento**', '**Salario**', '**F. Ingreso**', '**Contrato**', '**EDITAR**', '**ELIMINAR**']
+    for col, header in zip(cols, headers):
+        col.markdown(f"**{header}**")
         
-    st.dataframe(df_display[['ID Empleado', 'Nombre', 'Departamento', 'Puesto', 'F. Contratación', 'Activo']], use_container_width=True, hide_index=True)
+    st.markdown("---") # Separador de cabecera
 
-    st.markdown("---")
-    
-    # --- 3. Edición/Eliminación ---
-    st.header("3. Editar o Eliminar Empleado")
-    
-    # Selector de empleado a editar/eliminar
-    # Usamos el ID Empleado como valor único para el selectbox
-    employee_ids = df_display['ID Empleado'].tolist()
-    selected_id = st.selectbox("Selecciona Empleado por ID", [""] + employee_ids)
-    
-    if selected_id:
-        selected_record_row = df[df['ID Empleado'] == selected_id].iloc[0]
-        # Usamos el ID de Supabase (columna 'Supabase ID') para las operaciones de base de datos
-        record_id_supabase = selected_record_row['Supabase ID'] 
+    # --- Filas de la Tabla y Botones de Acción ---
+    # Usamos iterrows para generar una fila por empleado
+    for index, row in df.iterrows():
+        # Crear la misma estructura de columnas para cada fila de datos
+        cols = st.columns([1, 3, 2, 2, 2, 2, 1.5, 1.5])
         
-        with st.expander(f"Editar datos de {selected_record_row['Nombre']}"):
-            with st.form(f"edit_employee_form_{record_id_supabase}"):
+        # Mostrar los datos en las columnas
+        cols[0].write(row['ID'])
+        cols[1].write(row['Puesto'])
+        cols[2].write(row['Depto'])
+        # Formatear el salario
+        cols[3].write(f"${row['Salario Mensual']:,.0f}") 
+        cols[4].write(row['F. Ingreso'])
+        cols[5].write(row['T. Contrato'])
+        
+        # Botón de Editar (Amarillo/Naranja)
+        with cols[6]:
+            # Usar una clave única para el botón
+            if st.button("✏️ Editar", key=f"edit_{row['ID']}", type="secondary", use_container_width=True):
+                # Guardar el ID del empleado seleccionado para edición
+                st.session_state["employee_to_edit"] = row['ID']
+                st.experimental_rerun() # Recargar para mostrar el formulario de edición
+        
+        # Botón de Eliminar (Rojo)
+        with cols[7]:
+            # Usar una clave única para el botón
+            if st.button("❌ Eliminar", key=f"delete_{row['ID']}", type="danger", use_container_width=True):
+                # Abrir un modal o confirmación simple
+                st.session_state["employee_to_delete"] = row['ID']
+                st.experimental_rerun()
                 
-                # Campos de edición
-                st.text_input("ID de Empleado (Único)", value=selected_record_row['ID Empleado'], disabled=True)
-                edit_name = st.text_input("Nombre Completo", value=selected_record_row['Nombre'])
+        # st.markdown("---") # Separador de filas (opcional, si es necesario)
+
+    # --- 3. Formulario de Edición (Modal/Expander) ---
+    if "employee_to_edit" in st.session_state and st.session_state["employee_to_edit"] is not None:
+        emp_id = st.session_state["employee_to_edit"]
+        # Filtrar el DataFrame para obtener la fila del empleado
+        selected_row = df[df['ID'] == emp_id].iloc[0].to_dict()
+        
+        # El formulario de edición se muestra en un contenedor "expander" o "pop-up"
+        st.header(f"✏️ Editar Empleado ID: {emp_id}")
+        st.warning("Estás editando un registro. Se recomienda no cambiar el 'EmployeeNumber'.")
+        
+        with st.form("edit_employee_data_form"):
+            st.subheader("Datos Editables")
+            
+            # El ID no debería cambiarse (es la PK)
+            st.text_input("EmployeeNumber (ID)", value=selected_row['ID'], disabled=True)
+            
+            # --- PESTAÑAS/MINISECCIONES para editar ---
+            # Para gestionar la gran cantidad de columnas, las agrupamos en pestañas
+            tab1, tab2, tab3 = st.tabs(["Información Laboral", "Datos Personales", "Asistencia/Otros"])
+
+            # Pestaña 1: Información Laboral (Ejemplo de las 'minisecciones')
+            with tab1:
+                edit_department = st.selectbox("Department", departments, index=departments.index(selected_row['Depto']))
+                edit_jobrole = st.selectbox("JobRole", job_roles, index=job_roles.index(selected_row['Puesto']))
+                edit_monthlyincome = st.number_input("MonthlyIncome", value=selected_row['Salario Mensual'], min_value=0)
+                edit_totalworkingyears = st.number_input("TotalWorkingYears", value=selected_row['totalworkingyears'], min_value=0)
+                edit_yearsatcompany = st.number_input("YearsAtCompany", value=selected_row['yearsatcompany'], min_value=0)
                 
-                # Manejar la fecha de contratación
-                current_date_hire = datetime.datetime.strptime(selected_record_row['F. Contratación'], '%Y-%m-%d').date()
-                edit_hire_date = st.date_input("Fecha de Contratación", value=current_date_hire, max_value=datetime.date.today())
+            # Pestaña 2: Datos Personales
+            with tab2:
+                edit_age = st.number_input("Age", value=selected_row['age'], min_value=18, max_value=100)
+                edit_maritalstatus = st.selectbox("MaritalStatus", ["Single", "Married", "Divorced"], index=["Single", "Married", "Divorced"].index(selected_row['maritalstatus']))
+                edit_gender = st.selectbox("Gender", ["Male", "Female"], index=["Male", "Female"].index(selected_row['gender']))
+
+            # Pestaña 3: Asistencia/Otros
+            with tab3:
+                # Cuidado: Si estas columnas pueden ser None, debes manejarlas (ej: usar .fillna(0))
+                edit_tardanzas = st.number_input("NumeroTardanzas", value=selected_row['numerotardanzas'], min_value=0)
+                edit_faltas = st.number_input("NumeroFaltas", value=selected_row['numerofaltas'], min_value=0)
+                edit_overtime = st.radio("OverTime", ("Yes", "No"), index=0 if selected_row['overtime'] == 'Yes' else 1)
                 
-                # Usar el índice para seleccionar el valor actual
-                current_dept_index = departments.index(selected_record_row['Departamento'])
-                edit_department = st.selectbox("Departamento", departments, index=current_dept_index)
-                
-                edit_position = st.text_input("Puesto", value=selected_record_row['Puesto'])
-                edit_is_active = st.checkbox("Activo", value=selected_record_row['Activo'])
-                
-                col_upd, col_del = st.columns(2)
-                with col_upd:
-                    if st.form_submit_button("✅ Guardar Actualización"):
-                        update_data = {
-                            "name": edit_name,
-                            "department": edit_department,
-                            "position": edit_position,
-                            "date_of_hire": edit_hire_date.isoformat(),
-                            "is_active": edit_is_active
-                        }
-                        update_employee_record(record_id_supabase, update_data)
-                        st.experimental_rerun()
-                        
-                with col_del:
-                    # Usar un botón diferente para confirmar la eliminación (más seguro)
-                    if st.form_submit_button("❌ Eliminar Empleado", type="primary"):
-                        delete_employee_record(record_id_supabase)
-                        st.experimental_rerun()
+            # Botones de Guardar y Cancelar
+            col_save, col_cancel = st.columns(2)
+            with col_save:
+                if st.form_submit_button("✅ Guardar Cambios"):
+                    # Crear el diccionario con las claves de minúscula (para la función update_employee_record)
+                    update_data = {
+                        "department": edit_department,
+                        "jobrole": edit_jobrole,
+                        "monthlyincome": edit_monthlyincome,
+                        "totalworkingyears": edit_totalworkingyears,
+                        "yearsatcompany": edit_yearsatcompany,
+                        "age": edit_age,
+                        "maritalstatus": edit_maritalstatus,
+                        "gender": edit_gender,
+                        "numerotardanzas": edit_tardanzas,
+                        "numerofaltas": edit_faltas,
+                        "overtime": edit_overtime,
+                        # ... (Incluir todos los campos editados)
+                    }
+                    update_employee_record(emp_id, update_data)
+                    st.session_state["employee_to_edit"] = None
+                    st.cache_data.clear()
+                    st.experimental_rerun()
+            with col_cancel:
+                if st.form_submit_button("❌ Cancelar Edición"):
+                    st.session_state["employee_to_edit"] = None
+                    st.experimental_rerun()
+
+    # --- 4. Confirmación de Eliminación ---
+    if "employee_to_delete" in st.session_state and st.session_state["employee_to_delete"] is not None:
+        emp_id = st.session_state["employee_to_delete"]
+        
+        # Usamos un contenedor para que parezca un modal
+        with st.container(border=True):
+            st.error(f"⚠️ **Confirmación de Eliminación:** ¿Estás seguro de eliminar el registro del empleado con ID **{emp_id}**?")
+            col_yes, col_no = st.columns(2)
+            with col_yes:
+                if st.button("🔥 Sí, Eliminar Permanentemente", use_container_width=True, type="danger"):
+                    delete_employee_record(emp_id)
+                    st.session_state["employee_to_delete"] = None
+                    st.cache_data.clear() # Limpiar caché para reflejar el cambio
+                    st.experimental_rerun()
+            with col_no:
+                if st.button("Cancelar", use_container_width=True):
+                    st.session_state["employee_to_delete"] = None
+                    st.experimental_rerun()
 
 
 def render_placeholder_page(page_title):
