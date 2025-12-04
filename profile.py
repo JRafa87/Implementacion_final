@@ -172,6 +172,24 @@ def render_profile_page(supabase, request_password_reset):
     if st.button("🔒 Cambiar Contraseña", use_container_width=True):
         request_password_reset(st.session_state.get("user_email"))
 
-
+def handle_file_upload():
+    """Maneja la subida de un archivo del uploader, guarda los bytes y fuerza el rerun."""
+    uploaded_file = st.session_state.get("avatar_uploader_widget")
+    
+    if uploaded_file is not None:
+        # 1. Leer los bytes
+        uploaded_file.seek(0)
+        new_avatar_bytes = uploaded_file.read()
+        
+        # 2. Guardar los bytes en el estado temporal para el display y submit
+        st.session_state["temp_avatar_bytes"] = new_avatar_bytes 
+        
+        # 3. Borrar el estado de la imagen guardada para que el display use la temporal
+        st.session_state["avatar_image"] = None
+        st.session_state["avatar_url"] = None
+        
+        # 4. Forzar el rerun (Solo una vez al subir, no constantemente)
+        st.rerun()
+        
 
 
