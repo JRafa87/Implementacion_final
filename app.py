@@ -337,12 +337,11 @@ def render_sidebar():
         if st.button("Cerrar Sesión", use_container_width=True):
             handle_logout()
 
-def render_main_content():
-    """Contenido principal de la aplicación con diseño minimalista."""
+def render_dashboard():
+    """Contenido principal de la aplicación (Dashboard)."""
     st.title("App Deserción Laboral 📊")
     
-    email = st.session_state.get("user_email", "Desconocido")
-    st.success(f"Bienvenido, {email}. Acceso Nivel: {st.session_state.get('user_role', 'guest').upper()}")
+    st.success(f"Bienvenido, {st.session_state.get('full_name', 'Usuario')}. Acceso Nivel: {st.session_state.get('user_role', 'guest').upper()}")
 
     st.markdown("## Resumen Ejecutivo")
     
@@ -367,10 +366,237 @@ def render_main_content():
     st.bar_chart(chart_data, x="Departamento", y="Deserción %", color="#007ACC")
     
     st.markdown("---")
-    st.info("La plataforma está lista para recibir sus datos de deserción para el análisis avanzado.")
+    st.info("Esta es la vista principal de resumen de datos de deserción.")
+
+def render_profile_page():
+    """Página para gestionar la información del perfil del usuario (Mi Perfil)."""
+    st.title("👤 Mi Perfil")
+    st.markdown("Actualiza tu foto, información personal y de cuenta.")
+    
+    user_id = st.session_state.get("user_id")
+    current_name = st.session_state.get("full_name")
+    current_dob = st.session_state.get("date_of_birth")
+    current_avatar_url = st.session_state.get("avatar_url", "")
+    
+    # Usar una fecha sensata como valor por defecto para el selector
+    default_dob = current_dob if current_dob else datetime.date(2000, 1, 1)
+
+    if not user_id:
+        st.error("Error: No se pudo cargar el ID del usuario.")
+        return
+
+    col_avatar, col_details = st.columns([1, 2.5])
+
+    # Columna de la Foto de Perfil
+    with col_avatar:
+        st.subheader("Foto de Perfil")
+        # Usar un placeholder si no hay URL válida
+        display_url = current_avatar_url if current_avatar_url else "https://placehold.co/200x200/A0A0A0/ffffff?text=U"
+        
+        # Estilo para hacer la imagen redonda
+        st.markdown(f"""
+            <style>
+                .profile-img {{
+                    border-radius: 50%;
+                    width: 150px;
+                    height: 150px;
+                    object-fit: cover;
+                    border: 4px solid #007ACC;
+                    margin-bottom: 20px;
+                }}
+            </style>
+            <img src="{display_url}" class="profile-img">
+        """, unsafe_allow_html=True)
+
+    # Columna de Detalles y Formulario
+    with col_details:
+        st.header("Datos Personales y de Cuenta")
+        
+        with st.form("profile_form", clear_on_submit=False):
+            # 1. Nombre Completo
+            new_name = st.text_input("Nombre Completo", value=current_name, key="new_full_name")
+            
+            # 2. Fecha de Nacimiento
+            new_dob = st.date_input(
+                "Fecha de Nacimiento",
+                value=default_dob,
+                max_value=datetime.date.today(), # La fecha máxima es hoy
+                key="new_date_of_birth"
+            )
+
+            # 3. URL del Avatar
+            new_avatar_url = st.text_input(
+                "URL de la Foto de Perfil", 
+                value=current_avatar_url if current_avatar_url else "",
+                help="Pegue el enlace directo a una imagen (ej. de Gravatar o una pública).",
+                key="new_avatar_url_input"
+            )
+
+            st.markdown("---")
+            st.subheader("Datos de Cuenta (Solo Lectura)")
+            
+            st.text_input("Rol de Usuario", value=st.session_state.get("user_role", "guest").capitalize(), disabled=True)
+            st.text_input("Correo Electrónico", value=st.session_state.get("user_email", "N/A"), disabled=True)
+            
+            col_save, col_password = st.columns([1, 1])
+            with col_save:
+                if st.form_submit_button("💾 Guardar Cambios"):
+                    # Llamar a la función de actualización con todos los campos
+                    update_user_profile(new_name, new_dob, new_avatar_url, user_id)
+            
+            with col_password:
+                st.markdown("<div style='margin-top: 25px;'></div>", unsafe_allow_html=True) # Espacio para alinear
+                if st.button("🔒 Cambiar Contraseña", use_container_width=True):
+                    request_password_reset(st.session_state.get("user_email"))
+
+def render_employee_management_page():
+    """Página de Gestión de Empleados (CRUD)."""
+    st.title("👥 Gestión de Empleados")
+    st.markdown("Administración de perfiles y estados de los colaboradores de la empresa.")
+
+    # Control de Acceso: Solo para Administradores y Supervisores
+    if st.session_state.get("user_role") not in ["admin", "supervisor"]:
+        st.error("🚫 Acceso Denegado. Solo administradores y supervisores pueden gestionar empleados.")
+        return
+
+    # --- 1. Formulario de Creación de Empleados ---
+    st.header("1. Añadir Nuevo Empleado")
+    
+    with st.form("add_employee_form", clear_on_submit=True):
+        col1, col2, col3 = st.columns(3)
+        
+        # Opciones para campos de selección
+        departments = ["Ventas", "Marketing", "Ingeniería", "Soporte", "RR.HH.", "Finanzas"]
+        
+        with col1:
+            new_id = st.text_input("ID de Empleado (Único)", key="new_emp_id")
+            new_department = st.selectbox("Departamento", departments, key="new_emp_dept")
+            
+        with col2:
+            new_name = st.text_input("Nombre Completo", key="new_emp_name")
+            new_position = st.text_input("Puesto", key="new_emp_pos")
+
+        with col3:
+            # Usar un valor por defecto sensato para la fecha
+            default_hire_date = datetime.date.today()
+            new_hire_date = st.date_input("Fecha de Contratación", value=default_hire_date, max_value=datetime.date.today(), key="new_emp_hire_date")
+            new_is_active = st.checkbox("Activo", value=True, key="new_emp_is_active")
+        
+        if st.form_submit_button("➕ Añadir Empleado"):
+            if new_id and new_name and new_department and new_position:
+                employee_data = {
+                    "employee_id": new_id,
+                    "name": new_name,
+                    "department": new_department,
+                    "position": new_position,
+                    "date_of_hire": new_hire_date.isoformat(),
+                    "is_active": new_is_active
+                }
+                add_employee(employee_data)
+                st.experimental_rerun() # Recargar para ver el nuevo empleado en la lista
+            else:
+                st.error("Por favor, complete todos los campos obligatorios.")
+
+
+    st.markdown("---")
+
+    # --- 2. Listado y Gestión de Empleados ---
+    st.header("2. Empleados Actuales")
+    
+    employees = fetch_employees()
+    if not employees:
+        st.warning("No hay empleados registrados en la base de datos.")
+        return
+
+    # Convertir a DataFrame para mejor visualización y filtrado
+    df = pd.DataFrame(employees)
+    df.rename(columns={
+        "employee_id": "ID Empleado",
+        "name": "Nombre",
+        "department": "Departamento",
+        "position": "Puesto",
+        "date_of_hire": "F. Contratación",
+        "is_active": "Activo",
+        "id": "Supabase ID" # Mantener el ID de Supabase
+    }, inplace=True)
+    
+    # Filtrar por Activo
+    active_filter = st.checkbox("Mostrar solo Activos", value=True, help="Desmarca para ver empleados inactivos.")
+    if active_filter:
+        df_display = df[df['Activo'] == True]
+    else:
+        df_display = df
+        
+    st.dataframe(df_display[['ID Empleado', 'Nombre', 'Departamento', 'Puesto', 'F. Contratación', 'Activo']], use_container_width=True, hide_index=True)
+
+    st.markdown("---")
+    
+    # --- 3. Edición/Eliminación ---
+    st.header("3. Editar o Eliminar Empleado")
+    
+    # Selector de empleado a editar/eliminar
+    # Usamos el ID Empleado como valor único para el selectbox
+    employee_ids = df_display['ID Empleado'].tolist()
+    selected_id = st.selectbox("Selecciona Empleado por ID", [""] + employee_ids)
+    
+    if selected_id:
+        selected_record_row = df[df['ID Empleado'] == selected_id].iloc[0]
+        # Usamos el ID de Supabase (columna 'Supabase ID') para las operaciones de base de datos
+        record_id_supabase = selected_record_row['Supabase ID'] 
+        
+        with st.expander(f"Editar datos de {selected_record_row['Nombre']}"):
+            with st.form(f"edit_employee_form_{record_id_supabase}"):
+                
+                # Campos de edición
+                st.text_input("ID de Empleado (Único)", value=selected_record_row['ID Empleado'], disabled=True)
+                edit_name = st.text_input("Nombre Completo", value=selected_record_row['Nombre'])
+                
+                # Manejar la fecha de contratación
+                current_date_hire = datetime.datetime.strptime(selected_record_row['F. Contratación'], '%Y-%m-%d').date()
+                edit_hire_date = st.date_input("Fecha de Contratación", value=current_date_hire, max_value=datetime.date.today())
+                
+                # Usar el índice para seleccionar el valor actual
+                current_dept_index = departments.index(selected_record_row['Departamento'])
+                edit_department = st.selectbox("Departamento", departments, index=current_dept_index)
+                
+                edit_position = st.text_input("Puesto", value=selected_record_row['Puesto'])
+                edit_is_active = st.checkbox("Activo", value=selected_record_row['Activo'])
+                
+                col_upd, col_del = st.columns(2)
+                with col_upd:
+                    if st.form_submit_button("✅ Guardar Actualización"):
+                        update_data = {
+                            "name": edit_name,
+                            "department": edit_department,
+                            "position": edit_position,
+                            "date_of_hire": edit_hire_date.isoformat(),
+                            "is_active": edit_is_active
+                        }
+                        update_employee_record(record_id_supabase, update_data)
+                        st.experimental_rerun()
+                        
+                with col_del:
+                    # Usar un botón diferente para confirmar la eliminación (más seguro)
+                    if st.form_submit_button("❌ Eliminar Empleado", type="primary"):
+                        delete_employee_record(record_id_supabase)
+                        st.experimental_rerun()
+
+
+def render_placeholder_page(page_title):
+    """Función de marcador de posición para páginas futuras (sin la gestión de empleados)."""
+    st.title(page_title)
+    st.info(f"Esta es la página de **{page_title}**. El contenido detallado se desarrollará en el siguiente paso.")
+    st.markdown("---")
+    if page_title == "Predicción desde Archivo 📁":
+        st.warning("Se incluirá una sección para subir un archivo CSV y obtener predicciones de deserción masiva.")
+    elif page_title == "Predicción Manual ✏️":
+        st.warning("Se mostrará un formulario para ingresar manualmente las características de un empleado y obtener la probabilidad de deserción.")
+    elif page_title == "Reconocimiento ⭐":
+        st.warning("Esta sección será para gestionar y visualizar reconocimientos o premios a empleados.")
+
 
 # ============================================================
-# 5. CONTROL DE FLUJO PRINCIPAL
+# 6. CONTROL DE FLUJO PRINCIPAL
 # ============================================================
 
 # 1. Se ejecuta al inicio para determinar el estado de la sesión
@@ -378,13 +604,23 @@ session_is_active = check_session_state_hybrid()
 
 # 2. Control de Acceso
 if session_is_active:
-    # Si está autenticado
     render_sidebar()
-    render_main_content()
+    # 3. Renderizar la página actual
+    page_map = {
+        "Dashboard": render_dashboard,
+        "Mi Perfil": render_profile_page,
+        "Gestión de Empleados": render_employee_management_page, # Función CRUD dedicada
+        "Predicción desde Archivo": lambda: render_placeholder_page("Predicción desde Archivo 📁"),
+        "Predicción Manual": lambda: render_placeholder_page("Predicción Manual ✏️"),
+        "Reconocimiento": lambda: render_placeholder_page("Reconocimiento ⭐")
+    }
+    
+    # Ejecutar la función de renderizado para la página actual
+    page_map.get(st.session_state.current_page, render_dashboard)()
+    
 else:
     # Si NO está autenticado
     render_auth_page()
-
 
 
 
