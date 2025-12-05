@@ -286,7 +286,7 @@ def render_edit_employee_form(emp_id):
                 jobrole_options, 
                 index=jobrole_options.index(current_job) if current_job in jobrole_options else 0
             )
-            new_monthlyincome = st.number_input("MonthlyIncome", min_value=0, value=current_income)
+            new_monthlyincome = st.number_input("MonthlyIncome", min_value=0.0, value=current_income)
             marital_status_options = ["Single", "Married", "Divorced"]
             new_maritalstatus = st.selectbox(
                 "MaritalStatus", 
