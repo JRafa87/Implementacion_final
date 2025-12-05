@@ -187,6 +187,7 @@ def render_employee_management_page():
             with col_cancel:
                 if st.form_submit_button("❌ Cancelar"):
                     st.session_state["show_add_form"] = False
+                    st.experimental_rerun()
 
     # Mostrar empleados existentes
     df = get_employees_data()
@@ -257,7 +258,8 @@ def render_edit_employee_form(emp_id):
             with col_cancel:
                 if st.form_submit_button("❌ Cancelar"):
                     st.session_state["employee_to_edit"] = None
-                    st.rerun()
+                    st.experimental_rerun()  # Recargar la página sin esperar un nuevo clic
+
 
 
 
