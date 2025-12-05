@@ -50,7 +50,10 @@ COLUMN_MAPPING = {
     "fechasalida": "FechaSalida",
 }
 
-# Funciones CRUD
+# -----------------------------------
+# FUNCIONES CRUD
+# -----------------------------------
+
 def fetch_employees():
     """Obtiene todos los empleados de la tabla 'empleados' que no tienen fecha de salida."""
     try:
@@ -62,10 +65,7 @@ def fetch_employees():
         return []
 
 def fetch_employee_by_id(employee_number: int) -> Optional[dict]:
-    """
-    Obtiene un único empleado por su EmployeeNumber.
-    AGREGADA PARA CORREGIR EL NAMERROR EN LA EDICIÓN.
-    """
+    """Obtiene un único empleado por su EmployeeNumber."""
     try:
         response = supabase.table("empleados").select("*").eq("EmployeeNumber", employee_number).single().execute()
         # Mapea las claves de PostgreSQL a minúsculas (Python)
@@ -73,9 +73,25 @@ def fetch_employee_by_id(employee_number: int) -> Optional[dict]:
             return {k.lower(): v for k, v in response.data.items()}
         return None
     except Exception as e:
-        # Esto atrapará errores como 'no se encontró el registro' o problemas de Supabase
-        # st.error(f"Error al obtener empleado {employee_number}: {e}") # Comentado para evitar errores repetitivos en la UI
+        # Esto atrapa errores de registro no encontrado o conexión
         return None
+
+def get_next_employee_number() -> int:
+    """Consulta el máximo EmployeeNumber y devuelve el siguiente número disponible."""
+    try:
+        # Consulta el EmployeeNumber más alto y lo ordena de forma descendente, limitando a 1.
+        response = supabase.table("empleados").select("EmployeeNumber").order("EmployeeNumber", desc=True).limit(1).execute()
+        
+        if response.data and response.data[0]['EmployeeNumber'] is not None:
+            # Encuentra el valor máximo y suma 1.
+            max_id = response.data[0]['EmployeeNumber']
+            return max_id + 1
+        
+        # Si no hay empleados, empezar en 1
+        return 1
+    except Exception as e:
+        # En caso de error de conexión, sugiere 1
+        return 1
 
 def add_employee(employee_data: dict):
     """Agrega un nuevo empleado a la tabla 'empleados', mapeando las claves de Python a PostgreSQL."""
@@ -111,12 +127,15 @@ def delete_employee_record(employee_number: int):
     except Exception as e:
         st.error(f"Error al eliminar empleado: {e}")
 
-# Función para limpiar la caché y recargar la página
+# -----------------------------------
+# FUNCIONES DE UI Y CACHÉ
+# -----------------------------------
+
 def clear_cache_and_rerun():
+    """Función para limpiar la caché y recargar la página."""
     st.cache_data.clear()  # Limpiar la caché de datos
     st.rerun()  # Recargar la aplicación
 
-# Función de caché para obtener datos de empleados
 @st.cache_data(ttl=600)  # Caché por 10 minutos
 def get_employees_data():
     """Carga los datos de empleados de Supabase y los prepara para el display."""
@@ -132,18 +151,22 @@ def get_employees_data():
             'tipocontrato': 'T. Contrato'
         }, inplace=True)
         
-        df['numerotardanzas'] = df.get('numerotardanzas', 0).fillna(0).astype(int)
-        df['numerofaltas'] = df.get('numerofaltas', 0).fillna(0).astype(int)
-        df['age'] = df.get('age', 0).fillna(0).astype(int)
-        df['totalworkingyears'] = df.get('totalworkingyears', 0).fillna(0).astype(int)
-        df['yearsatcompany'] = df.get('yearsatcompany', 0).fillna(0).astype(int)
+        # Asegurar tipos y manejar NaNs
+        df['numerotardanzas'] = df.get('numerotardanzas', pd.Series([0] * len(df))).fillna(0).astype(int)
+        df['numerofaltas'] = df.get('numerofaltas', pd.Series([0] * len(df))).fillna(0).astype(int)
+        df['age'] = df.get('age', pd.Series([0] * len(df))).fillna(0).astype(int)
+        df['totalworkingyears'] = df.get('totalworkingyears', pd.Series([0] * len(df))).fillna(0).astype(int)
+        df['yearsatcompany'] = df.get('yearsatcompany', pd.Series([0] * len(df))).fillna(0).astype(int)
         df['overtime'] = df['overtime'].fillna('No')
         df['maritalstatus'] = df['maritalstatus'].fillna('Single')
         df['gender'] = df['gender'].fillna('Male')
         return df
     return pd.DataFrame()
 
-# Página de gestión de empleados
+# -----------------------------------
+# PÁGINAS DE STREAMLIT
+# -----------------------------------
+
 def render_employee_management_page():
     """Página de Gestión de Empleados (CRUD con Streamlit)."""
     st.title("👥 Gestión de Empleados")
@@ -153,37 +176,52 @@ def render_employee_management_page():
         st.error("🚫 Acceso Denegado. Solo administradores y supervisores pueden gestionar empleados.")
         return
 
+    # Inicialización de estados
+    if "show_add_form" not in st.session_state:
+        st.session_state["show_add_form"] = False
+    if "employee_to_edit" not in st.session_state:
+        st.session_state["employee_to_edit"] = None
+
     # Botones de acción global
     col_add, col_refresh = st.columns([1, 1])
     
-    # Inicializa el estado para el formulario de adición si no existe
-    if "show_add_form" not in st.session_state:
-        st.session_state["show_add_form"] = False
-
     with col_add:
         if st.button("➕ Añadir Nuevo"):
             st.session_state["show_add_form"] = True 
-            # Asegurar que el formulario de edición esté oculto al abrir el de adición
-            st.session_state["employee_to_edit"] = None 
-            st.rerun() # Refresca para mostrar el formulario de adición inmediatamente
+            st.session_state["employee_to_edit"] = None # Ocultar edición
+            st.rerun() 
     
     with col_refresh:
         if st.button("🔄 Recargar Datos"):
-            clear_cache_and_rerun()  # Limpiar la caché de datos y recargar
+            clear_cache_and_rerun() 
 
     # Formulario de adición de empleado
     if st.session_state["show_add_form"]:
         st.header("Formulario de Nuevo Empleado")
+        
+        # Obtener el siguiente ID para sugerir
+        next_id = get_next_employee_number()
+        
         with st.form("add_employee_form", clear_on_submit=True):
             col1, col2 = st.columns(2)
             with col1:
-                # Asegurar un valor inicial para evitar errores de tipo
-                new_employee_number = st.number_input("EmployeeNumber (ID)", min_value=1, step=1, key="add_id")
+                # Sugiere el siguiente ID y lo deshabilita (en gris)
+                new_employee_number = st.number_input(
+                    "EmployeeNumber (ID)", 
+                    min_value=1, 
+                    step=1, 
+                    value=next_id,          
+                    disabled=True,          
+                    key="add_id"
+                )
+                
+                # Se asegura que la edad sea INT
                 new_age = st.number_input("Age", min_value=18, max_value=100, key="add_age", value=30)
                 new_department = st.selectbox("Department", ["HR", "Tech", "Finance", "Marketing"], key="add_dept")
             with col2:
                 new_jobrole = st.selectbox("JobRole", ["Manager", "Developer", "Analyst", "Support"], key="add_job")
-                new_monthlyincome = st.number_input("MonthlyIncome", min_value=0, key="add_income")
+                # Usar 0.0 para consistencia de tipo FLOAT
+                new_monthlyincome = st.number_input("MonthlyIncome", min_value=0.0, key="add_income") 
                 new_maritalstatus = st.selectbox("MaritalStatus", ["Single", "Married", "Divorced"], key="add_marital")
             
             st.subheader("Otros Datos del Empleado")
@@ -204,7 +242,7 @@ def render_employee_management_page():
                         }
                         add_employee(employee_data)
                         st.session_state["show_add_form"] = False
-                        clear_cache_and_rerun()  # Limpiar la caché y recargar
+                        clear_cache_and_rerun() 
                     else:
                         st.error("Por favor, complete al menos EmployeeNumber y MonthlyIncome.")
             with col_cancel:
@@ -239,11 +277,10 @@ def render_employee_management_page():
                 with col_edit:
                     if st.button("✏️ Editar Registro"):
                         st.session_state["employee_to_edit"] = emp_id
-                        st.session_state["show_add_form"] = False # Asegura que el de adición esté oculto
-                        st.rerun() # Recarga para mostrar el formulario de edición
+                        st.session_state["show_add_form"] = False 
+                        st.rerun() 
                 with col_delete:
                     if st.button("❌ Eliminar Registro"):
-                        # Podrías añadir una confirmación aquí antes de eliminar
                         delete_employee_record(emp_id)
                         clear_cache_and_rerun()
                         
@@ -254,7 +291,6 @@ def render_employee_management_page():
     if st.session_state.get("employee_to_edit"):
         render_edit_employee_form(st.session_state["employee_to_edit"])
 
-# Página de edición de empleado
 def render_edit_employee_form(emp_id):
     """Formulario de edición de empleado."""
     employee_data = fetch_employee_by_id(emp_id)
@@ -262,7 +298,6 @@ def render_edit_employee_form(emp_id):
     if employee_data:
         st.header(f"Editar Empleado ID: {emp_id}")
         with st.form("edit_employee_form", clear_on_submit=True):
-            # Usar valores de la base de datos como valor inicial (value)
             
             # Conversiones para asegurar tipos correctos para los widgets
             current_age = int(employee_data.get("age") or 0)
@@ -286,7 +321,9 @@ def render_edit_employee_form(emp_id):
                 jobrole_options, 
                 index=jobrole_options.index(current_job) if current_job in jobrole_options else 0
             )
-            new_monthlyincome = st.number_input("MonthlyIncome", min_value=0.0, value=current_income)
+            # Corregido a 0.0 para evitar StreamlitMixedNumericTypesError
+            new_monthlyincome = st.number_input("MonthlyIncome", min_value=0.0, value=current_income) 
+            
             marital_status_options = ["Single", "Married", "Divorced"]
             new_maritalstatus = st.selectbox(
                 "MaritalStatus", 
@@ -307,12 +344,12 @@ def render_edit_employee_form(emp_id):
                         "overtime": new_overtime
                     }
                     update_employee_record(emp_id, update_data)
-                    st.session_state["employee_to_edit"] = None # Ocultar el formulario después de guardar
-                    clear_cache_and_rerun()  # Limpiar caché y recargar
+                    st.session_state["employee_to_edit"] = None 
+                    clear_cache_and_rerun()  
             with col_cancel:
                 if st.form_submit_button("❌ Cancelar Edición"):
                     st.session_state["employee_to_edit"] = None
-                    st.rerun() # CORRECCIÓN: Un solo clic cierra la ventana.
+                    st.rerun() 
     else:
         st.warning(f"No se pudo encontrar el empleado con ID {emp_id} o hubo un error de conexión.")
         st.session_state["employee_to_edit"] = None
