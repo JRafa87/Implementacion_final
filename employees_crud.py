@@ -54,7 +54,7 @@ COLUMN_MAPPING = {
 def fetch_employees():
     """Obtiene todos los empleados de la tabla 'empleados' que no tienen fecha de salida."""
     try:
-        response = supabase.table("empleados").select("*").is_("fechasalida", None).order("EmployeeNumber").execute()
+        response = supabase.table("empleados").select("*").is_("FechaSalida", None).order("EmployeeNumber").execute()
         data = [{k.lower(): v for k, v in record.items()} for record in response.data]
         return data
     except Exception as e:
