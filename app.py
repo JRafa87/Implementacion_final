@@ -199,7 +199,7 @@ def check_session_state_hybrid() -> bool:
         try:
             supabase.auth.set_session(access_token=access_token, refresh_token=refresh_token)
             st.experimental_set_query_params()
-            st.experimental_rerun()
+            st.rerun()
             return True
         except Exception:
             pass
@@ -247,7 +247,7 @@ def sign_in_manual(email, password):
     try:
         supabase.auth.sign_in_with_password({"email": email, "password": password})
         st.success("Inicio de sesión exitoso. Recargando...")
-        st.experimental_rerun()
+        st.rerun()
     except Exception as e:
         st.error(f"Error al iniciar sesión: {e}")
 
