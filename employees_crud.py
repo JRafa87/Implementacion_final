@@ -4,19 +4,17 @@ from supabase import create_client, Client
 from typing import Optional
 
 # Conexión a Supabase (asegúrate de tener tus credenciales)
-# Código Corregido para forzar el error
 @st.cache_resource
 def get_supabase() -> Client:
     """Inicializa y cachea el cliente de Supabase."""
     url = st.secrets.get("SUPABASE_URL")
     key = st.secrets.get("SUPABASE_KEY")
-    
     if not url or not key:
-        error_msg = "Faltan SUPABASE_URL o SUPABASE_KEY en secrets.toml. ¡No se puede conectar a Supabase!"
-        st.error(f"FATAL: {error_msg}") # Muestra el error en Streamlit
-        raise Exception(error_msg) # <--- **Esto forzará que el script falle visiblemente.**
-        
+        st.error("ERROR: Faltan SUPABASE_URL o SUPABASE_KEY en secrets.toml. La autenticación fallará.")
+        st.stop()  # Detenemos el script si las credenciales no están
     return create_client(url, key)
+
+supabase = get_supabase()
 
 # Mapeo de claves de Python (minúscula) a claves de PostgreSQL (CamelCase/PascalCase)
 COLUMN_MAPPING = {
@@ -220,4 +218,5 @@ def render_employee_management_page():
 
 # Ejecutar la página de gestión
 render_employee_management_page()
+
 
