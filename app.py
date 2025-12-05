@@ -175,7 +175,7 @@ def check_session_state_hybrid() -> bool:
     
     # 0. CRÍTICO: Garantizar que la variable de navegación (current_page) siempre exista.
     if "current_page" not in st.session_state:
-        st.session_state["current_page"] = "Dashboard"
+        st.session_state["current_page"] = "Mi Perfil"
 
     # Inicializar el resto del estado de sesión si falta el flag de autenticación.
     if "authenticated" not in st.session_state:
@@ -393,7 +393,7 @@ def render_sidebar():
     """Renderiza la barra lateral con información de la sesión y navegación."""
     
     # Acceder a current_page de forma segura con .get() y un valor por defecto.
-    current_page = st.session_state.get("current_page", "Dashboard") 
+    current_page = st.session_state.get("current_page", "Mi Perfil") 
     
     with st.sidebar:
         # Mini perfil en la barra lateral
