@@ -128,136 +128,6 @@ def get_employees_data():
         return df
     return pd.DataFrame()
 
-import streamlit as st
-import pandas as pd
-from supabase import create_client, Client
-from typing import Optional
-
-# Conexión a Supabase (asegúrate de tener tus credenciales)
-@st.cache_resource
-def get_supabase() -> Client:
-    """Inicializa y cachea el cliente de Supabase."""
-    url = st.secrets.get("SUPABASE_URL")
-    key = st.secrets.get("SUPABASE_KEY")
-    if not url or not key:
-        st.error("ERROR: Faltan SUPABASE_URL o SUPABASE_KEY en secrets.toml. La autenticación fallará.")
-        st.stop()  # Detenemos el script si las credenciales no están
-    return create_client(url, key)
-
-supabase = get_supabase()
-
-# Mapeo de claves de Python (minúscula) a claves de PostgreSQL (CamelCase/PascalCase)
-COLUMN_MAPPING = {
-    "employeenumber": "EmployeeNumber",
-    "age": "Age",
-    "businesstravel": "BusinessTravel",
-    "department": "Department",
-    "distancefromhome": "DistanceFromHome",
-    "education": "Education",
-    "educationfield": "EducationField",
-    "environmentsatisfaction": "EnvironmentSatisfaction",
-    "gender": "Gender",
-    "jobinvolvement": "JobInvolvement",
-    "joblevel": "JobLevel",
-    "jobrole": "JobRole",
-    "jobsatisfaction": "JobSatisfaction",
-    "maritalstatus": "MaritalStatus",
-    "monthlyincome": "MonthlyIncome",
-    "numcompaniesworked": "NumCompaniesWorked",
-    "overtime": "OverTime",
-    "performancerating": "PerformanceRating",
-    "relationshipsatisfaction": "RelationshipSatisfaction",
-    "totalworkingyears": "TotalWorkingYears",
-    "trainingtimeslastyear": "TrainingTimesLastYear",
-    "yearsatcompany": "YearsAtCompany",
-    "yearsincurrentrole": "YearsInCurrentRole",
-    "yearssincelastpromotion": "YearsSinceLastPromotion",
-    "yearswithcurrmanager": "YearsWithCurrManager",
-    "tipocontrato": "Tipocontrato",
-    "numerotardanzas": "NumeroTardanzas",
-    "numerofaltas": "NumeroFaltas",
-    "fechaingreso": "FechaIngreso",
-    "fechasalida": "FechaSalida",
-}
-
-# Listas de selección (ejemplos)
-DEPARTMENTS = ['HR', 'Finance', 'Engineering', 'Sales']
-JOB_ROLES = ['Manager', 'Engineer', 'Salesperson']
-MARITAL_STATUS = ['Single', 'Married', 'Divorced']
-GENDERS = ['Male', 'Female', 'Other']
-
-# Funciones CRUD
-def fetch_employees():
-    """Obtiene todos los empleados de la tabla 'empleados'."""
-    try:
-        response = supabase.table("empleados").select("*").order("EmployeeNumber").execute()
-        data = [{k.lower(): v for k, v in record.items()} for record in response.data]
-        return data
-    except Exception as e:
-        st.error(f"Error al cargar empleados: {e}")
-        return []
-
-def add_employee(employee_data: dict):
-    """Agrega un nuevo empleado a la tabla 'empleados', mapeando las claves de Python a PostgreSQL."""
-    pg_data = {}
-    for py_key, pg_key in COLUMN_MAPPING.items():
-        if py_key in employee_data:
-            pg_data[pg_key] = employee_data[py_key]
-    
-    try:
-        supabase.table("empleados").insert(pg_data).execute()
-        st.success(f"Empleado con ID {employee_data['employeenumber']} añadido con éxito.")
-    except Exception as e:
-        st.error(f"Error al añadir empleado: {e}")
-
-def update_employee_record(employee_number: int, update_data: dict):
-    """Actualiza un empleado existente por su EmployeeNumber (PK), mapeando las claves de Python a PostgreSQL."""
-    pg_update_data = {}
-    for py_key, pg_key in COLUMN_MAPPING.items():
-        if py_key in update_data:
-            pg_update_data[pg_key] = update_data[py_key]
-    
-    try:
-        supabase.table("empleados").update(pg_update_data).eq("EmployeeNumber", employee_number).execute()
-        st.success(f"Empleado {employee_number} actualizado con éxito.")
-    except Exception as e:
-        st.error(f"Error al actualizar empleado: {e}")
-
-def delete_employee_record(employee_number: int):
-    """Elimina un empleado por su EmployeeNumber (PK)."""
-    try:
-        supabase.table("empleados").delete().eq("EmployeeNumber", employee_number).execute()
-        st.success(f"Empleado {employee_number} eliminado con éxito.")
-    except Exception as e:
-        st.error(f"Error al eliminar empleado: {e}")
-
-# Función de caché para obtener datos de empleados
-@st.cache_data(ttl=600)  # Caché por 10 minutos
-def get_employees_data():
-    """Carga los datos de empleados de Supabase y los prepara para el display."""
-    data = fetch_employees() 
-    if data:
-        df = pd.DataFrame(data)
-        df.rename(columns={
-            'employeenumber': 'ID',
-            'jobrole': 'Puesto',
-            'department': 'Depto',
-            'monthlyincome': 'Salario Mensual',
-            'fechaingreso': 'F. Ingreso',
-            'tipocontrato': 'T. Contrato'
-        }, inplace=True)
-        
-        df['numerotardanzas'] = df.get('numerotardanzas', 0).fillna(0).astype(int)
-        df['numerofaltas'] = df.get('numerofaltas', 0).fillna(0).astype(int)
-        df['age'] = df.get('age', 0).fillna(0).astype(int)
-        df['totalworkingyears'] = df.get('totalworkingyears', 0).fillna(0).astype(int)
-        df['yearsatcompany'] = df.get('yearsatcompany', 0).fillna(0).astype(int)
-        df['overtime'] = df['overtime'].fillna('No')
-        df['maritalstatus'] = df['maritalstatus'].fillna('Single')
-        df['gender'] = df['gender'].fillna('Male')
-        return df
-    return pd.DataFrame()
-
 # Página de gestión de empleados
 def render_employee_management_page():
     """Página de Gestión de Empleados (CRUD con Streamlit)."""
@@ -273,12 +143,12 @@ def render_employee_management_page():
     
     with col_add:
         if st.button("➕ Añadir Nuevo"):
-            st.session_state["show_add_form"] = True
+            st.session_state["show_add_form"] = True  # Mostrar formulario solo si se hace clic
     
     with col_refresh:
         if st.button("🔄 Recargar Datos"):
             st.cache_data.clear()  # Limpiar la caché de datos
-            st.experimental_rerun()
+            st.rerun()
 
     # Formulario de adición de empleado
     if st.session_state.get("show_add_form", False):
@@ -310,10 +180,10 @@ def render_employee_management_page():
                             "maritalstatus": new_maritalstatus,
                             "overtime": new_overtime
                         }
-                        add_employee(employee_data)
-                        st.session_state["show_add_form"] = False
-                        st.cache_data.clear()  # Limpiar la caché
-                        st.experimental_rerun()
+                        add_employee(employee_data)  # Llamar a la función de añadir
+                        st.session_state["show_add_form"] = False  # Ocultar formulario
+                        st.cache_data.clear()  # Limpiar caché
+                        st.rerun()  # Recargar la página
                     else:
                         st.error("Por favor, complete al menos EmployeeNumber y MonthlyIncome.")
             with col_cancel:
@@ -335,17 +205,18 @@ def render_employee_management_page():
             with col_edit:
                 if st.button("✏️ Editar Registro"):
                     st.session_state["employee_to_edit"] = emp_id
-                    st.experimental_rerun()
+                    st.rerun()
             with col_delete:
                 if st.button("❌ Eliminar Registro"):
                     st.session_state["employee_to_delete"] = emp_id
-                    st.experimental_rerun()
+                    st.rerun()
 
     else:
         st.warning("No hay empleados registrados en la base de datos.")
 
 # Ejecutar la página de gestión
 render_employee_management_page()
+
 
 
 
