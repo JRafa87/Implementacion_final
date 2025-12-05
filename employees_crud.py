@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from supabase import create_client
+from supabase import create_client, Client
 from typing import Optional
 
 # Conexión a Supabase (asegúrate de tener tus credenciales)
@@ -11,9 +11,7 @@ def get_supabase() -> Client:
     key = st.secrets.get("SUPABASE_KEY")
     if not url or not key:
         st.error("ERROR: Faltan SUPABASE_URL o SUPABASE_KEY en secrets.toml. La autenticación fallará.")
-        # Usar un valor de ejemplo o levantar excepción si es vital.
-        # Por ahora, simplemente paramos el script.
-        st.stop()
+        st.stop()  # Detenemos el script si las credenciales no están
     return create_client(url, key)
 
 supabase = get_supabase()
@@ -59,7 +57,6 @@ MARITAL_STATUS = ['Single', 'Married', 'Divorced']
 GENDERS = ['Male', 'Female', 'Other']
 
 # Funciones CRUD
-
 def fetch_employees():
     """Obtiene todos los empleados de la tabla 'empleados'."""
     try:
@@ -221,3 +218,4 @@ def render_employee_management_page():
 
 # Ejecutar la página de gestión
 render_employee_management_page()
+
