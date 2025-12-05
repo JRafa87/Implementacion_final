@@ -296,7 +296,7 @@ def handle_logout():
     except Exception:
         pass
     st.session_state.clear()
-    st.experimental_rerun()        
+    st.rerun()        
 
 # ============================================================
 # 5. FUNCIONES DE UI (Interfaz de Usuario) - Renderizado
