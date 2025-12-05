@@ -488,10 +488,10 @@ if session_is_active:
     page_map = {
         "Mi Perfil": lambda: render_profile_page(supabase, request_password_reset),
         "Dashboard": lambda: render_placeholder_page,
-        "Gestión de Empleados":render_employee_management_page() , # Función CRUD dedicada
+        "Gestión de Empleados":lambda: render_employee_management_page() , # Función CRUD dedicada
         "Predicción desde Archivo": lambda: render_placeholder_page("Predicción desde Archivo 📁"),
         "Predicción Manual": lambda: render_placeholder_page("Predicción Manual ✏️"),
-        "Reconocimiento": render_recognition_page()
+        "Reconocimiento":lambda:  render_recognition_page()
     }
     
     # Ejecutar la función de renderizado para la página actual
