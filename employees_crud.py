@@ -147,6 +147,7 @@ def render_employee_management_page():
     
     with col_refresh:
         if st.button("🔄 Recargar Datos"):
+            # Recargar los datos sin borrar la página completa
             st.cache_data.clear()  # Limpiar la caché de datos
             st.experimental_rerun()
 
@@ -180,9 +181,10 @@ def render_employee_management_page():
                             "maritalstatus": new_maritalstatus,
                             "overtime": new_overtime
                         }
-                        add_employee(employee_data)  # Llamar a la función de añadir
-                        st.session_state["show_add_form"] = False  # Ocultar formulario
-                        st.cache_data.clear()  # Limpiar caché
+                        add_employee(employee_data)
+                        st.session_state["show_add_form"] = False
+                        st.cache_data.clear()  # Limpiar la caché
+                        st.experimental_rerun()
                     else:
                         st.error("Por favor, complete al menos EmployeeNumber y MonthlyIncome.")
             with col_cancel:
