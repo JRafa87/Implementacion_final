@@ -215,8 +215,7 @@ def render_employee_management_page():
     else:
         st.warning("No hay empleados registrados en la base de datos.")
 
-# Ejecutar la página de gestión
-render_employee_management_page()
+
 
 
 
