@@ -148,7 +148,7 @@ def render_employee_management_page():
     with col_refresh:
         if st.button("🔄 Recargar Datos"):
             st.cache_data.clear()  # Limpiar la caché de datos
-            st.rerun()
+            st.experimental_rerun()
 
     # Formulario de adición de empleado
     if st.session_state.get("show_add_form", False):
@@ -183,7 +183,6 @@ def render_employee_management_page():
                         add_employee(employee_data)  # Llamar a la función de añadir
                         st.session_state["show_add_form"] = False  # Ocultar formulario
                         st.cache_data.clear()  # Limpiar caché
-                        st.rerun()  # Recargar la página
                     else:
                         st.error("Por favor, complete al menos EmployeeNumber y MonthlyIncome.")
             with col_cancel:
@@ -205,17 +204,18 @@ def render_employee_management_page():
             with col_edit:
                 if st.button("✏️ Editar Registro"):
                     st.session_state["employee_to_edit"] = emp_id
-                    st.rerun()
+                    st.experimental_rerun()
             with col_delete:
                 if st.button("❌ Eliminar Registro"):
                     st.session_state["employee_to_delete"] = emp_id
-                    st.rerun()
+                    st.experimental_rerun()
 
     else:
         st.warning("No hay empleados registrados en la base de datos.")
 
 # Ejecutar la página de gestión
 render_employee_management_page()
+
 
 
 
