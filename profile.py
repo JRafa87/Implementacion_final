@@ -30,8 +30,7 @@ def handle_file_upload():
         if "avatar_url" in st.session_state:
             del st.session_state["avatar_url"]
         
-        # 4. Forzar el rerun para actualizar la imagen mostrada.
-        st.rerun()
+    
 
 # --- FUNCIÓN DE ACTUALIZACIÓN ---
 def update_user_profile(new_name: str, new_dob: datetime.date, avatar_bytes: Optional[bytes], user_id: str, supabase):
