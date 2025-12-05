@@ -144,12 +144,12 @@ def render_employee_management_page():
     with col_add:
         if st.button("➕ Añadir Nuevo"):
             st.session_state["show_add_form"] = True
-            st.experimental_rerun()
+            st.rerun()
     
     with col_refresh:
         if st.button("🔄 Recargar Datos"):
             st.cache_data.clear()  # Limpiar la caché de datos
-            st.experimental_rerun()
+            st.rerun()
 
     # Formulario de adición de empleado
     if st.session_state.get("show_add_form", False):
@@ -184,13 +184,13 @@ def render_employee_management_page():
                         add_employee(employee_data)
                         st.session_state["show_add_form"] = False
                         st.cache_data.clear()  # Limpiar la caché
-                        st.experimental_rerun()
+                        st.rerun()
                     else:
                         st.error("Por favor, complete al menos EmployeeNumber y MonthlyIncome.")
             with col_cancel:
                 if st.form_submit_button("❌ Cancelar"):
                     st.session_state["show_add_form"] = False
-                    st.experimental_rerun()
+                    st.rerun()
 
     # Mostrar empleados existentes
     df = get_employees_data()
