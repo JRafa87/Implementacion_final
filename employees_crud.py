@@ -207,11 +207,11 @@ def render_employee_management_page():
             with col_edit:
                 if st.button("✏️ Editar Registro"):
                     st.session_state["employee_to_edit"] = emp_id
-                    st.experimental_rerun()
+                    st.rerun()
             with col_delete:
                 if st.button("❌ Eliminar Registro"):
                     st.session_state["employee_to_delete"] = emp_id
-                    st.experimental_rerun()
+                    st.rerun()
 
     else:
         st.warning("No hay empleados registrados en la base de datos.")
