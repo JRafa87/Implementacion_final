@@ -128,6 +128,21 @@ def get_employees_data():
         return df
     return pd.DataFrame()
 
+# Función para obtener un empleado por su ID
+def fetch_employee_by_id(employee_number: int):
+    """Obtiene los datos de un empleado por su ID."""
+    try:
+        response = supabase.table("empleados").select("*").eq("EmployeeNumber", employee_number).execute()
+        data = [{k.lower(): v for k, v in record.items()} for record in response.data]
+        if data:
+            return data[0]
+        else:
+            st.error(f"No se encontró el empleado con ID {employee_number}.")
+            return None
+    except Exception as e:
+        st.error(f"Error al obtener empleado con ID {employee_number}: {e}")
+        return None
+
 # Página de gestión de empleados
 def render_employee_management_page():
     """Página de Gestión de Empleados (CRUD con Streamlit)."""
@@ -149,7 +164,7 @@ def render_employee_management_page():
         if st.button("🔄 Recargar Datos"):
             # Recargar los datos sin borrar la página completa
             st.cache_data.clear()  # Limpiar la caché de datos
-            st.experimental_rerun()
+            st.rerun()
 
     # Formulario de adición de empleado
     if st.session_state.get("show_add_form", False):
@@ -206,14 +221,48 @@ def render_employee_management_page():
             with col_edit:
                 if st.button("✏️ Editar Registro"):
                     st.session_state["employee_to_edit"] = emp_id
-                    st.experimental_rerun()
+                    render_edit_employee_form(emp_id)  # Mostrar el formulario de edición
             with col_delete:
                 if st.button("❌ Eliminar Registro"):
-                    st.session_state["employee_to_delete"] = emp_id
-                    st.experimental_rerun()
+                    delete_employee_record(emp_id)
 
     else:
         st.warning("No hay empleados registrados en la base de datos.")
+
+# Página de edición de empleado
+def render_edit_employee_form(emp_id):
+    """Formulario de edición de empleado."""
+    employee_data = fetch_employee_by_id(emp_id)
+    if employee_data:
+        st.header(f"Editar Empleado ID: {emp_id}")
+        with st.form("edit_employee_form", clear_on_submit=True):
+            # Cargar los datos actuales del empleado
+            new_age = st.number_input("Age", min_value=18, max_value=100, value=employee_data["age"])
+            new_department = st.selectbox("Department", DEPARTMENTS, index=DEPARTMENTS.index(employee_data["department"]))
+            new_jobrole = st.selectbox("JobRole", JOB_ROLES, index=JOB_ROLES.index(employee_data["jobrole"]))
+            new_monthlyincome = st.number_input("MonthlyIncome", min_value=0, value=employee_data["monthlyincome"])
+            new_maritalstatus = st.selectbox("MaritalStatus", MARITAL_STATUS, index=MARITAL_STATUS.index(employee_data["maritalstatus"]))
+            new_overtime = st.radio("OverTime", ("Yes", "No"), index=["Yes", "No"].index(employee_data["overtime"]))
+
+            col_save, col_cancel = st.columns(2)
+            with col_save:
+                if st.form_submit_button("💾 Guardar Cambios"):
+                    update_data = {
+                        "age": new_age,
+                        "department": new_department,
+                        "jobrole": new_jobrole,
+                        "monthlyincome": new_monthlyincome,
+                        "maritalstatus": new_maritalstatus,
+                        "overtime": new_overtime
+                    }
+                    update_employee_record(emp_id, update_data)
+                    st.rerun()
+            with col_cancel:
+                if st.form_submit_button("❌ Cancelar"):
+                    st.session_state["employee_to_edit"] = None
+                    st.rerun()
+
+
 
 
 
