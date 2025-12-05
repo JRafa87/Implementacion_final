@@ -10,6 +10,7 @@ import datetime
 import pandas as pd
 from profile import render_profile_page
 from employees_crud import render_employee_management_page
+from ppp_reconocimiento import render_recognition_page
 
 # ============================================================
 # 0. CONFIGURACIÓN E INICIALIZACIÓN
