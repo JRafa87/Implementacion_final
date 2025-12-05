@@ -98,7 +98,7 @@ def delete_employee_record(employee_number: int):
 # Función para limpiar la caché y recargar la página
 def clear_cache_and_rerun():
     st.cache_data.clear()  # Limpiar la caché de datos
-    st.experimental_rerun()  # Recargar la aplicación
+    st.rerun()  # Recargar la aplicación
 
 # Función de caché para obtener datos de empleados
 @st.cache_data(ttl=600)  # Caché por 10 minutos
@@ -130,12 +130,6 @@ def get_employees_data():
 # Página de gestión de empleados
 def render_employee_management_page():
     """Página de Gestión de Empleados (CRUD con Streamlit)."""
-    # Aseguramos que las claves de sesión estén inicializadas
-    if "show_add_form" not in st.session_state:
-        st.session_state["show_add_form"] = False
-    if "employee_to_edit" not in st.session_state:
-        st.session_state["employee_to_edit"] = None
-
     st.title("👥 Gestión de Empleados")
     st.markdown("Administración de perfiles y estados de los colaboradores de la empresa.")
 
@@ -156,7 +150,7 @@ def render_employee_management_page():
             clear_cache_and_rerun()  # Limpiar la caché de datos y recargar
 
     # Formulario de adición de empleado
-    if st.session_state["show_add_form"]:
+    if "show_add_form" in st.session_state and st.session_state["show_add_form"]:
         st.header("Formulario de Nuevo Empleado")
         with st.form("add_employee_form", clear_on_submit=True):
             col1, col2 = st.columns(2)
@@ -192,13 +186,7 @@ def render_employee_management_page():
                         st.error("Por favor, complete al menos EmployeeNumber y MonthlyIncome.")
             with col_cancel:
                 if st.form_submit_button("❌ Cancelar"):
-<<<<<<< HEAD
-                    st.session_state["show_add_form"] = False  # Cerrar el formulario de nuevo empleado
-                    st.experimental_rerun()  # Recargar la página y eliminar el formulario
-=======
                     st.session_state["show_add_form"] = False
-                    st.experimental_rerun()
->>>>>>> 796f69f248cc3df9ecdf759af163028b2b2bd39a
 
     # Mostrar empleados existentes
     df = get_employees_data()
@@ -222,7 +210,7 @@ def render_employee_management_page():
 
     else:
         st.warning("No hay empleados registrados en la base de datos.")
-
+        
 # Página de edición de empleado
 def render_edit_employee_form(emp_id):
     """Formulario de edición de empleado."""
@@ -268,9 +256,8 @@ def render_edit_employee_form(emp_id):
                     clear_cache_and_rerun()  # Limpiar caché y recargar
             with col_cancel:
                 if st.form_submit_button("❌ Cancelar"):
-                    st.session_state["employee_to_edit"] = None  # Cerrar formulario
-                    st.experimental_rerun()  # Recargar la página
-
+                    st.session_state["employee_to_edit"] = None
+                    st.rerun()
 
 
 
