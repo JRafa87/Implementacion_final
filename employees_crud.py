@@ -50,11 +50,6 @@ COLUMN_MAPPING = {
     "fechasalida": "FechaSalida",
 }
 
-# Listas de selección (ejemplos)
-DEPARTMENTS = ['HR', 'Finance', 'Engineering', 'Sales']
-JOB_ROLES = ['Manager', 'Engineer', 'Salesperson']
-MARITAL_STATUS = ['Single', 'Married', 'Divorced']
-GENDERS = ['Male', 'Female', 'Other']
 
 # Funciones CRUD
 def fetch_employees():
@@ -199,7 +194,7 @@ def render_employee_management_page():
                         add_employee(employee_data)
                         st.session_state["show_add_form"] = False
                         st.cache_data.clear()  # Limpiar la caché
-                        st.experimental_rerun()
+                        st.rerun()
                     else:
                         st.error("Por favor, complete al menos EmployeeNumber y MonthlyIncome.")
             with col_cancel:
