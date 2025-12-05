@@ -52,9 +52,9 @@ COLUMN_MAPPING = {
 
 # Funciones CRUD
 def fetch_employees():
-    """Obtiene todos los empleados de la tabla 'empleados'."""
+    """Obtiene todos los empleados de la tabla 'empleados' que no tienen fecha de salida."""
     try:
-        response = supabase.table("empleados").select("*").order("EmployeeNumber").execute()
+        response = supabase.table("empleados").select("*").is_("fechasalida", None).order("EmployeeNumber").execute()
         data = [{k.lower(): v for k, v in record.items()} for record in response.data]
         return data
     except Exception as e:
@@ -157,9 +157,9 @@ def render_employee_management_page():
             with col1:
                 new_employee_number = st.number_input("EmployeeNumber (ID)", min_value=1, step=1)
                 new_age = st.number_input("Age", min_value=18, max_value=100)
-                new_department = st.selectbox("Department", ["HR", "Tech", "Finance", "Marketing"])  # Asegúrate de definir los departamentos
+                new_department = st.selectbox("Department", ["HR", "Tech", "Finance", "Marketing"])
             with col2:
-                new_jobrole = st.selectbox("JobRole", ["Manager", "Developer", "Analyst", "Support"])  # Asegúrate de definir los roles
+                new_jobrole = st.selectbox("JobRole", ["Manager", "Developer", "Analyst", "Support"])
                 new_monthlyincome = st.number_input("MonthlyIncome", min_value=0)
                 new_maritalstatus = st.selectbox("MaritalStatus", ["Single", "Married", "Divorced"])
                 
@@ -180,8 +180,8 @@ def render_employee_management_page():
                             "overtime": new_overtime
                         }
                         add_employee(employee_data)
-                        st.session_state["show_add_form"] = False  # Ocultar el formulario
-                        clear_cache_and_rerun()  # Limpiar la caché y recargar los datos
+                        st.session_state["show_add_form"] = False
+                        clear_cache_and_rerun()  # Limpiar la caché
                     else:
                         st.error("Por favor, complete al menos EmployeeNumber y MonthlyIncome.")
             with col_cancel:
@@ -210,22 +210,7 @@ def render_employee_management_page():
 
     else:
         st.warning("No hay empleados registrados en la base de datos.")
-
-# Función para obtener un empleado por su ID
-def fetch_employee_by_id(employee_number: int):
-    """Obtiene los datos de un empleado por su ID."""
-    try:
-        response = supabase.table("empleados").select("*").eq("EmployeeNumber", employee_number).execute()
-        data = [{k.lower(): v for k, v in record.items()} for record in response.data]
-        if data:
-            return data[0]
-        else:
-            st.error(f"No se encontró el empleado con ID {employee_number}.")
-            return None
-    except Exception as e:
-        st.error(f"Error al obtener empleado con ID {employee_number}: {e}")
-        return None
-
+        
 # Página de edición de empleado
 def render_edit_employee_form(emp_id):
     """Formulario de edición de empleado."""
@@ -235,10 +220,25 @@ def render_edit_employee_form(emp_id):
         with st.form("edit_employee_form", clear_on_submit=True):
             # Cargar los datos actuales del empleado
             new_age = st.number_input("Age", min_value=18, max_value=100, value=employee_data["age"])
-            new_department = st.selectbox("Department", ["HR", "Tech", "Finance", "Marketing"], index=["HR", "Tech", "Finance", "Marketing"].index(employee_data["department"]))
-            new_jobrole = st.selectbox("JobRole", ["Manager", "Developer", "Analyst", "Support"], index=["Manager", "Developer", "Analyst", "Support"].index(employee_data["jobrole"]))
+            department_options = ["HR", "Tech", "Finance", "Marketing"]
+            new_department = st.selectbox(
+                "Department", 
+                department_options, 
+                index=department_options.index(employee_data["department"]) if employee_data["department"] in department_options else 0
+            )
+            jobrole_options = ["Manager", "Developer", "Analyst", "Support"]
+            new_jobrole = st.selectbox(
+                "JobRole", 
+                jobrole_options, 
+                index=jobrole_options.index(employee_data["jobrole"]) if employee_data["jobrole"] in jobrole_options else 0
+            )
             new_monthlyincome = st.number_input("MonthlyIncome", min_value=0, value=employee_data["monthlyincome"])
-            new_maritalstatus = st.selectbox("MaritalStatus", ["Single", "Married", "Divorced"], index=["Single", "Married", "Divorced"].index(employee_data["maritalstatus"]))
+            marital_status_options = ["Single", "Married", "Divorced"]
+            new_maritalstatus = st.selectbox(
+                "MaritalStatus", 
+                marital_status_options, 
+                index=marital_status_options.index(employee_data["maritalstatus"]) if employee_data["maritalstatus"] in marital_status_options else 0
+            )
             new_overtime = st.radio("OverTime", ("Yes", "No"), index=["Yes", "No"].index(employee_data["overtime"]))
 
             col_save, col_cancel = st.columns(2)
@@ -258,6 +258,7 @@ def render_edit_employee_form(emp_id):
                 if st.form_submit_button("❌ Cancelar"):
                     st.session_state["employee_to_edit"] = None
                     st.rerun()
+
 
 
 
