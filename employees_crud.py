@@ -271,12 +271,12 @@ def render_employee_management_page():
     
     # 1. Control de Acceso (Asegurar que el rol se establezca en el login de la app principal)
     # st.session_state.get("user_role") debe ser 'admin' o 'supervisor'
-    if st.session_state.get("user_role") not in ["admin", "supervisor"]:
-        st.error("🚫 Acceso Denegado. Solo administradores y supervisores pueden gestionar empleados.")
-        return
+    #if st.session_state.get("user_role") not in ["admin", "supervisor"]:
+        #st.error("🚫 Acceso Denegado. Solo administradores y supervisores pueden gestionar empleados.")
+        #return
 
     # Cargamos los datos para usarlos en todos los modos
-    df = get_employees_data()
+    #df = get_employees_data()
 
     # 2. Flujo de Formulario (Retorno Temprano - Solo mostramos UN formulario a la vez)
     
