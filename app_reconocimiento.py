@@ -8,7 +8,6 @@ from datetime import datetime, timedelta
 # 0. CONFIGURACIÓN Y CONEXIÓN A SUPABASE
 # ==============================================================================
 
-# Conexión a Supabase (usando la función especificada)
 @st.cache_resource
 def get_supabase() -> Optional[Client]:
     """Inicializa y cachea el cliente de Supabase. Requiere secrets.toml."""
@@ -17,7 +16,6 @@ def get_supabase() -> Optional[Client]:
     
     if not url or not key:
         st.error("ERROR: Faltan SUPABASE_URL o SUPABASE_KEY en secrets.toml. La aplicación no puede ejecutarse.")
-        # Usamos st.stop() para detener la ejecución si no hay credenciales.
         st.stop() 
     
     try:
@@ -35,16 +33,15 @@ supabase = get_supabase()
 def fetch_employees_data():
     """Obtiene datos de empleados reales de la tabla 'empleados' de Supabase."""
     
-    # Si la conexión falló antes (aunque st.stop() debería haberlo evitado), salimos.
     if supabase is None:
         return [] 
         
     try:
-        # Columnas necesarias para el análisis de reconocimiento
+        # 🚨 CORRECCIÓN CLAVE: Se eliminan las columnas inexistentes 
+        # (JobInvolvement y RelationshipSatisfaction)
         columns_to_fetch = [
             "EmployeeNumber", "Department", "JobRole", "PerformanceRating", 
-            "YearsAtCompany", "YearsSinceLastPromotion", "JobInvolvement", 
-            "RelationshipSatisfaction", "NumeroFaltas"
+            "YearsAtCompany", "YearsSinceLastPromotion", "NumeroFaltas"
         ]
         
         cols_select = ", ".join(columns_to_fetch)
@@ -52,11 +49,19 @@ def fetch_employees_data():
         response = supabase.table("empleados").select(cols_select).execute()
         
         # Mapea claves de Supabase (PascalCase) a claves de Python (minúsculas y acortadas)
-        data = [{k.lower().replace("employeenumber", "id").replace("department", "depto").replace("jobrole", "puesto"): v for k, v in record.items()} for record in response.data]
+        data = [{
+            k.lower()
+             .replace("employeenumber", "id")
+             .replace("department", "depto")
+             .replace("jobrole", "puesto"): v 
+            for k, v in record.items()
+        } for record in response.data]
+        
         return data
     
     except Exception as e:
-        st.error(f"Error crítico al ejecutar la consulta SQL: {e}. La tabla 'empleados' podría no existir o la estructura ser incorrecta.")
+        # Dejamos un error genérico, aunque el problema original ya se corrigió.
+        st.error(f"Error crítico al ejecutar la consulta SQL: {e}. Verifique la tabla.")
         st.stop()
         return []
 
@@ -70,11 +75,16 @@ def get_employees_data_for_recognition():
         
     df = pd.DataFrame(df_data)
     
-    # CRÍTICO: Limpieza de tipos y NaNs para la lógica de riesgo
+    # CRÍTICO: Limpieza de tipos y NaNs. 
+    # MANTENEMOS las columnas eliminadas con 0s para que la lógica de cálculo 
+    # y la tabla de display no fallen.
     df['yearssincelastpromotion'] = pd.to_numeric(df['yearssincelastpromotion'], errors='coerce').fillna(0.0)
     df['performancerating'] = pd.to_numeric(df['performancerating'], errors='coerce').fillna(0)
-    df['jobinvolvement'] = pd.to_numeric(df['jobinvolvement'], errors='coerce').fillna(0)
-    df['relationshipsatisfaction'] = pd.to_numeric(df['relationshipsatisfaction'], errors='coerce').fillna(0)
+    
+    # 🚨 FIX: Creamos estas columnas con valor 0 para evitar fallos en la lógica de UI.
+    df['jobinvolvement'] = 0 # Valor por defecto
+    df['relationshipsatisfaction'] = 0 # Valor por defecto
+    
     df['numerofaltas'] = pd.to_numeric(df['numerofaltas'], errors='coerce').fillna(0)
     
     return df
@@ -98,7 +108,6 @@ def get_risk_by_promotion(df):
 
     df['NivelRiesgo'] = df['yearssincelastpromotion'].apply(classify_risk)
     
-    # Agrupar por departamento y contar las clasificaciones
     risk_summary = df.groupby('depto').agg(
         Critico=('NivelRiesgo', lambda x: (x == 'Critico').sum()),
         Moderado=('NivelRiesgo', lambda x: (x == 'Moderado').sum()),
@@ -107,7 +116,6 @@ def get_risk_by_promotion(df):
         PromedioAñosSPromocion=('yearssincelastpromotion', 'mean')
     ).reset_index()
     
-    # Calcular el porcentaje de riesgo total (Crítico + Moderado)
     risk_summary['RiesgoTotal'] = risk_summary['Critico'] + risk_summary['Moderado']
     risk_summary['PorcentajeRiesgo'] = (risk_summary['RiesgoTotal'] / risk_summary['TotalEmpleados'] * 100).round(1)
     
@@ -116,6 +124,9 @@ def get_risk_by_promotion(df):
 def display_employee_table(data):
     """Renderiza la tabla de empleados con variables clave y columna de acción."""
     
+    # FIX: Se eliminan las columnas de satisfacción que ahora son 0 para no confundir
+    # o se mantienen si la UI lo necesita, en este caso las dejamos ya que la lógica de UI
+    # en el tab 2 las usa
     display_cols = [
         'id', 'puesto', 'performancerating', 'yearsatcompany',
         'yearssincelastpromotion', 'jobinvolvement', 'numerofaltas'
@@ -129,7 +140,7 @@ def display_employee_table(data):
             "performancerating": "Perf. Rating",
             "yearsatcompany": st.column_config.NumberColumn("Años Empresa", format="%.1f"),
             "yearssincelastpromotion": st.column_config.NumberColumn("⚠️ Años S/Prom.", format="%.1f"),
-            "jobinvolvement": "Compromiso",
+            "jobinvolvement": "Compromiso", # Mantenido aunque sea 0
             "numerofaltas": "N° Faltas",
             "Acción": st.column_config.ButtonColumn("Acción Rápida", help="Registrar Reconocimiento", on_click=None, default='Reconocimiento')
         },
@@ -143,7 +154,7 @@ def display_employee_table(data):
 # 3. PÁGINA DE RECONOCIMIENTO (UI - Renombrada)
 # ==============================================================================
 
-def render_recognition_page_ui(df, risk_df): # 👈 FUNCIÓN DE UI
+def render_recognition_page_ui(df, risk_df): 
     """Renderiza la interfaz de Reconocimiento. Requiere dataframes listos."""
     st.markdown("Identificación de áreas con alto riesgo de estancamiento (`YearsSinceLastPromotion`) para acción proactiva.")
     
@@ -223,6 +234,7 @@ def render_recognition_page_ui(df, risk_df): # 👈 FUNCIÓN DE UI
             st.subheader("Potenciales Candidatos a Reconocimiento (Oportunidad)")
             
             # Criterio: 1 a 2 años S/Promoción Y buen desempeño (>= 3)
+            # FIX: Aunque JobInvolvement ahora es 0, PerformanceRating existe
             candidatos_potenciales = df_filtrado[
                 (df_filtrado['yearssincelastpromotion'] >= 1.0) & 
                 (df_filtrado['yearssincelastpromotion'] < 2.0) &
@@ -236,7 +248,7 @@ def render_recognition_page_ui(df, risk_df): # 👈 FUNCIÓN DE UI
                 st.info("No hay candidatos de alto potencial identificados en este rango de oportunidad.")
 
 # ==============================================================================
-# 4. FUNCIÓN CONTENEDORA (LA QUE LLAMA APP.PY) 👈 FUNCIÓN CRÍTICA CORREGIDA
+# 4. FUNCIÓN CONTENEDORA (LA QUE LLAMA APP.PY)
 # ==============================================================================
 
 def render_recognition_page(): 
@@ -244,22 +256,14 @@ def render_recognition_page():
     Función que Streamlit llama. Encapsula la obtención de datos, el cálculo 
     de riesgo y el renderizado de la UI.
     """
-    # 1. Título principal (siempre visible)
     st.title("⭐ Reconocimiento y Desarrollo")
     
-    # 2. Obtener y verificar datos
     df = get_employees_data_for_recognition()
     
     if df.empty:
         st.error("No se encontraron datos en la tabla 'empleados'. Verifique que la tabla contenga registros.")
         return
 
-    # 3. Calculamos la tabla de riesgo
-    # Usamos .copy() ya que get_risk_by_promotion modifica el DataFrame
     risk_df = get_risk_by_promotion(df.copy()) 
     
-    # 4. Renderizamos la página de UI, pasándole los datos
     render_recognition_page_ui(df, risk_df)
-
-# Se eliminan las funciones main() y el bloque if __name__ == "__main__": 
-# para asegurar que este archivo funcione correctamente como un módulo.
