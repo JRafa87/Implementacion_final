@@ -48,10 +48,7 @@ def get_employees_data_for_dashboard():
         df['FechaSalida'] = pd.to_datetime(df['FechaSalida'], errors='coerce')
         
         # 1. Definir la Fecha de Referencia para Empleados Activos (Censura a la Derecha)
-        # Asume que si FechaSalida es NULL, el empleado sigue activo, y Attrition es 'No' (implícito o explícito)
-        
-        # Intentamos obtener la columna 'Attrition' que no está en tu CREATE TABLE, 
-        # pero es fundamental. Asumimos que si FechaSalida es NULL, Attrition es 'No'.
+        # Asumimos que si FechaSalida es NULL, Attrition es 'No'.
         if 'Attrition' not in df.columns:
             df['Attrition'] = df['FechaSalida'].apply(lambda x: 'No' if pd.isna(x) else 'Yes')
 
@@ -125,9 +122,9 @@ def render_kpi_card(title, value, unit, color):
 # ==============================================================================
 
 def render_rotacion_dashboard():
-    # Configuración de página dentro de la función para ser modular
-    st.set_page_config(layout="wide", page_title="Dashboard de Rotación RR.HH.", initial_sidebar_state="expanded")
-    
+    # 🚨 CORRECCIÓN CRÍTICA: Se elimina st.set_page_config de aquí. 
+    # Debe estar solo en el archivo principal (app.py)
+
     data = get_employees_data_for_dashboard()
     
     if data.empty:
@@ -139,11 +136,12 @@ def render_rotacion_dashboard():
     st.title("🔥 Dashboard de Rotación y Retención")
     st.markdown("---")
 
-    # --- A. FILTROS GLOBALES ---
+    # --- A. FILTROS GLOBALES (Usando st.sidebar para que sean parte de la barra principal) ---
     st.sidebar.header("🎯 Filtros de Segmentación")
 
-    genero = st.sidebar.selectbox("Filtro por Género", ['All'] + list(data['Gender'].unique()))
-    departamento = st.sidebar.selectbox("Filtro por Departamento", ['All'] + list(data['Departamento'].unique()))
+    # Usamos keys para evitar conflictos de widgets entre páginas.
+    genero = st.sidebar.selectbox("Filtro por Género", ['All'] + list(data['Gender'].unique()), key='db_genero')
+    departamento = st.sidebar.selectbox("Filtro por Departamento", ['All'] + list(data['Departamento'].unique()), key='db_depto')
 
     data_filtered_general = filter_data(data, genero, departamento)
     data_filtered_renuncias = filter_data(data_renuncias, genero, departamento)
@@ -171,10 +169,7 @@ def render_rotacion_dashboard():
     # ==============================================================================
 
     st.header("2. 📈 Análisis de Retención (Kaplan-Meier)")
-    st.markdown("Muestra la **probabilidad de permanencia** en el tiempo, segmentado por un factor de riesgo. 
-
-[Image of Kaplan-Meier survival curve diagram]
-")
+    st.markdown("Muestra la **probabilidad de permanencia** en el tiempo, segmentado por un factor de riesgo. ")
 
     col_km_plot, col_km_control = st.columns([2, 1])
 
@@ -183,7 +178,8 @@ def render_rotacion_dashboard():
         survival_factor = st.selectbox(
             "Segmentar por:",
             options=['Departamento', 'Puesto', 'EstadoCivil', 'Gender', 'YearsSinceLastPromotion'],
-            index=0
+            index=0,
+            key='km_factor'
         )
         st.info(f"Compara el riesgo de rotación por **{survival_factor}**.")
 
@@ -194,6 +190,7 @@ def render_rotacion_dashboard():
         try:
             for name, grouped_df in data_filtered_general.groupby(survival_factor):
                 if not grouped_df.empty:
+                    # Usar DuracionDias y EventoRenuncia calculados
                     kmf.fit(grouped_df['DuracionDias'], event_observed=grouped_df['EventoRenuncia'], label=name)
                     kmf.plot(ax=ax_seg, ci_show=False)
                 
