@@ -268,5 +268,8 @@ def main():
     # Renderizamos la página
     render_recognition_page(df, risk_df)
 
+    # Llamar a la página correcta según el estado de la sesión
+    page_map.get(st.session_state.get("current_page", "Mi Perfil"), render_profile_page)()
+
 if __name__ == "__main__":
     main()
