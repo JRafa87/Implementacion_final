@@ -481,6 +481,19 @@ def render_placeholder_page(page_title):
 # 1. Se ejecuta al inicio para determinar el estado de la sesión
 session_is_active = check_session_state_hybrid()
 
+# Carga los datos antes de acceder a la página
+df = get_employees_data_for_recognition()
+if df.empty:
+    st.error("No se encontraron datos en la tabla de empleados.")
+    return
+
+# Calculamos el riesgo
+risk_df = get_risk_by_promotion(df)
+if risk_df.empty:
+    st.error("No se pudieron calcular los riesgos de promoción.")
+    return
+
+
 # 2. Control de Acceso
 if session_is_active:
     render_sidebar()
