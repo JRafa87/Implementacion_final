@@ -110,7 +110,7 @@ def render_public_survey():
             
             # --- VALIDACIÓN 1: Existencia y Actividad ---
             if not is_active:
-                st.error("❌ Acceso Denegado. El EmployeeNumber no está activo o no existe.")
+                st.error("❌ Acceso Denegado. El ID no está activo o no existe.")
                 st.session_state['employee_verified'] = False
                 return
             
