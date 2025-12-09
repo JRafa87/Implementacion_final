@@ -485,13 +485,13 @@ session_is_active = check_session_state_hybrid()
 df = get_employees_data_for_recognition()
 if df.empty:
     st.error("No se encontraron datos en la tabla de empleados.")
-    return
+    st.stop()
 
 # Calculamos el riesgo
 risk_df = get_risk_by_promotion(df)
 if risk_df.empty:
     st.error("No se pudieron calcular los riesgos de promoción.")
-    return
+    st.stop()
 
 
 # 2. Control de Acceso
