@@ -498,10 +498,7 @@ if session_is_active:
     
     # Ejecutar la función de renderizado para la página actual
     page_map.get(st.session_state.get("current_page", "Mi Perfil"), render_profile_page)()
-    if current_page == "Reconocimiento":
-        render_recognition_page(df, risk_df)
-    else:
-        page_map.get(current_page, render_profile_page)()
+
 else:
     # Si NO está autenticado
     render_auth_page()                    
