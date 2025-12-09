@@ -505,7 +505,7 @@ else:
     # Si NO está autenticado
     render_auth_page()                    
 
-Panel de Habilitación/Inhabilitación (Directamente en el Sidebar)
+#Panel de Habilitación/Inhabilitación (Directamente en el Sidebar)
         #    Esto solo se ejecuta si el rol es Admin o Supervisor
         if user_role in ["admin", "supervisor"]:
             # CRÍTICO: Llamamos a la función que renderiza los selectores y checkboxes
