@@ -46,7 +46,7 @@ def fetch_employees_data():
         
         cols_select = ", ".join(columns_to_fetch)
         
-        response = supabase.table("empleados").select(cols_select).execute()
+        response = supabase.table("consolidado").select(cols_select).execute()
         
         # Mapea claves de Supabase (PascalCase) a claves de Python (minúsculas y acortadas)
         data = [{
