@@ -254,9 +254,17 @@ def main():
         st.error("No se encontraron datos en la tabla 'empleados'. Verifique que la tabla contenga registros.")
         return
 
+    # --- DEPURACIÓN: Verificar los datos de empleados ---
+    st.write("Datos de empleados obtenidos:")
+    st.write(df.head())
+
     # Calculamos la tabla de riesgo una sola vez
     risk_df = get_risk_by_promotion(df)
     
+    # --- DEPURACIÓN: Verificar los datos de riesgo calculados ---
+    st.write("Datos de riesgo calculados:")
+    st.write(risk_df.head())  # Muestra las primeras filas de los dat
+
     # Renderizamos la página
     render_recognition_page(df, risk_df)
 
