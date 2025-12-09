@@ -8,6 +8,7 @@ from typing import Optional
 # 1. FUNCIONES DE CONFIGURACIÓN (CRUD)
 # ==============================================================================
 
+# Añadir la invalidación de caché para que los cambios se reflejen
 def update_survey_config(supabase: Client, key: str, value: str):
     """Actualiza un valor en la tabla 'configuracion_encuesta' de Supabase."""
     if supabase is None: 
@@ -19,12 +20,17 @@ def update_survey_config(supabase: Client, key: str, value: str):
             .eq("clave", key) \
             .execute()
         st.toast(f"✅ Configuración '{key}' actualizada a: {value}")
+        
+        # 💡 CORRECCIÓN/MEJORA: Invalidar la caché para forzar la re-lectura inmediata
+        get_survey_config.clear()
+        
         return True
     except Exception as e:
         st.error(f"Error al actualizar la configuración: {e}")
         return False
 
-@st.cache_data(ttl=1)
+# 💡 CORRECCIÓN: Se añade hash_funcs para que el objeto Client sea hasheable
+@st.cache_data(ttl=1, hash_funcs={Client: lambda _: None})
 def get_survey_config(supabase: Client):
     """Obtiene el estado de la configuración de la encuesta desde Supabase."""
     if supabase is None: return {'encuesta_habilitada_global': 'false', 'departamento_habilitado': 'NINGUNO'}
@@ -36,14 +42,17 @@ def get_survey_config(supabase: Client):
         st.error(f"Error al obtener configuración: {e}")
         return {'encuesta_habilitada_global': 'false', 'departamento_habilitado': 'NINGUNO'}
 
-@st.cache_data(ttl=600)
+# 💡 CORRECCIÓN: Se añade hash_funcs para que el objeto Client sea hasheable
+@st.cache_data(ttl=600, hash_funcs={Client: lambda _: None})
 def fetch_departments(supabase: Client):
     """Obtiene la lista única de departamentos para el selector de control."""
     if supabase is None: return []
     try:
         # Se asume que la tabla principal que contiene los departamentos es 'empleados'
         response = supabase.table("empleados").select("Department").distinct().execute()
-        return [d['Department'] for d in response.data]
+        
+        # Filtrar valores nulos o vacíos que puedan venir de la BD
+        return sorted([d['Department'] for d in response.data if d['Department']])
     except Exception:
         return []
 
@@ -68,20 +77,31 @@ def render_survey_control_panel(supabase: Client):
         key="global_survey_toggle"
     )
     if global_enabled != global_enabled_db:
-        update_survey_config(supabase, 'encuesta_habilitada_global', 'true' if global_enabled else 'false')
+        if update_survey_config(supabase, 'encuesta_habilitada_global', 'true' if global_enabled else 'false'):
+            st.rerun() # 💡 MEJORA: Forzar rerun tras cambio global
 
     # --- 2. Control por Área ---
-    dept_options = ["NINGUNO (Deshabilitar)", "TODOS (Global)"] + sorted(dept_list)
+    # 💡 MEJORA: Se eliminó la opción "TODOS (Global)" por ser redundante con el checkbox
+    dept_options = ["NINGUNO (Deshabilitar)"] + dept_list 
     
     selected_dept_db = config.get('departamento_habilitado', 'NINGUNO')
+    
+    # Manejar el caso donde el valor guardado ya no está en la lista de opciones (ej: "TODOS (Global)")
+    current_index = 0
+    if selected_dept_db in dept_options:
+        current_index = dept_options.index(selected_dept_db)
+
     selected_dept = st.sidebar.selectbox(
         "2. Habilitar por Departamento:", 
         options=dept_options,
-        index=dept_options.index(selected_dept_db) if selected_dept_db in dept_options else 0,
+        index=current_index,
+        disabled=global_enabled, # 💡 MEJORA: Deshabilitar si el global está activo
         key="dept_survey_select"
     )
+    
     if selected_dept != selected_dept_db:
-        update_survey_config(supabase, 'departamento_habilitado', selected_dept)
+        if update_survey_config(supabase, 'departamento_habilitado', selected_dept):
+            st.rerun() # 💡 MEJORA: Forzar rerun tras cambio de departamento
 
     # --- Mensajes de Estado ---
     st.sidebar.markdown("---")
@@ -89,8 +109,8 @@ def render_survey_control_panel(supabase: Client):
     st.sidebar.code("https://encuestaimplementacion.streamlit.app/") 
     
     if global_enabled:
-        st.sidebar.success("Estado: ACTIVA para TODOS.")
+        st.sidebar.success("Estado: ACTIVA para TODOS (Prioridad Global).")
     elif selected_dept != "NINGUNO (Deshabilitar)":
-        st.sidebar.warning(f"Estado: ACTIVA SÓLO para {selected_dept}")
+        st.sidebar.warning(f"Estado: ACTIVA SÓLO para **{selected_dept}**")
     else:
         st.sidebar.info("Estado: DESHABILITADA TOTALMENTE.")
