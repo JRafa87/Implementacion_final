@@ -493,13 +493,15 @@ if session_is_active:
         "Gestión de Empleados":lambda: render_employee_management_page() , # Función CRUD dedicada
         "Predicción desde Archivo": lambda: render_placeholder_page("Predicción desde Archivo 📁"),
         "Predicción Manual": lambda: render_placeholder_page("Predicción Manual ✏️"),
-        "Reconocimiento": lambda: render_recognition_page(df, risk_df)
+        "Reconocimiento": render_recognition_page
     }
     
     # Ejecutar la función de renderizado para la página actual
     page_map.get(st.session_state.get("current_page", "Mi Perfil"), render_profile_page)()
-    # 3. Llamar a la función de la página correspondiente
-    page_map.get(current_page, render_profile_page)()
+    if current_page == "Reconocimiento":
+        render_recognition_page(df, risk_df)
+    else:
+        page_map.get(current_page, render_profile_page)()
 else:
     # Si NO está autenticado
     render_auth_page()                    
