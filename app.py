@@ -12,6 +12,7 @@ from profile import render_profile_page
 from employees_crud import render_employee_management_page
 from app_reconocimiento import render_recognition_page
 from dashboard_rotacion import render_rotacion_dashboard
+from survey_control_logic import render_survey_control_panel
 
 # ============================================================
 # 0. CONFIGURACIÓN E INICIALIZACIÓN
@@ -504,3 +505,8 @@ else:
     # Si NO está autenticado
     render_auth_page()                    
 
+Panel de Habilitación/Inhabilitación (Directamente en el Sidebar)
+        #    Esto solo se ejecuta si el rol es Admin o Supervisor
+        if user_role in ["admin", "supervisor"]:
+            # CRÍTICO: Llamamos a la función que renderiza los selectores y checkboxes
+            render_survey_control_panel(supabase)
