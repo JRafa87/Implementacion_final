@@ -394,7 +394,7 @@ def render_auth_page():
 
 def render_sidebar():
     """Renderiza la barra lateral con información de la sesión y navegación."""
-    user_role = st.session_state.get('user_role', 'guest')
+    
     # Acceder a current_page de forma segura con .get() y un valor por defecto.
     current_page = st.session_state.get("current_page", "Mi Perfil") 
     
@@ -469,7 +469,7 @@ def render_sidebar():
         # -----------------------------------------------------------------
         
         # Asumiendo que 'supervisor' o 'admin' tienen permisos para controlar la encuesta.
-        if user_role in ["admin", "supervisor"]: 
+        #if user_role in ["admin", "supervisor"]: 
             # El panel ya usa st.sidebar internamente, solo lo llamamos.
             # Pasamos el cliente 'supabase' que es necesario.
             render_survey_control_panel(supabase)
