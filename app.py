@@ -498,7 +498,8 @@ if session_is_active:
     
     # Ejecutar la función de renderizado para la página actual
     page_map.get(st.session_state.get("current_page", "Mi Perfil"), render_profile_page)()
-    
+    # 3. Llamar a la función de la página correspondiente
+    page_map.get(current_page, render_profile_page)()
 else:
     # Si NO está autenticado
     render_auth_page()                    
