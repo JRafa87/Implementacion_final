@@ -4,3 +4,4 @@ httpx-oauth
 pyjwt
 httpx
 pandas
+lifelines
