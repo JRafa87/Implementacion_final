@@ -472,7 +472,7 @@ def render_sidebar():
         if user_role in ["admin", "supervisor"]: 
             # El panel ya usa st.sidebar internamente, solo lo llamamos.
             # Pasamos el cliente 'supabase' que es necesario.
-        render_survey_control_panel(supabase)
+            render_survey_control_panel(supabase)
 
 
 def render_placeholder_page(page_title):
