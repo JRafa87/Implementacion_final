@@ -27,7 +27,7 @@ def get_supabase() -> Optional[Client]:
 supabase = get_supabase()
 
 # ==============================================================================
-# 1. FUNCIONES DE DATOS (Solo fetch real)
+# 1. FUNCIONES DE DATOS
 # ==============================================================================
 
 def fetch_employees_data():
@@ -37,8 +37,8 @@ def fetch_employees_data():
         return [] 
         
     try:
-        # 🚨 CORRECCIÓN CLAVE: Se eliminan las columnas inexistentes 
-        # (JobInvolvement y RelationshipSatisfaction)
+        # 🚨 CORRECCIÓN: SOLO se seleccionan las columnas que existen en tu tabla.
+        # Se eliminaron: JobInvolvement y RelationshipSatisfaction.
         columns_to_fetch = [
             "EmployeeNumber", "Department", "JobRole", "PerformanceRating", 
             "YearsAtCompany", "YearsSinceLastPromotion", "NumeroFaltas"
@@ -60,7 +60,6 @@ def fetch_employees_data():
         return data
     
     except Exception as e:
-        # Dejamos un error genérico, aunque el problema original ya se corrigió.
         st.error(f"Error crítico al ejecutar la consulta SQL: {e}. Verifique la tabla.")
         st.stop()
         return []
@@ -75,17 +74,14 @@ def get_employees_data_for_recognition():
         
     df = pd.DataFrame(df_data)
     
-    # CRÍTICO: Limpieza de tipos y NaNs. 
-    # MANTENEMOS las columnas eliminadas con 0s para que la lógica de cálculo 
-    # y la tabla de display no fallen.
+    # Limpieza de tipos y NaNs
     df['yearssincelastpromotion'] = pd.to_numeric(df['yearssincelastpromotion'], errors='coerce').fillna(0.0)
     df['performancerating'] = pd.to_numeric(df['performancerating'], errors='coerce').fillna(0)
-    
-    # 🚨 FIX: Creamos estas columnas con valor 0 para evitar fallos en la lógica de UI.
-    df['jobinvolvement'] = 0 # Valor por defecto
-    df['relationshipsatisfaction'] = 0 # Valor por defecto
-    
     df['numerofaltas'] = pd.to_numeric(df['numerofaltas'], errors='coerce').fillna(0)
+    
+    # 🚨 FIX para lógica de UI: Creamos las columnas faltantes con valor 0 para que no falle.
+    df['jobinvolvement'] = 0 
+    df['relationshipsatisfaction'] = 0 
     
     return df
 
@@ -124,9 +120,6 @@ def get_risk_by_promotion(df):
 def display_employee_table(data):
     """Renderiza la tabla de empleados con variables clave y columna de acción."""
     
-    # FIX: Se eliminan las columnas de satisfacción que ahora son 0 para no confundir
-    # o se mantienen si la UI lo necesita, en este caso las dejamos ya que la lógica de UI
-    # en el tab 2 las usa
     display_cols = [
         'id', 'puesto', 'performancerating', 'yearsatcompany',
         'yearssincelastpromotion', 'jobinvolvement', 'numerofaltas'
@@ -140,9 +133,10 @@ def display_employee_table(data):
             "performancerating": "Perf. Rating",
             "yearsatcompany": st.column_config.NumberColumn("Años Empresa", format="%.1f"),
             "yearssincelastpromotion": st.column_config.NumberColumn("⚠️ Años S/Prom.", format="%.1f"),
-            "jobinvolvement": "Compromiso", # Mantenido aunque sea 0
+            "jobinvolvement": "Compromiso",
             "numerofaltas": "N° Faltas",
-            "Acción": st.column_config.ButtonColumn("Acción Rápida", help="Registrar Reconocimiento", on_click=None, default='Reconocimiento')
+            # 🚨 FIX: Se elimina la configuración de ButtonColumn para evitar el AttributeError
+            # en entornos antiguos de Streamlit Cloud.
         },
         disabled=display_cols, 
         hide_index=True,
@@ -234,7 +228,6 @@ def render_recognition_page_ui(df, risk_df):
             st.subheader("Potenciales Candidatos a Reconocimiento (Oportunidad)")
             
             # Criterio: 1 a 2 años S/Promoción Y buen desempeño (>= 3)
-            # FIX: Aunque JobInvolvement ahora es 0, PerformanceRating existe
             candidatos_potenciales = df_filtrado[
                 (df_filtrado['yearssincelastpromotion'] >= 1.0) & 
                 (df_filtrado['yearssincelastpromotion'] < 2.0) &
@@ -258,6 +251,7 @@ def render_recognition_page():
     """
     st.title("⭐ Reconocimiento y Desarrollo")
     
+    # Lógica de datos y cálculo de riesgo
     df = get_employees_data_for_recognition()
     
     if df.empty:
@@ -266,4 +260,5 @@ def render_recognition_page():
 
     risk_df = get_risk_by_promotion(df.copy()) 
     
+    # Renderiza la interfaz
     render_recognition_page_ui(df, risk_df)
