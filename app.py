@@ -464,6 +464,17 @@ def render_sidebar():
         if st.button("Cerrar Sesión", use_container_width=True):
             handle_logout()
 
+        # -----------------------------------------------------------------
+        # <--- AÑADIR ESTE BLOQUE DE CONTROL DE ENCUESTAS (ADMIN) --->
+        # -----------------------------------------------------------------
+        
+        # Asumiendo que 'supervisor' o 'admin' tienen permisos para controlar la encuesta.
+        if user_role in ["admin", "supervisor"]: 
+            # El panel ya usa st.sidebar internamente, solo lo llamamos.
+            # Pasamos el cliente 'supabase' que es necesario.
+            render_survey_control_panel(supabase)
+
+
 def render_placeholder_page(page_title):
     """Función de marcador de posición para páginas futuras (sin la gestión de empleados)."""
     st.title(page_title)
