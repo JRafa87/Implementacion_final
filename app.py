@@ -467,9 +467,9 @@ def render_sidebar():
         # -----------------------------------------------------------------
         # <--- AÑADIR ESTE BLOQUE DE CONTROL DE ENCUESTAS (ADMIN) --->
         # -----------------------------------------------------------------
-        st.session_state.get("user_role", "guest")
+        
         # Asumiendo que 'supervisor' o 'admin' tienen permisos para controlar la encuesta.
-        if user_role in ["admin", "supervisor"]: 
+        #if user_role in ["admin", "supervisor"]: 
             # El panel ya usa st.sidebar internamente, solo lo llamamos.
             # Pasamos el cliente 'supabase' que es necesario.
             render_survey_control_panel(supabase)
