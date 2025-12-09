@@ -5,3 +5,4 @@ pyjwt
 httpx
 pandas
 lifelines
+plotly
