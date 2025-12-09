@@ -463,13 +463,6 @@ def render_sidebar():
         
         if st.button("Cerrar Sesión", use_container_width=True):
             handle_logout()
-        st.markdown("---")    
-
-        #Panel de Habilitación/Inhabilitación (Directamente en el Sidebar)
-        #    Esto solo se ejecuta si el rol es Admin o Supervisor
-        if user_role in ["admin", "supervisor"]:
-            # CRÍTICO: Llamamos a la función que renderiza los selectores y checkboxes
-            render_survey_control_panel(supabase)
 
 def render_placeholder_page(page_title):
     """Función de marcador de posición para páginas futuras (sin la gestión de empleados)."""
