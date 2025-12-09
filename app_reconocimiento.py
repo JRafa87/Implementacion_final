@@ -140,12 +140,11 @@ def display_employee_table(data):
     st.markdown("") 
 
 # ==============================================================================
-# 3. PÁGINA DE RECONOCIMIENTO (MAIN RENDER)
+# 3. PÁGINA DE RECONOCIMIENTO (UI - Renombrada)
 # ==============================================================================
 
-def render_recognition_page(df, risk_df):
-    """Renderiza la interfaz de Reconocimiento."""
-    st.title("⭐ Reconocimiento y Desarrollo")
+def render_recognition_page_ui(df, risk_df): # 👈 FUNCIÓN DE UI
+    """Renderiza la interfaz de Reconocimiento. Requiere dataframes listos."""
     st.markdown("Identificación de áreas con alto riesgo de estancamiento (`YearsSinceLastPromotion`) para acción proactiva.")
     
     # --- 1. Alertas Agregadas por Nivel de Riesgo (Accionable Directo) ---
@@ -153,8 +152,7 @@ def render_recognition_page(df, risk_df):
 
     criticas = risk_df[risk_df['Critico'] > 0]
     moderadas = risk_df[(risk_df['Moderado'] > 0) & (risk_df['Critico'] == 0)]
-    bajo_riesgo = risk_df[risk_df['RiesgoTotal'] == 0]
-
+    
     if not criticas.empty:
         st.error(
             f"🛑 **RIESGO CRÍTICO:** {criticas['Critico'].sum()} empleados en total (en {len(criticas)} áreas) llevan **más de 3 años** sin promoción. **Revisión INMEDIATA.**"
@@ -163,9 +161,7 @@ def render_recognition_page(df, risk_df):
         st.warning(
             f"⚠️ **RIESGO MODERADO:** {moderadas['Moderado'].sum()} empleados en total (en {len(moderadas)} áreas) llevan **2 a 3 años** sin promoción. Iniciar seguimiento de desarrollo."
         )
-    if not criticas.empty or not moderadas.empty:
-        pass 
-    else:
+    if criticas.empty and moderadas.empty:
         st.success(
             f"✅ **ESTADO ÓPTIMO:** Todas las áreas están bajo el umbral de riesgo de estancamiento. Refuerzo positivo."
         )
@@ -240,36 +236,30 @@ def render_recognition_page(df, risk_df):
                 st.info("No hay candidatos de alto potencial identificados en este rango de oportunidad.")
 
 # ==============================================================================
-# 4. FUNCIÓN PRINCIPAL
+# 4. FUNCIÓN CONTENEDORA (LA QUE LLAMA APP.PY) 👈 FUNCIÓN CRÍTICA CORREGIDA
 # ==============================================================================
 
-def main():
-    st.set_page_config(layout="wide", page_title="Gestión de Reconocimiento")
+def render_recognition_page(): 
+    """
+    Función que Streamlit llama. Encapsula la obtención de datos, el cálculo 
+    de riesgo y el renderizado de la UI.
+    """
+    # 1. Título principal (siempre visible)
+    st.title("⭐ Reconocimiento y Desarrollo")
     
+    # 2. Obtener y verificar datos
     df = get_employees_data_for_recognition()
     
     if df.empty:
-        # Si fetch_employees_data() ya ha fallado, la ejecución se detiene antes.
-        # Si llega aquí, significa que la BD no devolvió filas.
         st.error("No se encontraron datos en la tabla 'empleados'. Verifique que la tabla contenga registros.")
         return
 
-    # --- DEPURACIÓN: Verificar los datos de empleados ---
-    st.write("Datos de empleados obtenidos:")
-    st.write(df.head())
-
-    # Calculamos la tabla de riesgo una sola vez
-    risk_df = get_risk_by_promotion(df)
+    # 3. Calculamos la tabla de riesgo
+    # Usamos .copy() ya que get_risk_by_promotion modifica el DataFrame
+    risk_df = get_risk_by_promotion(df.copy()) 
     
-    # --- DEPURACIÓN: Verificar los datos de riesgo calculados ---
-    st.write("Datos de riesgo calculados:")
-    st.write(risk_df.head())  # Muestra las primeras filas de los dat
+    # 4. Renderizamos la página de UI, pasándole los datos
+    render_recognition_page_ui(df, risk_df)
 
-    # Renderizamos la página
-    render_recognition_page(df, risk_df)
-
-    # Llamar a la página correcta según el estado de la sesión
-    page_map.get(st.session_state.get("current_page", "Mi Perfil"), render_profile_page)()
-
-if __name__ == "__main__":
-    main()
+# Se eliminan las funciones main() y el bloque if __name__ == "__main__": 
+# para asegurar que este archivo funcione correctamente como un módulo.
