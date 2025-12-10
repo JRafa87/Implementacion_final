@@ -13,9 +13,9 @@ warnings.filterwarnings("ignore")
 # ====================================================================
 
 # RUTAS DE TUS ARCHIVOS
-MODEL_PATH = 'xgboost_model.pkl' 
-SCALER_PATH = 'scaler.pkl' 
-MAPPING_PATH = 'categorical_mapping.pkl' # <-- RUTA AÑADIDA
+MODEL_PATH = 'models/xgboost_model.pkl' 
+SCALER_PATH = 'models/scaler.pkl' 
+MAPPING_PATH = 'models/categorical_mapping.pkl' # <-- RUTA AÑADIDA
 
 # **IMPORTANTE:** MODEL_COLUMNS debe contener los nombres originales de las columnas
 # categóricas, ya que serán transformadas por el mapeo numérico (Label Encoding)
