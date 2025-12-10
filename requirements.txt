@@ -12,3 +12,6 @@ matplotlib
 scikit-learn
 warnings
 joblib
+openpyxl
+xlsxwriter
+plotly.express
