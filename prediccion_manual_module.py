@@ -6,7 +6,8 @@ import streamlit as st
 from typing import Dict, Any, List
 import os
 import warnings
-from supabase import create_client, Client # Importación de Supabase
+from supabase import create_client, Client 
+
 warnings.filterwarnings("ignore")
 
 # ====================================================================
@@ -68,18 +69,28 @@ WHAT_IF_VARIABLES = {
     "ConfianzaEmpresa": "Confianza en la Empresa (1-4)"
 }
 
-# Conexión a Supabase (asegúrate de tener tus credenciales)
-@st.cache_resource
-def get_supabase() -> Client:
-    """Inicializa y cachea el cliente de Supabase."""
-    url = st.secrets.get("SUPABASE_URL")
-    key = st.secrets.get("SUPABASE_KEY")
-    if not url or not key:
-        st.error("ERROR: Faltan SUPABASE_URL o SUPABASE_KEY en secrets.toml. La autenticación fallará.")
-        st.stop()  # Detenemos el script si las credenciales no están
-    return create_client(url, key)
+# ====================================================================
+# 2. CONFIGURACIÓN DE SUPABASE (Adaptada a st.secrets)
+# ====================================================================
 
-supabase = get_supabase()
+EMPLOYEE_TABLE = "consolidado" # La tabla que contiene los datos
+KEY_COLUMN = "EmployeeNumber" # La columna de la BD para identificar al empleado
+
+@st.cache_resource
+def init_supabase_client():
+    """Inicializa el cliente de Supabase usando st.secrets."""
+    try:
+        url = st.secrets.get("SUPABASE_URL")
+        key = st.secrets.get("SUPABASE_KEY")
+        
+        if not url or not key:
+            st.error("❌ ERROR: Faltan 'SUPABASE_URL' o 'SUPABASE_KEY' en tu archivo `.streamlit/secrets.toml`. No se puede conectar a la BD.")
+            return None
+            
+        return create_client(url, key)
+    except Exception as e:
+        st.error(f"❌ Error al inicializar Supabase: {e}")
+        return None
 
 # ====================================================================
 # 3. FUNCIONES DE CARGA DE DATOS Y PREDICCIÓN
@@ -97,6 +108,7 @@ def load_model_artefacts():
     """Carga el modelo, el escalador y el mapeo categórico."""
     model, scaler, mapping = None, None, None
     try:
+        # Aquí se debería manejar la carga de archivos, omitido por brevedad
         model = joblib.load(MODEL_PATH) if os.path.exists(MODEL_PATH) else None
         scaler = joblib.load(SCALER_PATH) if os.path.exists(SCALER_PATH) else None
         mapping = joblib.load(MAPPING_PATH) if os.path.exists(MAPPING_PATH) else None
@@ -375,12 +387,17 @@ def render_manual_prediction_tab():
     # --- PREDICCIÓN BASE Y RESULTADOS ---
     # --------------------------------------------------------------------
     st.markdown("---")
+    
+    # Lógica de la predicción actual, ahora también se usa para el what-if base
+    prob_base_actual = st.session_state.get('prob_base', 0.0)
+
     if st.button("🔮 Ejecutar Predicción Actual", type="primary", use_container_width=True):
         
         _, prob_actual = preprocess_and_predict(user_input, model, scaler, mapping) 
         
         if prob_actual != -1.0:
             st.session_state['prob_base'] = prob_actual 
+            prob_base_actual = prob_actual # Actualiza la variable local para el renderizado
             
             recomendacion_str = generar_recomendacion(prob_actual, user_input)
             
@@ -418,17 +435,23 @@ def render_manual_prediction_tab():
     
     
     # ====================================================================
-    # B. ANÁLISIS WHAT-IF (SIMULACIÓN DE ESCENARIOS)
+    # B. ANÁLISIS WHAT-IF (SIMULACIÓN DE ESCENARIOS) - AUTÓNOMO
     # ====================================================================
     
     st.markdown("---")
     st.markdown("## 💡 Análisis What-If (Simulación de Escenarios)")
-
+    
+    # Si la probabilidad base no existe, la calculamos implícitamente
     if 'prob_base' not in st.session_state or st.session_state['prob_base'] == 0.0:
-        st.warning("Debe ejecutar la **Predicción Actual** para establecer la línea base antes de realizar un Análisis What-If.")
+         _, prob_base_actual = preprocess_and_predict(user_input, model, scaler, mapping)
+         st.session_state['prob_base'] = prob_base_actual
+    
+    prob_base_for_whatif = st.session_state.get('prob_base', prob_base_actual)
+    
+    if prob_base_for_whatif <= 0.0:
+        st.warning("No se pudo calcular la probabilidad base. Revise los datos de entrada o la conexión al modelo.")
         return
 
-    prob_base_for_whatif = st.session_state.get('prob_base')
     col_what_if_1, col_what_if_2 = st.columns(2)
     
     with col_what_if_1:
@@ -445,20 +468,31 @@ def render_manual_prediction_tab():
         
         # Lógica de inputs para el What-If
         if variable_key == 'MonthlyIncome':
-            new_value = st.number_input(f"Nuevo valor de {variable_name} (S/.)", 1000, 30000, int(current_value * 1.1), key='whatif_new_val')
+            # Sugerir un aumento del 10%
+            suggested_value = int(current_value * 1.1) if current_value else 5500
+            new_value = st.number_input(f"Nuevo valor de {variable_name} (S/.)", 1000, 30000, suggested_value, key='whatif_new_val')
         elif variable_key in ['TotalWorkingYears', 'YearsAtCompany']:
-            new_value = st.number_input(f"Nuevo valor de {variable_name}", 0, 50, current_value + 1, key='whatif_new_val_num')
+            # Sugerir un aumento de 1 año
+            new_value = st.number_input(f"Nuevo valor de {variable_name}", 0, 50, current_value + 1 if current_value < 50 else current_value, key='whatif_new_val_num')
         elif variable_key == 'JobLevel':
+            # Sugerir un ascenso
             new_value = st.slider(f"Nuevo valor de {variable_name}", 1, 5, current_value + 1 if current_value < 5 else 5, key='whatif_new_val_level')
         elif variable_key == 'OverTime':
-            new_value = st.selectbox(f"Nuevo valor de {variable_name}", overtime_options, index=safe_index(overtime_options, current_value), key='whatif_new_val_cat')
+            # Sugerir eliminar horas extra
+            new_value = st.selectbox(f"Nuevo valor de {variable_name}", overtime_options, index=safe_index(overtime_options, 'NO'), key='whatif_new_val_cat')
         elif variable_key in ['SatisfaccionSalarial', 'ConfianzaEmpresa']:
-            new_value = st.slider(f"Nuevo valor de {variable_name}", 1, 4, current_value, key='whatif_new_val_sat')
+            # Sugerir aumento de satisfacción
+            new_value = st.slider(f"Nuevo valor de {variable_name}", 1, 4, current_value + 1 if current_value < 4 else 4, key='whatif_new_val_sat')
         else:
             new_value = st.text_input(f"Nuevo valor de {variable_name}", str(current_value), key='whatif_new_val_text')
     
     if st.button("🚀 Ejecutar What-If", key='run_what_if', use_container_width=True):
         
+        # Validación
+        if new_value == current_value:
+             st.warning("El nuevo valor es idéntico al valor base. No hay cambio para simular.")
+             return
+
         prob_what_if = simular_what_if_individual(
             base_data=st.session_state['base_input'], 
             variable_to_change=variable_key,
@@ -470,7 +504,7 @@ def render_manual_prediction_tab():
         
         if prob_what_if != -1.0:
             prob_base = st.session_state['prob_base'] 
-            cambio_pct = (prob_what_if - prob_base) / prob_base * 100 if prob_base > 0 else 0
+            cambio_abs = prob_what_if - prob_base
             
             st.markdown("#### 🎯 Resultados de la Simulación")
             
@@ -481,7 +515,7 @@ def render_manual_prediction_tab():
                 st.metric(
                     f"Prob. Simulada", 
                     f"{prob_what_if:.1%}", 
-                    delta=f"{cambio_pct:.1f}%",
+                    delta=f"{cambio_abs * 100:+.1f} p.p. de cambio", # Cambio en puntos porcentuales
                     delta_color="inverse"
                 )
             
