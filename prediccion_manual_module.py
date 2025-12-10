@@ -197,36 +197,39 @@ def simular_what_if_individual(
     return prediction_proba
 
 def display_prediction_result(predicted_class: int, prediction_proba: float, title: str):
-    # ... (código para mostrar el resultado)
-    st.markdown(f"#### {title}")
+    """Muestra el resultado de la predicción con el formato de métricas deseado."""
     
-    if predicted_class == -1:
-        st.error("No se pudo realizar la predicción debido a un error de preprocesamiento.")
-        return
+    # Usamos un div fijo para que el resultado base no se mueva con la simulación.
+    with st.container(border=True):
+        st.markdown(f"#### {title}")
+        
+        if predicted_class == -1:
+            st.error("No se pudo realizar la predicción debido a un error de preprocesamiento.")
+            return
 
-    risk_label = "ALTO RIESGO (Acción requerida)" if prediction_proba >= 0.5 else "Bajo a Moderado (Monitoreo)"
-    
-    col_metric, col_detail = st.columns([1, 2])
+        risk_label = "ALTO RIESGO (Acción requerida)" if prediction_proba >= 0.5 else "Bajo a Moderado (Monitoreo)"
+        
+        col_metric, col_detail = st.columns([1, 2])
 
-    with col_metric:
-        st.metric(
-            label="Probabilidad de Renuncia",
-            value=f"{prediction_proba * 100:.2f}%",
-            delta=risk_label,
-            delta_color="inverse"
-        )
-    
-    with col_detail:
-        st.markdown("**Clase Predicha:**")
-        if prediction_proba >= 0.5: # Usamos la proba para consistencia
-            st.warning(f"🚨 **Riesgo ALTO**")
-        else:
-            st.success(f"✅ **Riesgo BAJO**")
-    
+        with col_metric:
+            st.metric(
+                label="Probabilidad de Renuncia",
+                value=f"{prediction_proba * 100:.2f}%",
+                delta=risk_label,
+                delta_color="inverse"
+            )
+        
+        with col_detail:
+            st.markdown("**Clase Predicha:**")
+            if prediction_proba >= 0.5:
+                st.warning(f"🚨 **Riesgo ALTO**")
+            else:
+                st.success(f"✅ **Riesgo BAJO**")
+        
     st.markdown("---") 
 
 # ====================================================================
-# FUNCIÓN DE SIMULACIÓN MULTI-VARIABLE (Paso 3)
+# FUNCIÓN DE SIMULACIÓN MULTI-VARIABLE (Paso 3 - SIN CAMBIOS)
 # ====================================================================
 
 def display_simulation_widgets(data: Dict[str, Any]) -> Dict[str, Any]:
@@ -266,7 +269,7 @@ def display_simulation_widgets(data: Dict[str, Any]) -> Dict[str, Any]:
     return user_inputs
 
 # ====================================================================
-# FUNCIÓN AUXILIAR PARA RECOMENDACIONES
+# FUNCIÓN DE RECOMENDACIONES (Paso 5 - SIN CAMBIOS EN LÓGICA)
 # ====================================================================
 
 def get_specific_action(area: str) -> str:
@@ -281,10 +284,6 @@ def get_specific_action(area: str) -> str:
         'Confianza en la Empresa': "Mejorar la comunicación de la estrategia y visión de la empresa con el empleado."
     }
     return actions.get(area, "Investigar más a fondo la causa de la insatisfacción.")
-
-# ====================================================================
-# FUNCIÓN MEJORADA: RECOMENDACIONES PERSONALIZADAS (Paso 5)
-# ====================================================================
 
 def display_recommendations(prob_base: float, base_data: Dict[str, Any]):
     """Muestra recomendaciones analíticas basadas en el riesgo y los datos base."""
@@ -304,14 +303,12 @@ def display_recommendations(prob_base: float, base_data: Dict[str, Any]):
     # 1. Parámetros de Riesgo (Umbrales)
     UMBRAL_BAJA_SATISFACCION = 2
     UMBRAL_BAJA_INTENCION = 2
-    UMBRAL_CARGA_ALTA = 4 # Más alto indica mayor carga (peor)
+    UMBRAL_CARGA_ALTA = 4 
 
     low_score_areas = {}
     
     # 2. Evaluación de Variables Clave
-    
-    # Variables de Compensación y Crecimiento
-    if base_data.get('MonthlyIncome', 5000) < 3500: # Valor ejemplo de bajo ingreso
+    if base_data.get('MonthlyIncome', 5000) < 3500: 
         low_score_areas['MonthlyIncome'] = get_specific_action('Ingreso Mensual')
     
     if base_data.get('JobLevel', 1) <= 1 and base_data.get('YearsAtCompany', 0) > 3:
@@ -320,7 +317,6 @@ def display_recommendations(prob_base: float, base_data: Dict[str, Any]):
     if base_data.get('YearsAtCompany', 0) >= 5 and base_data.get('YearsSinceLastPromotion', 0) >= 3:
         low_score_areas['YearsSinceLastPromotion'] = get_specific_action('Antigüedad/Rol')
 
-    # Variables de Satisfacción y Balance
     if base_data.get('SatisfaccionSalarial', 3) <= UMBRAL_BAJA_SATISFACCION:
         low_score_areas['SatisfaccionSalarial'] = get_specific_action('Satisfacción Salarial')
 
@@ -338,7 +334,6 @@ def display_recommendations(prob_base: float, base_data: Dict[str, Any]):
     if low_score_areas:
         st.markdown("**Acciones Prioritarias:**")
         
-        # Muestra las áreas de riesgo en una lista con sus acciones específicas
         st.markdown(
             "".join([
                 f"* **{ALL_DISPLAY_VARIABLES.get(k, k)}** (Valor actual: **{base_data.get(k)}**): {v}\n" 
@@ -348,14 +343,12 @@ def display_recommendations(prob_base: float, base_data: Dict[str, Any]):
         
         st.markdown("""
         ---
-        #### 📈 Uso de la Simulación What-If (Pasos 3 y 4):
-        * Utilice el **Paso 4 (Simulación Individual)** para probar el impacto de la acción recomendada (ej. subir sueldo) y ver cuánto se reduce el riesgo.
-        * Utilice el **Paso 3 (Simulación Multi-variable)** para construir un plan de retención (ej. subir sueldo + reducir carga + subir nivel de puesto) y medir el resultado combinado.
+        #### 📈 Guía para la Simulación What-If (Pasos 3 y 4):
+        * Utilice los **Pasos 3 y 4** para probar el impacto de las acciones recomendadas (ej. subir sueldo, reducir carga) y **cuantificar** la reducción de riesgo.
         """)
         
     else:
-        st.info("No se identificaron puntos de dolor obvios en las métricas de satisfacción. El riesgo alto puede deberse a factores históricos (ej. *YearsSinceLastPromotion*, *YearsInCurrentRole*) o variables que no son de satisfacción directa.")
-        st.markdown("Recomendación: Realizar una entrevista de seguimiento enfocada en el desarrollo profesional y la alineación con el *manager*.")
+        st.info("No se identificaron puntos de dolor obvios en las métricas de satisfacción. El riesgo alto puede deberse a factores históricos. Recomendación: Realizar una entrevista de seguimiento enfocada en el desarrollo profesional y la alineación con el *manager*.")
     
     st.markdown("---") 
 
@@ -393,6 +386,7 @@ def render_manual_prediction_tab():
         key='base_id_selector'
     )
     
+    # Si el ID cambia, reseteamos el estado de predicción y los resultados
     if selected_id != current_selected_id:
         st.session_state['base_predicted'] = False
         st.session_state['prob_base'] = 0.0
@@ -416,28 +410,33 @@ def render_manual_prediction_tab():
     
     disabled_button = (selected_id == "--- Seleccionar un Empleado Activo ---" and not employee_map)
 
+    # 2.1 Botón para ejecutar la predicción base
     if st.button(f"🔮 Ejecutar Predicción con Datos Actuales (ID: {selected_id})", type="primary", use_container_width=True, disabled=disabled_button):
         
         predicted_class, prediction_proba = preprocess_and_predict(st.session_state['base_input'], model, scaler, mapping)
         
         st.session_state['prob_base'] = prediction_proba
         st.session_state['base_predicted'] = True 
-        display_prediction_result(predicted_class, prediction_proba, "Resultado de la Predicción Actual")
+        # NOTA: La llamada a display_prediction_result se mueve fuera del IF para persistir.
         st.balloons()
         
-    st.markdown("---")
+    # 2.2 MOSTRAR EL RESULTADO DE FORMA PERSISTENTE
+    if st.session_state['base_predicted']:
+        display_prediction_result(
+            1 if st.session_state['prob_base'] >= 0.5 else 0, # Clase
+            st.session_state['prob_base'], # Probabilidad
+            "Resultado de la Predicción Actual"
+        )
         
     # --- VERIFICACIÓN DE ESTADO PARA SIMULACIONES Y RECOMENDACIONES ---
     if not st.session_state['base_predicted']:
         st.warning("⚠️ Debes ejecutar la Predicción Actual (Paso 2) antes de usar las Simulaciones What-If para establecer la Probabilidad Base.")
         return
 
-    # --- SECCIÓN 3: SIMULACIÓN WHAT-IF MULTI-VARIABLE (Completa, con sliders editables) ---
+    # --- SECCIÓN 3: SIMULACIÓN WHAT-IF MULTI-VARIABLE (Completa) ---
     
-    # 3.1 Mostrar y capturar los valores modificados
     simulated_data = display_simulation_widgets(st.session_state['base_input'])
     
-    # 3.2 Botón de Ejecución What-If y Comparación
     if st.button("🚀 Ejecutar Simulación **Multi-Variable** y Comparar", key='run_what_if_multi', type="secondary", use_container_width=True):
         
         prob_what_if_multi = preprocess_and_predict(simulated_data, model, scaler, mapping)[1]
@@ -481,7 +480,6 @@ def render_manual_prediction_tab():
     col_var, col_val = st.columns(2)
     
     with col_var:
-        # 4.1 Selector de la variable a modificar
         variable_label = st.selectbox(
             "Selecciona la variable a modificar:",
             options=list(WHAT_IF_VARIABLES.values()),
@@ -490,7 +488,6 @@ def render_manual_prediction_tab():
         variable_key = LABEL_TO_KEY[variable_label]
         
     with col_val:
-        # 4.2 Widget de entrada (Nuevo Valor)
         current_val = st.session_state['base_input'].get(variable_key, DEFAULT_MODEL_INPUTS.get(variable_key))
         
         if variable_key in ['MonthlyIncome', 'TotalWorkingYears', 'YearsAtCompany']:
@@ -509,7 +506,6 @@ def render_manual_prediction_tab():
 
     st.markdown("---")
     
-    # 4.3 Botón de Ejecución What-If Individual con lógica de comparación
     if st.button("🚀 Ejecutar Simulación **Individual** y Comparar", key='run_what_if_individual', type="secondary", use_container_width=True):
         
         prob_what_if_individual = simular_what_if_individual(
@@ -552,7 +548,7 @@ def render_manual_prediction_tab():
 
     st.markdown("---")
     
-    # --- SECCIÓN 5: RECOMENDACIONES (AL FINAL) ---
+    # --- SECCIÓN 5: RECOMENDACIONES (AHORA AL FINAL) ---
     display_recommendations(st.session_state['prob_base'], st.session_state['base_input'])
 
 
