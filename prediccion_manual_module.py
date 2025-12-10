@@ -344,7 +344,7 @@ def display_simulation_widgets(data: Dict[str, Any]) -> Dict[str, Any]:
     return user_inputs
 
 # ====================================================================
-# FUNCIÓN DE RECOMENDACIONES (Paso 5 - LÓGICA DE COMPARACIÓN NUEVA)
+# FUNCIÓN DE RECOMENDACIONES (Paso 5 - LÓGICA DE COMPARACIÓN)
 # ====================================================================
 
 def get_specific_action(area: str) -> str:
@@ -371,7 +371,7 @@ def display_recommendations(
     los resultados de las simulaciones What-If.
     """
     
-    st.header("5. 💡 Recomendaciones de Acción y Análisis Final")
+    st.header("5. 💡 Resultados del Análisis y Recomendaciones de Acción")
     
     # --- CASO 1: RIESGO BAJO ---
     if prob_base < 0.5:
@@ -387,6 +387,7 @@ def display_recommendations(
     
     best_reduction = 0.0
     best_scenario = "No se ejecutaron simulaciones de reducción."
+    best_prob = prob_base
     
     # Evaluar Simulación Multi-Variable
     if multi_result and multi_result['prob_what_if_multi'] < prob_base:
@@ -399,7 +400,8 @@ def display_recommendations(
     # Evaluar Simulación Individual
     if individual_result and individual_result['prob_what_if_individual'] < prob_base:
         individual_reduction = prob_base - individual_result['prob_what_if_individual']
-        if individual_reduction > best_reduction:
+        # Usamos > estricto para priorizar la multi-variable si el impacto es el mismo, pero aquí priorizamos la mayor reducción
+        if individual_reduction > best_reduction: 
             best_reduction = individual_reduction
             best_scenario = f"Simulación Individual (Variable: {WHAT_IF_VARIABLES.get(individual_result['variable_key'])})"
             best_prob = individual_result['prob_what_if_individual']
@@ -423,20 +425,20 @@ def display_recommendations(
             st.success(f"✅ **Recomendación Prioritaria:** Enfocarse en la acción específica sobre la variable **{WHAT_IF_VARIABLES.get(individual_result['variable_key'])}** (cambio a **{individual_result['new_value']}**), ya que es el cambio de mayor impacto aislado.")
 
     else:
-        # 2.2 Si no hay simulaciones de reducción o si no se ejecutaron
-        st.info("ℹ️ **Nota de Simulaciones:** No se ejecutaron simulaciones que redujeran el riesgo o el riesgo se mantuvo. Se requiere un análisis de puntos de dolor (siguiente sección).")
+        # 2.2 Si no hay simulaciones de reducción o si no se ejecutaron o aumentaron el riesgo
+        st.info("ℹ️ **Nota de Simulaciones:** No se han ejecutado simulaciones que reduzcan el riesgo, o las simulaciones ejecutadas no mostraron un impacto positivo significativo. El análisis se basará únicamente en los datos actuales.")
 
-    # 2.3 Análisis de Puntos de Dolor (Lógica anterior, útil si no hay simulación)
+    # 2.3 Análisis de Puntos de Dolor (Identifica qué variables están en riesgo)
     
     st.markdown("#### Análisis de Puntos de Dolor y Acciones Clave")
     
-    # (Se mantiene la lógica de umbrales para identificar las áreas débiles)
     UMBRAL_BAJA_SATISFACCION = 2
     UMBRAL_BAJA_INTENCION = 2
     UMBRAL_CARGA_ALTA = 4 
 
     low_score_areas = {}
     
+    # Evaluación de Variables Clave (Lógica para indicar qué está afectando el riesgo)
     if base_data.get('MonthlyIncome', 5000) < 3500: 
         low_score_areas['MonthlyIncome'] = get_specific_action('Ingreso Mensual')
     
@@ -458,10 +460,10 @@ def display_recommendations(
     if base_data.get('ConfianzaEmpresa', 3) <= UMBRAL_BAJA_SATISFACCION:
         low_score_areas['ConfianzaEmpresa'] = get_specific_action('Confianza en la Empresa')
 
-    # 3. Presentación de Resultados
+    # Presentación de Puntos de Dolor
     
     if low_score_areas:
-        st.markdown("**Acciones Basadas en Datos Actuales (Si la simulación no fue concluyente):**")
+        st.markdown("**Áreas de Intervención Urgente (Causas del Riesgo):**")
         
         st.markdown(
             "".join([
@@ -471,12 +473,12 @@ def display_recommendations(
         )
         
     else:
-        st.info("No se identificaron puntos de dolor obvios en las métricas de satisfacción. El riesgo alto puede deberse a factores históricos o a combinaciones complejas de variables que la simulación múltiple debe explorar más a fondo.")
+        st.info("No se identificaron puntos de dolor obvios en las métricas de satisfacción. El riesgo alto puede deberse a factores históricos o a combinaciones complejas de variables. Sugerencia: Use las simulaciones para probar hipótesis de intervención.")
     
     st.markdown("---") 
 
 # ====================================================================
-# FUNCIÓN DE RENDERIZADO PRINCIPAL
+# FUNCIÓN DE RENDERIZADO PRINCIPAL (Añadido nuevo botón)
 # ====================================================================
 
 def render_manual_prediction_tab():
@@ -497,7 +499,7 @@ def render_manual_prediction_tab():
     if 'base_predicted' not in st.session_state: st.session_state['base_predicted'] = False
     if 'what_if_multi_result' not in st.session_state: st.session_state['what_if_multi_result'] = None 
     if 'what_if_individual_result' not in st.session_state: st.session_state['what_if_individual_result'] = None
-
+    if 'recommendation_triggered' not in st.session_state: st.session_state['recommendation_triggered'] = False # NUEVO
 
     # --- SECCIÓN 1: SELECCIÓN DE EMPLEADO BASE ---
     st.header("1. Selecciona el Empleado y sus Datos Base")
@@ -517,6 +519,7 @@ def render_manual_prediction_tab():
         st.session_state['prob_base'] = 0.0
         st.session_state['what_if_multi_result'] = None 
         st.session_state['what_if_individual_result'] = None 
+        st.session_state['recommendation_triggered'] = False # Resetear trigger de recomendaciones
     
     if selected_id != "--- Seleccionar un Empleado Activo ---":
         loaded_data = load_employee_data(selected_id)
@@ -546,6 +549,7 @@ def render_manual_prediction_tab():
         st.session_state['base_predicted'] = True 
         st.session_state['what_if_multi_result'] = None # Resetear resultados de simulación al recalcular base
         st.session_state['what_if_individual_result'] = None 
+        st.session_state['recommendation_triggered'] = False # Resetear trigger de recomendaciones
         st.balloons()
         
     # 2.2 MOSTRAR EL RESULTADO DE FORMA PERSISTENTE
@@ -574,6 +578,7 @@ def render_manual_prediction_tab():
                 'prob_base': st.session_state['prob_base'],
                 'prob_what_if_multi': prob_what_if_multi
             }
+            st.session_state['recommendation_triggered'] = False # Reinicia la recomendación al cambiar la simulación
             st.success("✅ Simulación multi-variable ejecutada y resultado guardado.")
 
     # 3.2 MOSTRAR EL RESULTADO DE FORMA PERSISTENTE
@@ -635,6 +640,7 @@ def render_manual_prediction_tab():
                 'variable_key': variable_key,
                 'new_value': new_value
             }
+            st.session_state['recommendation_triggered'] = False # Reinicia la recomendación al cambiar la simulación
             st.success("✅ Simulación individual ejecutada y resultado guardado.")
 
     
@@ -644,13 +650,22 @@ def render_manual_prediction_tab():
         
     st.markdown("---")
     
-    # --- SECCIÓN 5: RECOMENDACIONES (AL FINAL DE TODO) ---
-    display_recommendations(
-        st.session_state['prob_base'], 
-        st.session_state['base_input'],
-        st.session_state['what_if_multi_result'],
-        st.session_state['what_if_individual_result']
-    )
+    # --- SECCIÓN 5: ANÁLISIS FINAL Y RECOMENDACIONES (CONTROLADO POR BOTÓN) ---
+    
+    st.header("5. 📊 Análisis Final y Recomendaciones Estratégicas")
+    
+    if st.button("🔍 Analizar Resultados y Generar Recomendaciones (Paso 5)", key='generate_recommendations', type="primary", use_container_width=True):
+        st.session_state['recommendation_triggered'] = True
+
+    if st.session_state['recommendation_triggered']:
+        display_recommendations(
+            st.session_state['prob_base'], 
+            st.session_state['base_input'],
+            st.session_state['what_if_multi_result'],
+            st.session_state['what_if_individual_result']
+        )
+    else:
+        st.info("Presiona el botón de arriba para generar el análisis comparativo final y las recomendaciones de intervención.")
 
 
 if __name__ == '__main__':
