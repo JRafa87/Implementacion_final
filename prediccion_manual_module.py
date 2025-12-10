@@ -6,9 +6,7 @@ import streamlit as st
 from typing import Dict, Any, List
 import os
 import warnings
-from supabase import create_client, Client
-
-# Importar is_ para filtros NULL: from postgrest import is_ (No es necesario importar, es parte de la librería Client)
+from supabase import create_client, Client 
 
 warnings.filterwarnings("ignore")
 
@@ -72,12 +70,12 @@ WHAT_IF_VARIABLES = {
 }
 
 # ====================================================================
-# 2. CONFIGURACIÓN DE SUPABASE (Adaptada a st.secrets)
+# 2. CONFIGURACIÓN DE SUPABASE
 # ====================================================================
 
 EMPLOYEE_TABLE = "consolidado"  # Tabla que contiene los datos
 KEY_COLUMN = "EmployeeNumber"  # La columna de la BD para identificar al empleado
-# AJUSTA ESTA COLUMNA: Debe ser el nombre de la columna que registra la fecha de salida/attrition.
+# ⚠️ AJUSTA ESTA COLUMNA: Nombre de la columna que indica la fecha de salida.
 DATE_COLUMN = "FechaSalida" 
 
 @st.cache_resource
@@ -104,32 +102,29 @@ def init_supabase_client():
 def fetch_employee_numbers() -> Dict[str, str]:
     """
     Obtiene la lista de EmployeeNumber de empleados activos (sin fecha de salida).
-    
-    El filtro se aplica sobre DATE_COLUMN = NULL.
-    Asume que 'nombre_completo' también está disponible para mejor UX.
+    Mapea EmployeeNumber (ID) -> EmployeeNumber (ID).
     """
     supabase: Client = init_supabase_client()
     if not supabase:
         return {}
         
     try:
-        # Selecciona el ID y el nombre, y filtra donde la columna de fecha de salida es nula (is.is_(None))
+        # Consulta solo el ID y filtra donde la columna de fecha de salida es nula
         response = (
             supabase.table(EMPLOYEE_TABLE)
-            .select(f"{KEY_COLUMN}, nombre_completo")
-            .is_(DATE_COLUMN, None) # <--- FILTRO CLAVE: Trae solo activos
+            .select(f"{KEY_COLUMN}")
+            .is_(DATE_COLUMN, None) # FILTRO CLAVE: Solo empleados activos
             .execute()
         )
         
-        # Mapea los resultados: EmployeeNumber -> nombre_completo (o ID como fallback)
+        # Mapea los resultados: ID -> ID
         employee_map = {
-            str(row[KEY_COLUMN]): row.get('nombre_completo', f"ID: {row[KEY_COLUMN]}") 
+            str(row[KEY_COLUMN]): str(row[KEY_COLUMN])
             for row in response.data
         }
         return employee_map
     except Exception as e:
-        # Esto puede fallar si 'nombre_completo' o 'FechaSalida' no existen en la tabla
-        st.error(f"Error al obtener la lista de empleados activos de Supabase. Verifique los nombres de las columnas ({KEY_COLUMN}, nombre_completo, {DATE_COLUMN}): {e}")
+        st.error(f"Error al obtener la lista de empleados activos. Verifique las columnas ({KEY_COLUMN}, {DATE_COLUMN}): {e}")
         return {}
 
 def load_employee_data(employee_number: str) -> Dict[str, Any] | None:
@@ -157,8 +152,9 @@ def load_employee_data(employee_number: str) -> Dict[str, Any] | None:
     except Exception as e:
         st.error(f"❌ Error CRÍTICO al consultar/procesar datos de Supabase: {e}")
         return None
+        
 # ====================================================================
-# 4. FUNCIONES DE CARGA DEL MODELO (Sin Cambios)
+# 4. FUNCIONES DE CARGA DEL MODELO
 # ====================================================================
 
 @st.cache_resource
@@ -180,7 +176,7 @@ def load_model_artefacts():
         return None, None, None
 
 # ====================================================================
-# 5. PREDICCIÓN Y SIMULACIÓN (Sin Cambios)
+# 5. PREDICCIÓN Y SIMULACIÓN
 # ====================================================================
 
 def preprocess_and_predict(input_data: Dict[str, Any], model, scaler, mapping) -> tuple:
@@ -220,7 +216,7 @@ def preprocess_and_predict(input_data: Dict[str, Any], model, scaler, mapping) -
         return -1, 0.0
 
 # ====================================================================
-# 6. FUNCIONES DE INTERFAZ Y SIMULACIÓN
+# 6. FUNCIÓN DE RENDERIZADO (INTERFAZ COMPLETA)
 # ====================================================================
 
 def render_manual_prediction_tab():
@@ -233,36 +229,31 @@ def render_manual_prediction_tab():
     if model is None or scaler is None or mapping is None:
         return
 
-    # 1. Cargar Employee Numbers (Solo Activos)
-    employee_map = fetch_employee_numbers()
+    # 1. Cargar Employee Numbers (Solo Activos: ID -> ID)
+    employee_map = fetch_employee_numbers() 
     
-    # 2. Selector de Empleado
-    st.subheader("Selecciona un empleado para precargar datos:")
+    # 2. Selector de Empleado (Versión Simple, mostrando solo el ID)
+    st.subheader("👤 Selecciona el ID de un empleado activo:")
     
-    # Opciones que se muestran al usuario: Nombre (ID)
-    display_options = {
-        name: id_val for id_val, name in employee_map.items()
-    }
+    # Opciones para el selectbox: Solo los IDs
+    employee_options = ["(Ingreso Manual/Valores por Defecto)"] + list(employee_map.keys())
     
-    employee_options = ["(Ingreso Manual/Valores por Defecto)"] + list(display_options.keys())
-    
-    selected_name_or_default = st.selectbox(
-        "Empleado Activo (sin fecha de salida):", 
+    selected_id = st.selectbox(
+        "Employee Number (ID):", 
         options=employee_options
     )
-    
-    # Obtener el ID seleccionado
-    selected_id = display_options.get(selected_name_or_default, "(Ingreso Manual/Valores por Defecto)")
     
     # 3. Carga de Datos Base
     initial_inputs = DEFAULT_MODEL_INPUTS.copy()
     
     if selected_id != "(Ingreso Manual/Valores por Defecto)":
+        # Muestra la confirmación del ID seleccionado
+        st.write(f"Empleado seleccionado: **{selected_id}**")
+        
         loaded_data = load_employee_data(selected_id)
         if loaded_data:
-            # Solo actualiza las claves que coinciden con MODEL_COLUMNS
             initial_inputs.update({k: v for k, v in loaded_data.items() if k in MODEL_COLUMNS})
-            st.info(f"Datos precargados para: **{selected_name_or_default}** (ID: {selected_id})")
+            st.info(f"Datos precargados para el ID: **{selected_id}**")
         else:
             st.warning("No se pudieron cargar datos específicos. Usando valores por defecto.")
     else:
@@ -271,8 +262,6 @@ def render_manual_prediction_tab():
     
     st.markdown("---")
     st.subheader("Modificar Parámetros Clave para Predicción/What-If")
-    
-    # 4. Input de Parámetros (Usando initial_inputs como base)
     
     # Inicializa user_inputs con los valores base (cargados o por defecto)
     user_inputs = initial_inputs.copy()
@@ -286,12 +275,12 @@ def render_manual_prediction_tab():
         current_val = initial_inputs.get(key, DEFAULT_MODEL_INPUTS.get(key))
         
         with col:
-            # Manejar los tipos de entrada según la variable para evitar errores de tipo en Streamlit
+            # Manejar los tipos de entrada según la variable
             if key in ['MonthlyIncome', 'TotalWorkingYears', 'YearsAtCompany']:
                 # Numéricos grandes
                 user_inputs[key] = st.number_input(
                     label=f"{label}", 
-                    value=int(current_val), # Asegura que el valor sea int si se carga de BD
+                    value=int(current_val), 
                     min_value=0,
                     key=f'input_num_{key}'
                 )
@@ -309,7 +298,10 @@ def render_manual_prediction_tab():
             elif key == 'OverTime':
                 # Selectbox para categóricas binarias (OverTime)
                 options = ['YES', 'NO']
-                default_index = options.index(current_val) if current_val in options else 1
+                # Si el valor de la BD es None o nulo, usa 'NO' como default
+                current_val_safe = current_val if current_val in options else 'NO'
+                default_index = options.index(current_val_safe)
+                
                 user_inputs[key] = st.selectbox(
                     label=f"{label}", 
                     options=options, 
