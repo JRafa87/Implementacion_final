@@ -36,14 +36,14 @@ CATEGORICAL_COLS_TO_MAP = [
     'MaritalStatus', 'OverTime', 'tipo_contrato'
 ]
 
-# 🛑 Contiene TODAS las 33 columnas: Se asume que el scaler fue ajustado a todas.
+# Contiene TODAS las 33 columnas: Se asume que el scaler fue ajustado a todas.
 NUMERICAL_COLS_TO_SCALE = MODEL_COLUMNS
 
 # Valores por defecto para columnas no expuestas en la UI o con valores fijos
 DEFAULT_MODEL_INPUTS = {
     'PercentSalaryHike': 12, 'PerformanceRating': 3, 'TrainingTimesLastYear': 3, 
     'RelationshipSatisfaction': 3, 'WorkLifeBalance': 3,
-    # Valores por defecto de categóricas (usando el valor del mapeo)
+    # Valores por defecto de categóricas
     'EducationField': 'LIFE_SCIENCES', 
     'Gender': 'MALE', 
     'MaritalStatus': 'MARRIED',
@@ -54,7 +54,7 @@ DEFAULT_MODEL_INPUTS = {
     'NumeroTardanzas': 0, 'NumeroFaltas': 0
 }
 
-# Columnas clave para la simulación What-If
+# Columnas clave para la simulación What-If (subconjunto para editar)
 WHAT_IF_VARIABLES = {
     "MonthlyIncome": "Ingreso Mensual",
     "TotalWorkingYears": "Años Totales Trabajados",
@@ -66,7 +66,7 @@ WHAT_IF_VARIABLES = {
 }
 
 # ====================================================================
-# FUNCIONES DE CARGA Y PREDICCIÓN
+# FUNCIONES DE CARGA Y PREDICCIÓN (MOTOR DE 33 FEATURES)
 # ====================================================================
 
 @st.cache_resource
@@ -88,7 +88,7 @@ def load_model_artefacts():
         return None, None, None
 
 def preprocess_and_predict(input_data: Dict[str, Any], model, scaler, mapping) -> tuple:
-    """Preprocesa el dict de entrada, asegura el orden y realiza la predicción escalando todo."""
+    """Preprocesa el dict de entrada (usando las 33 columnas) y realiza la predicción."""
     try:
         df_input = pd.DataFrame([input_data])
         
@@ -102,12 +102,10 @@ def preprocess_and_predict(input_data: Dict[str, Any], model, scaler, mapping) -
         # 2. Aplicar Mapeo Categórico (Label Encoding)
         for col in CATEGORICAL_COLS_TO_MAP:
             if col in mapping:
-                # Mapear el valor de texto al número entero
                 final_df[col] = final_df[col].map(mapping[col])
-                # Rellenar con 0 si la categoría no existe 
                 final_df[col] = final_df[col].fillna(0) 
 
-        # 3. Aplicar Escalado A TODAS las columnas
+        # 3. Aplicar Escalado A TODAS las 33 columnas
         df_to_scale = final_df[NUMERICAL_COLS_TO_SCALE].copy()
         
         scaled_values = scaler.transform(df_to_scale)
@@ -126,6 +124,51 @@ def preprocess_and_predict(input_data: Dict[str, Any], model, scaler, mapping) -
     except Exception as e:
         st.error(f"Error durante el preprocesamiento o la predicción: {e}")
         return -1, 0.0
+
+# --- SIMULACIÓN DE LA FUNCIÓN DE CARGA DE SUPABASE (REEMPLAZAR CON LÓGICA REAL) ---
+
+def load_employee_data(employee_id: str, model, scaler, mapping) -> Dict[str, Any] | None:
+    """
+    1. Consulta Supabase (SIMULADO) para obtener datos crudos.
+    2. Calcula la probabilidad actual.
+    3. Devuelve los datos listos para el formulario, usando la P. Actual como P. Histórica inicial.
+    """
+    
+    # ⚠️ REEMPLAZAR con la llamada real a Supabase (fetch_employee_data_from_supabase)
+    if employee_id == "ACTIVO-001":
+        employee_data_raw = {
+            'employee_id': 'ACTIVO-001', 'Age': 30, 'DistanceFromHome': 5, 'Education': 3, 
+            'EnvironmentSatisfaction': 2, 'JobInvolvement': 3, 'JobLevel': 2, 'JobSatisfaction': 2, 
+            'MonthlyIncome': 4500, 'NumCompaniesWorked': 2, 'PercentSalaryHike': 12, 
+            'PerformanceRating': 3, 'RelationshipSatisfaction': 3, 'TotalWorkingYears': 7, 
+            'TrainingTimesLastYear': 3, 'WorkLifeBalance': 3, 'YearsAtCompany': 5, 
+            'YearsInCurrentRole': 4, 'YearsSinceLastPromotion': 1, 'YearsWithCurrManager': 2, 
+            'IntencionPermanencia': 3, 'CargaLaboralPercibida': 3, 'SatisfaccionSalarial': 2, 
+            'ConfianzaEmpresa': 3, 'NumeroTardanzas': 1, 'NumeroFaltas': 0,
+            'BusinessTravel': 'TRAVEL_RARELY', 'Department': 'SALES', 'EducationField': 'MARKETING', 
+            'Gender': 'MALE', 'JobRole': 'SALES_EXECUTIVE', 'MaritalStatus': 'MARRIED',
+            'OverTime': 'YES', 'tipo_contrato': 'PERMANENTE'
+        }
+    else:
+        employee_data_raw = None
+    
+    if not employee_data_raw:
+        return None
+        
+    # Calcular la probabilidad actual (P. Actual) usando las 33 features
+    input_for_model = {k: employee_data_raw.get(k) for k in MODEL_COLUMNS if k in employee_data_raw}
+
+    final_input_for_model = DEFAULT_MODEL_INPUTS.copy()
+    final_input_for_model.update(input_for_model)
+
+    _, prob_actual = preprocess_and_predict(final_input_for_model, model, scaler, mapping)
+
+    # Prepara el output: La P. Actual es nuestra P. Histórica inicial para la comparación
+    output_data = final_input_for_model.copy()
+    output_data['Probabilidad_Historica'] = prob_actual 
+    output_data['Fecha_Historial'] = 'Predicción Inicial'
+
+    return output_data
 
 # ====================================================================
 # FUNCIONES DE RECOMENDACIÓN Y WHAT-IF
@@ -160,6 +203,7 @@ def generar_recomendacion(prob_base: float, input_data: Dict[str, Any]) -> str:
 
 def simular_what_if_individual(base_data: Dict[str, Any], variable_to_change: str, new_value: Any, model, scaler, mapping) -> float:
     """Ejecuta la predicción con un solo cambio para el análisis What-If."""
+    # base_data contiene las 33 variables. El cambio afecta solo una, pero el motor usa todas.
     df_input = base_data.copy()
     df_input[variable_to_change] = new_value
     
@@ -168,19 +212,42 @@ def simular_what_if_individual(base_data: Dict[str, Any], variable_to_change: st
     return prob_what_if
 
 # ====================================================================
-# FUNCIÓN DE RENDERIZADO (INTERFAZ COMPLETA)
+# FUNCIÓN DE RENDERIZADO (INTERFAZ COMPLETA CON FLUJO UNIFICADO)
 # ====================================================================
 
 def render_manual_prediction_tab():
-    """Renderiza la interfaz completa de simulación y What-If en Streamlit."""
+    """Renderiza la interfaz completa de simulación, What-If e Historial."""
     
     model, scaler, mapping = load_model_artefacts() 
     if model is None or scaler is None or mapping is None:
         return
 
-    st.markdown("<h3 style='color:#1f77b4;'>Ingrese los Datos del Empleado</h3>", unsafe_allow_html=True)
+    # --- SECCIÓN: CARGA DE EMPLEADO ACTIVO ---
+    st.markdown("<h2>👤 Cargar Empleado Activo para Análisis</h2>", unsafe_allow_html=True)
     
-    user_input = DEFAULT_MODEL_INPUTS.copy()
+    # Reemplaza por tus IDs reales
+    employee_options = ["(Ingreso Manual)", "ACTIVO-001", "ACTIVO-002"] 
+    selected_id = st.selectbox(
+        "Seleccionar Empleado para Precargar:", 
+        options=employee_options, 
+        key='employee_selector'
+    )
+    
+    # Inicializar con valores por defecto
+    initial_input = DEFAULT_MODEL_INPUTS.copy()
+    initial_history = {'Probabilidad_Historica': 0.0, 'Fecha_Historial': 'N/A'}
+
+    if selected_id != "(Ingreso Manual)":
+        loaded_data = load_employee_data(selected_id, model, scaler, mapping) 
+        if loaded_data:
+            initial_input = {k: v for k, v in loaded_data.items() if k in MODEL_COLUMNS}
+            initial_history['Probabilidad_Historica'] = loaded_data.get('Probabilidad_Historica', 0.0)
+            initial_history['Fecha_Historial'] = loaded_data.get('Fecha_Historial', 'N/A')
+        
+    st.session_state['prob_al_cargar'] = initial_history['Probabilidad_Historica']
+    st.session_state['history'] = initial_history 
+    
+    user_input = initial_input.copy() 
     
     # Obtener las opciones del mapping
     job_role_options = list(mapping['JobRole'].keys())
@@ -188,91 +255,103 @@ def render_manual_prediction_tab():
     overtime_options = list(mapping['OverTime'].keys())
     contrato_options = list(mapping['tipo_contrato'].keys())
     
+    st.markdown("<h3>Modificar Datos (Formulario Rellenado)</h3>", unsafe_allow_html=True)
+    
+    # --- RENDERIZADO DEL FORMULARIO DE EDICIÓN (33 VARIABLES EDITABLES) ---
     col_input_1, col_input_2, col_input_3 = st.columns(3)
     
     # --- Columna 1: Demografía y Puesto ---
     with col_input_1:
         st.subheader("Puesto y Demografía")
-        user_input['Age'] = st.slider("Edad", 18, 60, 30, key='age_base')
-        user_input['JobLevel'] = st.slider("Nivel de Puesto (1-5)", 1, 5, 2, key='joblevel_base')
-        user_input['JobRole'] = st.selectbox("Puesto", job_role_options, key='jobrole_base')
-        user_input['Department'] = st.selectbox("Departamento", dept_options, key='dept_base')
-        user_input['Education'] = st.slider("Nivel Educativo (1-5)", 1, 5, 3, key='edu_base')
-        user_input['Gender'] = st.selectbox("Género", list(mapping['Gender'].keys()), key='gender_base')
+        user_input['Age'] = st.slider("Edad", 18, 60, value=initial_input['Age'], key='age_base')
+        user_input['JobLevel'] = st.slider("Nivel de Puesto (1-5)", 1, 5, value=initial_input['JobLevel'], key='joblevel_base')
+        user_input['JobRole'] = st.selectbox("Puesto", job_role_options, index=job_role_options.index(initial_input['JobRole']), key='jobrole_base')
+        user_input['Department'] = st.selectbox("Departamento", dept_options, index=dept_options.index(initial_input['Department']), key='dept_base')
+        user_input['Education'] = st.slider("Nivel Educativo (1-5)", 1, 5, value=initial_input['Education'], key='edu_base')
+        user_input['Gender'] = st.selectbox("Género", list(mapping['Gender'].keys()), index=list(mapping['Gender'].keys()).index(initial_input['Gender']), key='gender_base')
 
     # --- Columna 2: Compensación y Antigüedad ---
     with col_input_2:
         st.subheader("Compensación y Antigüedad")
-        user_input['MonthlyIncome'] = st.number_input("Ingreso Mensual (S/.)", 1000, 25000, 5000, key='income_base')
-        user_input['TotalWorkingYears'] = st.number_input("Años Totales Trabajados", 0, 40, 5, key='totalyears_base')
-        user_input['YearsAtCompany'] = st.number_input("Años en la Compañía", 0, 40, 3, key='yearsatcomp_base')
-        user_input['YearsInCurrentRole'] = st.number_input("Años en el Rol Actual", 0, 18, 2, key='yearscurrent_base')
-        user_input['tipo_contrato'] = st.selectbox("Tipo de Contrato", contrato_options, key='contrato_base')
-        user_input['MaritalStatus'] = st.selectbox("Estado Civil", list(mapping['MaritalStatus'].keys()), key='marital_base')
+        user_input['MonthlyIncome'] = st.number_input("Ingreso Mensual (S/.)", 1000, 25000, value=initial_input['MonthlyIncome'], key='income_base')
+        user_input['TotalWorkingYears'] = st.number_input("Años Totales Trabajados", 0, 40, value=initial_input['TotalWorkingYears'], key='totalyears_base')
+        user_input['YearsAtCompany'] = st.number_input("Años en la Compañía", 0, 40, value=initial_input['YearsAtCompany'], key='yearsatcomp_base')
+        user_input['YearsInCurrentRole'] = st.number_input("Años en el Rol Actual", 0, 18, value=initial_input['YearsInCurrentRole'], key='yearscurrent_base')
+        user_input['tipo_contrato'] = st.selectbox("Tipo de Contrato", contrato_options, index=contrato_options.index(initial_input['tipo_contrato']), key='contrato_base')
+        user_input['MaritalStatus'] = st.selectbox("Estado Civil", list(mapping['MaritalStatus'].keys()), index=list(mapping['MaritalStatus'].keys()).index(initial_input['MaritalStatus']), key='marital_base')
         
     # --- Columna 3: Factores de Satisfacción y Riesgo ---
     with col_input_3:
         st.subheader("Factores de Satisfacción")
-        user_input['DistanceFromHome'] = st.number_input("Distancia del Hogar (km)", 1, 30, 10, key='distance_base')
-        user_input['OverTime'] = st.selectbox("¿Realiza Horas Extra?", overtime_options, key='overtime_base')
+        user_input['DistanceFromHome'] = st.number_input("Distancia del Hogar (km)", 1, 30, value=initial_input['DistanceFromHome'], key='distance_base')
+        user_input['OverTime'] = st.selectbox("¿Realiza Horas Extra?", overtime_options, index=overtime_options.index(initial_input['OverTime']), key='overtime_base')
         
         # Variables de Satisfacción (1-4) y Comportamiento (0+)
-        user_input['EnvironmentSatisfaction'] = st.slider("Satisfacción Entorno (1-4)", 1, 4, 3, key='env_sat_base')
-        user_input['JobSatisfaction'] = st.slider("Satisfacción Laboral (1-4)", 1, 4, 3, key='job_sat_base')
-        user_input['SatisfaccionSalarial'] = st.slider("Satisfacción Salarial (1-4)", 1, 4, 3, key='sal_sat_base')
-        user_input['CargaLaboralPercibida'] = st.slider("Carga Laboral Percibida (1-5)", 1, 5, 3, key='carga_base')
-        user_input['ConfianzaEmpresa'] = st.slider("Confianza en la Empresa (1-4)", 1, 4, 3, key='confianza_base')
-        user_input['IntencionPermanencia'] = st.slider("Intención de Permanencia (1-5)", 1, 5, 3, key='intencion_base')
-        user_input['NumeroTardanzas'] = st.number_input("Número de Tardanzas (Último año)", 0, 20, 0, key='tardanzas_base')
-        user_input['NumeroFaltas'] = st.number_input("Número de Faltas (Último año)", 0, 20, 0, key='faltas_base')
+        user_input['EnvironmentSatisfaction'] = st.slider("Satisfacción Entorno (1-4)", 1, 4, value=initial_input['EnvironmentSatisfaction'], key='env_sat_base')
+        user_input['JobSatisfaction'] = st.slider("Satisfacción Laboral (1-4)", 1, 4, value=initial_input['JobSatisfaction'], key='job_sat_base')
+        user_input['SatisfaccionSalarial'] = st.slider("Satisfacción Salarial (1-4)", 1, 4, value=initial_input['SatisfaccionSalarial'], key='sal_sat_base')
+        user_input['CargaLaboralPercibida'] = st.slider("Carga Laboral Percibida (1-5)", 1, 5, value=initial_input['CargaLaboralPercibida'], key='carga_base')
+        user_input['ConfianzaEmpresa'] = st.slider("Confianza en la Empresa (1-4)", 1, 4, value=initial_input['ConfianzaEmpresa'], key='confianza_base')
+        user_input['IntencionPermanencia'] = st.slider("Intención de Permanencia (1-5)", 1, 5, value=initial_input['IntencionPermanencia'], key='intencion_base')
+        user_input['NumeroTardanzas'] = st.number_input("Número de Tardanzas (Último año)", 0, 20, value=initial_input['NumeroTardanzas'], key='tardanzas_base')
+        user_input['NumeroFaltas'] = st.number_input("Número de Faltas (Último año)", 0, 20, value=initial_input['NumeroFaltas'], key='faltas_base')
         
     # --- Almacenamiento del Input para What-If ---
     st.session_state['base_input'] = user_input.copy()
     
-    # --- 2. PREDICCIÓN BASE Y RESULTADOS ---
+    # --- 2. PREDICCIÓN BASE Y RESULTADOS (P. ACTUAL) ---
     st.markdown("---")
-    if st.button("🔮 Ejecutar Predicción Base", type="primary", use_container_width=True):
+    if st.button("🔮 Ejecutar Predicción Actual", type="primary", use_container_width=True):
         
-        _, prob_base = preprocess_and_predict(user_input, model, scaler, mapping) 
+        _, prob_actual = preprocess_and_predict(user_input, model, scaler, mapping) 
         
-        if prob_base != -1.0:
-            st.session_state['prob_base'] = prob_base
+        if prob_actual != -1.0:
+            st.session_state['prob_base'] = prob_actual 
             
-            recomendacion = generar_recomendacion(prob_base, user_input)
+            recomendacion = generar_recomendacion(prob_actual, user_input)
+            
+            prob_al_cargar = st.session_state['prob_al_cargar']
+            delta = prob_actual - prob_al_cargar
+            
+            # Mostramos el delta solo si el usuario cargó un empleado y modificó los datos
+            if selected_id != "(Ingreso Manual)" and abs(delta) > 0.001: 
+                delta_str = f"({delta * 100:+.1f} puntos porcentuales)"
+                delta_line = f"""
+                    <p><b>Cambio vs Datos Cargados:</b> 
+                    <span style='color:{"red" if delta>0 else "green"}'>
+                        {delta_str}
+                    </span></p>"""
+            else:
+                delta_line = ""
 
             st.markdown(f"""
                 <div style='background-color:#E3F2FD; padding:20px; border-radius:10px; text-align:center;'>
-                    <h4>Resultado de Predicción BASE</h4>
+                    <h4>Resultado de Predicción ACTUAL</h4>
                     <p style='font-size:24px;'>Probabilidad de renuncia: 
-                    <b style='color:{"red" if prob_base>0.5 else "green"}'>{prob_base:.1%}</b></p>
+                    <b style='color:{"red" if prob_actual>0.5 else "green"}'>{prob_actual:.1%}</b></p>
+                    {delta_line}
                     <p><b>Recomendación:</b> {recomendacion}</p>
                 </div>
             """, unsafe_allow_html=True)
     
     
     # ====================================================================
-    # B. ANÁLISIS WHAT-IF (INDEPENDIENTE)
+    # B. ANÁLISIS WHAT-IF (SIMULACIÓN DE ESCENARIOS)
     # ====================================================================
     
     st.markdown("<hr/>")
     st.markdown("<h3 style='color:#1f77b4;'>💡 Análisis What-If (Simulación de Escenarios)</h3>", unsafe_allow_html=True)
 
     if 'base_input' in st.session_state:
-        base_input = st.session_state['base_input']
-        
-        # 1. Obtener la probabilidad base (calculándola si es necesario)
         prob_base_for_whatif = st.session_state.get('prob_base', None)
         if prob_base_for_whatif is None or prob_base_for_whatif == -1.0:
-            _, prob_base_for_whatif = preprocess_and_predict(base_input, model, scaler, mapping)
-            st.session_state['prob_base'] = prob_base_for_whatif
-        
-        if prob_base_for_whatif == -1.0:
-            st.warning("No se puede realizar el What-If. Corrija los errores de predicción base.")
+            st.warning("Debe ejecutar la Predicción Actual primero.")
             return
 
         col_what_if_1, col_what_if_2 = st.columns(2)
         
         with col_what_if_1:
+            # Solo variables clave editables
             variable_key = st.selectbox(
                 "Selecciona la variable a modificar:",
                 options=list(WHAT_IF_VARIABLES.keys()),
@@ -282,9 +361,9 @@ def render_manual_prediction_tab():
 
         with col_what_if_2:
             variable_name = WHAT_IF_VARIABLES[variable_key]
-            current_value = base_input.get(variable_key)
+            current_value = st.session_state['base_input'].get(variable_key)
             
-            # Lógica para inputs
+            # Lógica de inputs para el What-If
             if variable_key == 'MonthlyIncome':
                 new_value = st.number_input(f"Nuevo valor de {variable_name} (S/.)", 1000, 30000, int(current_value * 1.1), key='whatif_new_val')
             elif variable_key in ['TotalWorkingYears', 'YearsAtCompany']:
@@ -302,7 +381,7 @@ def render_manual_prediction_tab():
         if st.button("🚀 Ejecutar What-If", key='run_what_if', use_container_width=True):
             
             prob_what_if = simular_what_if_individual(
-                base_data=base_input,
+                base_data=st.session_state['base_input'], 
                 variable_to_change=variable_key,
                 new_value=new_value,
                 model=model,
@@ -319,9 +398,9 @@ def render_manual_prediction_tab():
                 col_res_1, col_res_2 = st.columns(2)
                 
                 with col_res_1:
-                    st.metric("Prob. Base", f"{prob_base:.1%}")
+                    st.metric("Prob. Base (Actual)", f"{prob_base:.1%}")
                     st.metric(
-                        f"Prob. con {WHAT_IF_VARIABLES[variable_key]} = {new_value}", 
+                        f"Prob. Simulada", 
                         f"{prob_what_if:.1%}", 
                         delta=f"{cambio_pct:.1f}%",
                         delta_color="inverse"
@@ -329,6 +408,3 @@ def render_manual_prediction_tab():
                 
                 with col_res_2:
                     st.info(f"El cambio de **{WHAT_IF_VARIABLES[variable_key]}** a **{new_value}** resultó en un cambio del riesgo de renuncia de **{prob_base:.1%}** a **{prob_what_if:.1%}**.")
-            
-    else:
-        st.info("💡 Complete los datos del formulario arriba para que el What-If funcione automáticamente.")
