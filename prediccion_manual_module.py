@@ -13,8 +13,8 @@ warnings.filterwarnings("ignore")
 # ====================================================================
 # 1. CONFIGURACIÓN DEL ENTORNO Y ARTEFACTOS (SIN CAMBIOS)
 # ====================================================================
-# ... (Se mantienen las rutas, MODEL_COLUMNS, CATEGORICAL_COLS_TO_MAP, DEFAULT_MODEL_INPUTS) ...
-# ... (Se mantienen ALL_DISPLAY_VARIABLES, WHAT_IF_VARIABLES, LABEL_TO_KEY, SELECTBOX_OPTIONS) ...
+
+# ... (Se mantienen las definiciones de rutas, MODEL_COLUMNS, mapeos y valores por defecto) ...
 
 MODEL_PATH = 'models/xgboost_model.pkl'
 SCALER_PATH = 'models/scaler.pkl'
@@ -218,7 +218,7 @@ def display_prediction_result(predicted_class: int, prediction_proba: float, tit
     
     with col_detail:
         st.markdown("**Clase Predicha:**")
-        if predicted_class == 1:
+        if prediction_proba >= 0.5: # Usamos la proba para consistencia
             st.warning(f"🚨 **Riesgo ALTO**")
         else:
             st.success(f"✅ **Riesgo BAJO**")
@@ -266,66 +266,106 @@ def display_simulation_widgets(data: Dict[str, Any]) -> Dict[str, Any]:
     return user_inputs
 
 # ====================================================================
-# NUEVA FUNCIÓN: RECOMENDACIONES PERSONALIZADAS (Paso 5)
+# FUNCIÓN AUXILIAR PARA RECOMENDACIONES
 # ====================================================================
-
-def display_recommendations(prob_base: float, base_data: Dict[str, Any]):
-    """Muestra recomendaciones de acción basadas en el riesgo y los datos base."""
-    
-    st.header("5. 💡 Recomendaciones de Acción")
-    
-    if prob_base < 0.5:
-        st.success("✅ **Riesgo de Renuncia BAJO/MODERADO:** El empleado no presenta un riesgo significativo. Se recomienda un **monitoreo periódico** de sus niveles de satisfacción.")
-        return
-
-    st.warning("🚨 **Riesgo de Renuncia ALTO:** Se requieren acciones inmediatas. Revise las siguientes áreas de foco:")
-    
-    # 1. Identificar áreas de baja satisfacción (usando un umbral, ej. valor < 3)
-    
-    low_satisfaction_areas = {}
-    
-    # Asumimos que los valores bajos indican insatisfacción (1=Baja, 4/5=Alta)
-    if base_data.get('MonthlyIncome', 5000) < 4000: low_satisfaction_areas['Ingreso Mensual'] = "Salario bajo."
-    if base_data.get('JobSatisfaction', 3) < 3: low_satisfaction_areas['Satisfacción Laboral'] = "Bajo gusto por el trabajo actual."
-    if base_data.get('IntencionPermanencia', 3) < 3: low_satisfaction_areas['Intención de Permanencia'] = "Falta de compromiso a largo plazo."
-    if base_data.get('CargaLaboralPercibida', 3) > 3: low_satisfaction_areas['Carga Laboral'] = "Estrés o sobrecarga percibida."
-    if base_data.get('OverTime') == 'YES': low_satisfaction_areas['Horas Extras'] = "Necesidad o imposición de trabajar tiempo extra."
-
-    # 2. Mostrar las recomendaciones basadas en los datos
-    
-    if low_satisfaction_areas:
-        st.markdown("#### Áreas de Foco Basadas en Datos Actuales:")
-        for area, motivo in low_satisfaction_areas.items():
-            st.error(f"**{area}:** {motivo} Acción Recomendada: {get_specific_action(area)}")
-            
-        st.markdown("""
-        #### Estrategia General:
-        * **Entrevista de Retención:** Agendar una reunión confidencial con RR.HH. para identificar puntos de dolor.
-        * **Plan de Carrera:** Ofrecer un camino de crecimiento claro o una oportunidad de promoción (**JobLevel**).
-        * **Uso de Simulación:** Utilice la **Simulación Individual (Paso 4)** para determinar qué variable (ej. subir sueldo o reducir carga) tiene el **mayor impacto positivo** en la probabilidad de retención.
-        """)
-    else:
-        st.info("No se identificaron factores de riesgo obvios en las variables de satisfacción, pero el modelo predice riesgo alto. Se recomienda una revisión integral de su gestión y ambiente laboral.")
-    
-    st.markdown("---") 
 
 def get_specific_action(area: str) -> str:
     """Devuelve una acción específica para cada área de riesgo."""
     actions = {
-        'Ingreso Mensual': "Evaluar un ajuste salarial o bono de retención.",
-        'Satisfacción Laboral': "Revisar responsabilidades y proyectos; ofrecer rotación de puesto o capacitación especializada.",
-        'Intención de Permanencia': "Ofrecer un contrato a largo plazo o comunicar los planes de crecimiento futuros de la empresa.",
-        'Carga Laboral': "Redistribuir tareas, contratar apoyo temporal o invertir en herramientas de automatización.",
-        'Horas Extras': "Analizar la causa raíz de las horas extras (ineficiencia vs. volumen de trabajo) y buscar un equilibrio de vida-trabajo."
+        'Ingreso Mensual': "Evaluar un **ajuste salarial** o un **bono de retención** para mejorar la satisfacción económica.",
+        'Nivel de Puesto (JobLevel)': "Proporcionar un **plan de crecimiento** claro y evaluar una promoción de puesto inmediata.",
+        'Antigüedad/Rol': "Reconocer la antigüedad con un nuevo rol o un proyecto de alta visibilidad.",
+        'Intención de Permanencia': "Realizar una **entrevista de retención** confidencial y reforzar el valor del empleado.",
+        'Satisfacción Salarial': "Realizar un *benchmarking* salarial y asegurar que la compensación sea competitiva.",
+        'Carga Laboral': "Redistribuir tareas, **limitar las horas extra** y ofrecer flexibilidad para mejorar el equilibrio.",
+        'Confianza en la Empresa': "Mejorar la comunicación de la estrategia y visión de la empresa con el empleado."
     }
     return actions.get(area, "Investigar más a fondo la causa de la insatisfacción.")
 
 # ====================================================================
-# 7. FUNCIÓN DE RENDERIZADO (INTEGRACIÓN DEL PASO 5)
+# FUNCIÓN MEJORADA: RECOMENDACIONES PERSONALIZADAS (Paso 5)
+# ====================================================================
+
+def display_recommendations(prob_base: float, base_data: Dict[str, Any]):
+    """Muestra recomendaciones analíticas basadas en el riesgo y los datos base."""
+    
+    st.header("5. 💡 Recomendaciones de Acción y Análisis")
+    
+    # --- RIESGO BAJO ---
+    if prob_base < 0.5:
+        st.success("✅ **Riesgo de Renuncia BAJO/MODERADO:**")
+        st.info("El empleado no presenta un riesgo significativo. Recomendamos un **monitoreo periódico** de los niveles de satisfacción y el uso de la simulación What-If para planificación proactiva.")
+        return
+
+    # --- RIESGO ALTO (Análisis Detallado) ---
+    st.warning("🚨 **Riesgo de Renuncia ALTO:** Se requieren acciones inmediatas.")
+    st.markdown("#### Análisis de Puntos de Dolor:")
+    
+    # 1. Parámetros de Riesgo (Umbrales)
+    UMBRAL_BAJA_SATISFACCION = 2
+    UMBRAL_BAJA_INTENCION = 2
+    UMBRAL_CARGA_ALTA = 4 # Más alto indica mayor carga (peor)
+
+    low_score_areas = {}
+    
+    # 2. Evaluación de Variables Clave
+    
+    # Variables de Compensación y Crecimiento
+    if base_data.get('MonthlyIncome', 5000) < 3500: # Valor ejemplo de bajo ingreso
+        low_score_areas['MonthlyIncome'] = get_specific_action('Ingreso Mensual')
+    
+    if base_data.get('JobLevel', 1) <= 1 and base_data.get('YearsAtCompany', 0) > 3:
+        low_score_areas['JobLevel'] = get_specific_action('Nivel de Puesto (JobLevel)')
+    
+    if base_data.get('YearsAtCompany', 0) >= 5 and base_data.get('YearsSinceLastPromotion', 0) >= 3:
+        low_score_areas['YearsSinceLastPromotion'] = get_specific_action('Antigüedad/Rol')
+
+    # Variables de Satisfacción y Balance
+    if base_data.get('SatisfaccionSalarial', 3) <= UMBRAL_BAJA_SATISFACCION:
+        low_score_areas['SatisfaccionSalarial'] = get_specific_action('Satisfacción Salarial')
+
+    if base_data.get('IntencionPermanencia', 3) <= UMBRAL_BAJA_INTENCION:
+        low_score_areas['IntencionPermanencia'] = get_specific_action('Intención de Permanencia')
+        
+    if base_data.get('CargaLaboralPercibida', 3) >= UMBRAL_CARGA_ALTA or base_data.get('OverTime') == 'YES':
+        low_score_areas['CargaLaboralPercibida'] = get_specific_action('Carga Laboral')
+
+    if base_data.get('ConfianzaEmpresa', 3) <= UMBRAL_BAJA_SATISFACCION:
+        low_score_areas['ConfianzaEmpresa'] = get_specific_action('Confianza en la Empresa')
+
+    # 3. Presentación de Resultados
+    
+    if low_score_areas:
+        st.markdown("**Acciones Prioritarias:**")
+        
+        # Muestra las áreas de riesgo en una lista con sus acciones específicas
+        st.markdown(
+            "".join([
+                f"* **{ALL_DISPLAY_VARIABLES.get(k, k)}** (Valor actual: **{base_data.get(k)}**): {v}\n" 
+                for k, v in low_score_areas.items() if k in base_data
+            ])
+        )
+        
+        st.markdown("""
+        ---
+        #### 📈 Uso de la Simulación What-If (Pasos 3 y 4):
+        * Utilice el **Paso 4 (Simulación Individual)** para probar el impacto de la acción recomendada (ej. subir sueldo) y ver cuánto se reduce el riesgo.
+        * Utilice el **Paso 3 (Simulación Multi-variable)** para construir un plan de retención (ej. subir sueldo + reducir carga + subir nivel de puesto) y medir el resultado combinado.
+        """)
+        
+    else:
+        st.info("No se identificaron puntos de dolor obvios en las métricas de satisfacción. El riesgo alto puede deberse a factores históricos (ej. *YearsSinceLastPromotion*, *YearsInCurrentRole*) o variables que no son de satisfacción directa.")
+        st.markdown("Recomendación: Realizar una entrevista de seguimiento enfocada en el desarrollo profesional y la alineación con el *manager*.")
+    
+    st.markdown("---") 
+
+# ====================================================================
+# 7. FUNCIÓN DE RENDERIZADO (LÓGICA PRINCIPAL CON ORDEN FINAL)
 # ====================================================================
 
 def render_manual_prediction_tab():
-    # ... (código de setup y carga de artefactos)
+    """Renderiza la interfaz completa de predicción base y ambas simulaciones What-If."""
+    
     st.set_page_config(layout="wide", page_title="Predicción de Renuncia")
     st.title("Sistema de Predicción de Riesgo de Renuncia 📉")
 
@@ -392,9 +432,6 @@ def render_manual_prediction_tab():
         st.warning("⚠️ Debes ejecutar la Predicción Actual (Paso 2) antes de usar las Simulaciones What-If para establecer la Probabilidad Base.")
         return
 
-    # --- NUEVA LLAMADA A RECOMENDACIONES ---
-    display_recommendations(st.session_state['prob_base'], st.session_state['base_input'])
-    
     # --- SECCIÓN 3: SIMULACIÓN WHAT-IF MULTI-VARIABLE (Completa, con sliders editables) ---
     
     # 3.1 Mostrar y capturar los valores modificados
@@ -512,6 +549,11 @@ def render_manual_prediction_tab():
                 st.success(f"✅ **Conclusión:** El cambio de **{WHAT_IF_VARIABLES[variable_key]}** a **{new_value}** ha **REDUCIDO** el riesgo de renuncia en **{-cambio_pct:.1f}%**.")
             else:
                 st.info("ℹ️ **Conclusión:** El cambio no tuvo impacto significativo en el riesgo de renuncia.")
+
+    st.markdown("---")
+    
+    # --- SECCIÓN 5: RECOMENDACIONES (AL FINAL) ---
+    display_recommendations(st.session_state['prob_base'], st.session_state['base_input'])
 
 
 if __name__ == '__main__':
