@@ -7,7 +7,7 @@ from typing import Dict, Any, List
 import os
 import warnings
 from supabase import create_client, Client
-from postgrest.base_request_builder import SingleAPIRequestBuilder 
+
 # Importar is_ para filtros NULL: from postgrest import is_ (No es necesario importar, es parte de la librería Client)
 
 warnings.filterwarnings("ignore")
