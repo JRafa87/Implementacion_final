@@ -151,7 +151,7 @@ def load_model_artefacts():
         return None, None, None
 
 # ====================================================================
-# 3. PREDICCIÓN Y SIMULACIÓN (SIN CAMBIOS)
+# 3. PREDICCIÓN Y SIMULACIÓN (FUNCIONES CENTRALES)
 # ====================================================================
 
 def preprocess_and_predict(input_data: Dict[str, Any], model, scaler, mapping) -> tuple:
@@ -197,9 +197,8 @@ def simular_what_if_individual(
     return prediction_proba
 
 def display_prediction_result(predicted_class: int, prediction_proba: float, title: str):
-    """Muestra el resultado de la predicción con el formato de métricas deseado."""
+    """Muestra el resultado de la predicción base de forma persistente."""
     
-    # Usamos un div fijo para que el resultado base no se mueva con la simulación.
     with st.container(border=True):
         st.markdown(f"#### {title}")
         
@@ -229,7 +228,83 @@ def display_prediction_result(predicted_class: int, prediction_proba: float, tit
     st.markdown("---") 
 
 # ====================================================================
-# FUNCIÓN DE SIMULACIÓN MULTI-VARIABLE (Paso 3 - SIN CAMBIOS)
+# FUNCIONES DE DISPLAY DE RESULTADOS PERSISTENTES (SIN CAMBIOS)
+# ====================================================================
+
+def display_what_if_multi_result(result: Dict[str, float]):
+    """Muestra el resultado persistente de la simulación What-If Multi-Variable."""
+    
+    prob_base = result['prob_base']
+    prob_what_if_multi = result['prob_what_if_multi']
+    
+    cambio_pct = (prob_what_if_multi - prob_base) / prob_base * 100 if prob_base != 0 else 0
+    
+    st.markdown("#### 🎯 Resultados de la Última Simulación Multi-Variable")
+    
+    col_res_base, col_res_whatif = st.columns(2)
+    
+    with col_res_base:
+        st.markdown("**Probabilidad Base**")
+        st.metric("Prob. Actual", f"{prob_base:.1%}")
+
+    with col_res_whatif:
+        st.markdown("**Escenario Múltiple**")
+        st.metric(
+            "Prob. Escenario Simulado", 
+            f"{prob_what_if_multi:.1%}", 
+            delta=f"{cambio_pct:.1f}% de cambio",
+            delta_color="inverse"
+        )
+    
+    st.markdown("---")
+    if cambio_pct > 0:
+        st.warning(f"🚨 **Conclusión:** El escenario Múltiple ha **AUMENTADO** el riesgo de renuncia en **{cambio_pct:.1f}%**.")
+    elif cambio_pct < 0:
+        st.success(f"✅ **Conclusión:** El escenario Múltiple ha **REDUCIDO** el riesgo de renuncia en **{-cambio_pct:.1f}%**.")
+    else:
+        st.info("ℹ️ **Conclusión:** El escenario simulado no tuvo impacto significativo en el riesgo de renuncia.")
+        
+    st.markdown("---")
+
+def display_what_if_individual_result(result: Dict[str, Any]):
+    """Muestra el resultado persistente de la simulación What-If Individual."""
+    
+    prob_base = result['prob_base']
+    prob_what_if_individual = result['prob_what_if_individual']
+    variable_key = result['variable_key']
+    new_value = result['new_value']
+    
+    cambio_pct = (prob_what_if_individual - prob_base) / prob_base * 100 if prob_base != 0 else 0
+    
+    st.markdown("#### 🎯 Resultados de la Última Simulación Individual")
+    
+    col_res_base, col_res_whatif = st.columns(2)
+    
+    with col_res_base:
+        st.markdown("**Predicción Actual (Base)**")
+        st.metric("Probabilidad Base", f"{prob_base:.1%}")
+
+    with col_res_whatif:
+        st.markdown("**Escenario Individual**")
+        st.metric(
+            f"Prob. con {WHAT_IF_VARIABLES.get(variable_key, variable_key)} = {new_value}", 
+            f"{prob_what_if_individual:.1%}", 
+            delta=f"{cambio_pct:.1f}% de cambio",
+            delta_color="inverse"
+        )
+    
+    st.markdown("---")
+    if cambio_pct > 0:
+        st.warning(f"🚨 **Conclusión:** El cambio de **{WHAT_IF_VARIABLES.get(variable_key, variable_key)}** a **{new_value}** ha **AUMENTADO** el riesgo de renuncia en **{cambio_pct:.1f}%**.")
+    elif cambio_pct < 0:
+        st.success(f"✅ **Conclusión:** El cambio de **{WHAT_IF_VARIABLES.get(variable_key, variable_key)}** a **{new_value}** ha **REDUCIDO** el riesgo de renuncia en **{-cambio_pct:.1f}%**.")
+    else:
+        st.info("ℹ️ **Conclusión:** El cambio no tuvo impacto significativo en el riesgo de renuncia.")
+        
+    st.markdown("---")
+
+# ====================================================================
+# FUNCIÓN DE SIMULACIÓN MULTI-VARIABLE (Paso 3 - SIN CAMBIOS EN WIDGETS)
 # ====================================================================
 
 def display_simulation_widgets(data: Dict[str, Any]) -> Dict[str, Any]:
@@ -269,7 +344,7 @@ def display_simulation_widgets(data: Dict[str, Any]) -> Dict[str, Any]:
     return user_inputs
 
 # ====================================================================
-# FUNCIÓN DE RECOMENDACIONES (Paso 5 - SIN CAMBIOS EN LÓGICA)
+# FUNCIÓN DE RECOMENDACIONES (Paso 5 - LÓGICA DE COMPARACIÓN NUEVA)
 # ====================================================================
 
 def get_specific_action(area: str) -> str:
@@ -285,29 +360,83 @@ def get_specific_action(area: str) -> str:
     }
     return actions.get(area, "Investigar más a fondo la causa de la insatisfacción.")
 
-def display_recommendations(prob_base: float, base_data: Dict[str, Any]):
-    """Muestra recomendaciones analíticas basadas en el riesgo y los datos base."""
+def display_recommendations(
+    prob_base: float, 
+    base_data: Dict[str, Any],
+    multi_result: Dict[str, float] | None,
+    individual_result: Dict[str, Any] | None
+):
+    """
+    Muestra recomendaciones analíticas basadas en el riesgo y compara 
+    los resultados de las simulaciones What-If.
+    """
     
-    st.header("5. 💡 Recomendaciones de Acción y Análisis")
+    st.header("5. 💡 Recomendaciones de Acción y Análisis Final")
     
-    # --- RIESGO BAJO ---
+    # --- CASO 1: RIESGO BAJO ---
     if prob_base < 0.5:
         st.success("✅ **Riesgo de Renuncia BAJO/MODERADO:**")
-        st.info("El empleado no presenta un riesgo significativo. Recomendamos un **monitoreo periódico** de los niveles de satisfacción y el uso de la simulación What-If para planificación proactiva.")
+        st.info("El empleado no presenta un riesgo significativo. Recomendamos **monitoreo periódico** de la satisfacción y usar What-If para planificación proactiva.")
         return
 
-    # --- RIESGO ALTO (Análisis Detallado) ---
-    st.warning("🚨 **Riesgo de Renuncia ALTO:** Se requieren acciones inmediatas.")
-    st.markdown("#### Análisis de Puntos de Dolor:")
+    # --- CASO 2: RIESGO ALTO (Análisis Detallado) ---
+    st.warning("🚨 **Riesgo de Renuncia ALTO:** Se requieren acciones inmediatas y priorizadas.")
     
-    # 1. Parámetros de Riesgo (Umbrales)
+    
+    # 2.1 Análisis de Impacto de Simulaciones
+    
+    best_reduction = 0.0
+    best_scenario = "No se ejecutaron simulaciones de reducción."
+    
+    # Evaluar Simulación Multi-Variable
+    if multi_result and multi_result['prob_what_if_multi'] < prob_base:
+        multi_reduction = prob_base - multi_result['prob_what_if_multi']
+        if multi_reduction > best_reduction:
+            best_reduction = multi_reduction
+            best_scenario = "Simulación Multi-Variable"
+            best_prob = multi_result['prob_what_if_multi']
+            
+    # Evaluar Simulación Individual
+    if individual_result and individual_result['prob_what_if_individual'] < prob_base:
+        individual_reduction = prob_base - individual_result['prob_what_if_individual']
+        if individual_reduction > best_reduction:
+            best_reduction = individual_reduction
+            best_scenario = f"Simulación Individual (Variable: {WHAT_IF_VARIABLES.get(individual_result['variable_key'])})"
+            best_prob = individual_result['prob_what_if_individual']
+
+    st.markdown("#### 📈 Resultado de la Comparativa de Escenarios")
+    
+    if best_reduction > 0:
+        
+        reduction_percent = (best_reduction / prob_base) * 100
+        
+        st.markdown(f"""
+        El **mejor impacto de reducción** se logró con el: **{best_scenario}**.
+        * **Probabilidad Base:** {prob_base:.1%}
+        * **Probabilidad Reducida:** {best_prob:.1%}
+        * **Reducción de Riesgo:** **{reduction_percent:.1f}%**
+        """)
+        
+        if best_scenario == "Simulación Multi-Variable":
+            st.success("✅ **Recomendación Prioritaria:** Implementar el conjunto de cambios probados en la simulación multi-variable, ya que demostró la mayor efectividad para mitigar el riesgo.")
+        elif "Simulación Individual" in best_scenario:
+            st.success(f"✅ **Recomendación Prioritaria:** Enfocarse en la acción específica sobre la variable **{WHAT_IF_VARIABLES.get(individual_result['variable_key'])}** (cambio a **{individual_result['new_value']}**), ya que es el cambio de mayor impacto aislado.")
+
+    else:
+        # 2.2 Si no hay simulaciones de reducción o si no se ejecutaron
+        st.info("ℹ️ **Nota de Simulaciones:** No se ejecutaron simulaciones que redujeran el riesgo o el riesgo se mantuvo. Se requiere un análisis de puntos de dolor (siguiente sección).")
+
+    # 2.3 Análisis de Puntos de Dolor (Lógica anterior, útil si no hay simulación)
+    
+    st.markdown("#### Análisis de Puntos de Dolor y Acciones Clave")
+    
+    # (Se mantiene la lógica de umbrales para identificar las áreas débiles)
     UMBRAL_BAJA_SATISFACCION = 2
     UMBRAL_BAJA_INTENCION = 2
     UMBRAL_CARGA_ALTA = 4 
 
     low_score_areas = {}
     
-    # 2. Evaluación de Variables Clave
     if base_data.get('MonthlyIncome', 5000) < 3500: 
         low_score_areas['MonthlyIncome'] = get_specific_action('Ingreso Mensual')
     
@@ -332,32 +461,26 @@ def display_recommendations(prob_base: float, base_data: Dict[str, Any]):
     # 3. Presentación de Resultados
     
     if low_score_areas:
-        st.markdown("**Acciones Prioritarias:**")
+        st.markdown("**Acciones Basadas en Datos Actuales (Si la simulación no fue concluyente):**")
         
         st.markdown(
             "".join([
-                f"* **{ALL_DISPLAY_VARIABLES.get(k, k)}** (Valor actual: **{base_data.get(k)}**): {v}\n" 
+                f"* **{ALL_DISPLAY_VARIABLES.get(k, k)}** (Valor: **{base_data.get(k)}**): {v}\n" 
                 for k, v in low_score_areas.items() if k in base_data
             ])
         )
         
-        st.markdown("""
-        ---
-        #### 📈 Guía para la Simulación What-If (Pasos 3 y 4):
-        * Utilice los **Pasos 3 y 4** para probar el impacto de las acciones recomendadas (ej. subir sueldo, reducir carga) y **cuantificar** la reducción de riesgo.
-        """)
-        
     else:
-        st.info("No se identificaron puntos de dolor obvios en las métricas de satisfacción. El riesgo alto puede deberse a factores históricos. Recomendación: Realizar una entrevista de seguimiento enfocada en el desarrollo profesional y la alineación con el *manager*.")
+        st.info("No se identificaron puntos de dolor obvios en las métricas de satisfacción. El riesgo alto puede deberse a factores históricos o a combinaciones complejas de variables que la simulación múltiple debe explorar más a fondo.")
     
     st.markdown("---") 
 
 # ====================================================================
-# 7. FUNCIÓN DE RENDERIZADO (LÓGICA PRINCIPAL CON ORDEN FINAL)
+# FUNCIÓN DE RENDERIZADO PRINCIPAL
 # ====================================================================
 
 def render_manual_prediction_tab():
-    """Renderiza la interfaz completa de predicción base y ambas simulaciones What-If."""
+    """Renderiza la interfaz completa de predicción base, simulaciones y recomendaciones."""
     
     st.set_page_config(layout="wide", page_title="Predicción de Renuncia")
     st.title("Sistema de Predicción de Riesgo de Renuncia 📉")
@@ -368,10 +491,12 @@ def render_manual_prediction_tab():
 
     employee_map = fetch_employee_numbers() 
     
-    # 1. INICIALIZAR SESSION STATE
+    # 1. INICIALIZAR SESSION STATE 
     if 'prob_base' not in st.session_state: st.session_state['prob_base'] = 0.0
     if 'base_input' not in st.session_state: st.session_state['base_input'] = DEFAULT_MODEL_INPUTS.copy()
     if 'base_predicted' not in st.session_state: st.session_state['base_predicted'] = False
+    if 'what_if_multi_result' not in st.session_state: st.session_state['what_if_multi_result'] = None 
+    if 'what_if_individual_result' not in st.session_state: st.session_state['what_if_individual_result'] = None
 
 
     # --- SECCIÓN 1: SELECCIÓN DE EMPLEADO BASE ---
@@ -386,10 +511,12 @@ def render_manual_prediction_tab():
         key='base_id_selector'
     )
     
-    # Si el ID cambia, reseteamos el estado de predicción y los resultados
+    # Si el ID cambia, reseteamos el estado de predicción y todos los resultados
     if selected_id != current_selected_id:
         st.session_state['base_predicted'] = False
         st.session_state['prob_base'] = 0.0
+        st.session_state['what_if_multi_result'] = None 
+        st.session_state['what_if_individual_result'] = None 
     
     if selected_id != "--- Seleccionar un Empleado Activo ---":
         loaded_data = load_employee_data(selected_id)
@@ -405,7 +532,7 @@ def render_manual_prediction_tab():
     
     st.markdown("---") 
 
-    # --- SECCIÓN 2: PREDICCIÓN ACTUAL (Botón 1) ---
+    # --- SECCIÓN 2: PREDICCIÓN ACTUAL ---
     st.header("2. Predicción Actual (Datos Reales del Empleado)")
     
     disabled_button = (selected_id == "--- Seleccionar un Empleado Activo ---" and not employee_map)
@@ -417,18 +544,19 @@ def render_manual_prediction_tab():
         
         st.session_state['prob_base'] = prediction_proba
         st.session_state['base_predicted'] = True 
-        # NOTA: La llamada a display_prediction_result se mueve fuera del IF para persistir.
+        st.session_state['what_if_multi_result'] = None # Resetear resultados de simulación al recalcular base
+        st.session_state['what_if_individual_result'] = None 
         st.balloons()
         
     # 2.2 MOSTRAR EL RESULTADO DE FORMA PERSISTENTE
     if st.session_state['base_predicted']:
         display_prediction_result(
-            1 if st.session_state['prob_base'] >= 0.5 else 0, # Clase
-            st.session_state['prob_base'], # Probabilidad
+            1 if st.session_state['prob_base'] >= 0.5 else 0,
+            st.session_state['prob_base'],
             "Resultado de la Predicción Actual"
         )
         
-    # --- VERIFICACIÓN DE ESTADO PARA SIMULACIONES Y RECOMENDACIONES ---
+    # --- VERIFICACIÓN DE ESTADO ---
     if not st.session_state['base_predicted']:
         st.warning("⚠️ Debes ejecutar la Predicción Actual (Paso 2) antes de usar las Simulaciones What-If para establecer la Probabilidad Base.")
         return
@@ -437,42 +565,24 @@ def render_manual_prediction_tab():
     
     simulated_data = display_simulation_widgets(st.session_state['base_input'])
     
-    if st.button("🚀 Ejecutar Simulación **Multi-Variable** y Comparar", key='run_what_if_multi', type="secondary", use_container_width=True):
+    if st.button("🚀 Ejecutar Simulación **Multi-Variable** y Guardar Resultado", key='run_what_if_multi', type="secondary", use_container_width=True):
         
         prob_what_if_multi = preprocess_and_predict(simulated_data, model, scaler, mapping)[1]
         
         if prob_what_if_multi != -1.0:
-            prob_base = st.session_state['prob_base'] 
-            cambio_pct = (prob_what_if_multi - prob_base) / prob_base * 100 if prob_base != 0 else 0
-            
-            st.markdown("#### 🎯 Resultados de la Simulación Multi-Variable")
-            
-            col_res_base, col_res_whatif = st.columns(2)
-            
-            with col_res_base:
-                st.markdown("**Probabilidad Base**")
-                st.metric("Prob. Actual", f"{prob_base:.1%}")
+            st.session_state['what_if_multi_result'] = {
+                'prob_base': st.session_state['prob_base'],
+                'prob_what_if_multi': prob_what_if_multi
+            }
+            st.success("✅ Simulación multi-variable ejecutada y resultado guardado.")
 
-            with col_res_whatif:
-                st.markdown("**Escenario Múltiple**")
-                st.metric(
-                    "Prob. Escenario Simulado", 
-                    f"{prob_what_if_multi:.1%}", 
-                    delta=f"{cambio_pct:.1f}% de cambio",
-                    delta_color="inverse"
-                )
-            
-            st.markdown("---")
-            if cambio_pct > 0:
-                st.warning(f"🚨 **Conclusión:** La simulación Múltiple ha **AUMENTADO** el riesgo de renuncia en **{cambio_pct:.1f}%**.")
-            elif cambio_pct < 0:
-                st.success(f"✅ **Conclusión:** La simulación Múltiple ha **REDUCIDO** el riesgo de renuncia en **{-cambio_pct:.1f}%**.")
-            else:
-                st.info("ℹ️ **Conclusión:** El escenario simulado no tuvo impacto significativo en el riesgo de renuncia.")
-        
+    # 3.2 MOSTRAR EL RESULTADO DE FORMA PERSISTENTE
+    if st.session_state['what_if_multi_result'] is not None:
+        display_what_if_multi_result(st.session_state['what_if_multi_result'])
+
     st.markdown("---")
     
-    # --- SECCIÓN 4: SIMULACIÓN WHAT-IF INDIVIDUAL (La original, solo una variable) ---
+    # --- SECCIÓN 4: SIMULACIÓN WHAT-IF INDIVIDUAL ---
     st.header("4. Simulación What-If Individual (Impacto de una variable)")
     
     st.info(f"Probabilidad Base registrada: **{st.session_state['prob_base']:.1%}**. Modifica **una sola variable** para ver su impacto aislado.")
@@ -506,7 +616,8 @@ def render_manual_prediction_tab():
 
     st.markdown("---")
     
-    if st.button("🚀 Ejecutar Simulación **Individual** y Comparar", key='run_what_if_individual', type="secondary", use_container_width=True):
+    # 4.3 Botón de Ejecución What-If Individual: Guarda el resultado en session_state
+    if st.button("🚀 Ejecutar Simulación **Individual** y Guardar Resultado", key='run_what_if_individual', type="secondary", use_container_width=True):
         
         prob_what_if_individual = simular_what_if_individual(
             base_data=st.session_state['base_input'],
@@ -518,38 +629,28 @@ def render_manual_prediction_tab():
         )
         
         if prob_what_if_individual != -1.0:
-            prob_base = st.session_state['prob_base'] 
-            cambio_pct = (prob_what_if_individual - prob_base) / prob_base * 100 if prob_base != 0 else 0
-            
-            st.markdown("#### 🎯 Resultados de la Simulación Individual")
-            
-            col_res_base, col_res_whatif = st.columns(2)
-            
-            with col_res_base:
-                st.markdown("**Predicción Actual (Base)**")
-                st.metric("Probabilidad Base", f"{prob_base:.1%}")
+            st.session_state['what_if_individual_result'] = {
+                'prob_base': st.session_state['prob_base'],
+                'prob_what_if_individual': prob_what_if_individual,
+                'variable_key': variable_key,
+                'new_value': new_value
+            }
+            st.success("✅ Simulación individual ejecutada y resultado guardado.")
 
-            with col_res_whatif:
-                st.markdown("**Escenario Individual**")
-                st.metric(
-                    f"Prob. con {WHAT_IF_VARIABLES[variable_key]} = {new_value}", 
-                    f"{prob_what_if_individual:.1%}", 
-                    delta=f"{cambio_pct:.1f}% de cambio",
-                    delta_color="inverse"
-                )
-            
-            st.markdown("---")
-            if cambio_pct > 0:
-                st.warning(f"🚨 **Conclusión:** El cambio de **{WHAT_IF_VARIABLES[variable_key]}** a **{new_value}** ha **AUMENTADO** el riesgo de renuncia en **{cambio_pct:.1f}%**.")
-            elif cambio_pct < 0:
-                st.success(f"✅ **Conclusión:** El cambio de **{WHAT_IF_VARIABLES[variable_key]}** a **{new_value}** ha **REDUCIDO** el riesgo de renuncia en **{-cambio_pct:.1f}%**.")
-            else:
-                st.info("ℹ️ **Conclusión:** El cambio no tuvo impacto significativo en el riesgo de renuncia.")
-
+    
+    # 4.4 MOSTRAR EL RESULTADO DE FORMA PERSISTENTE
+    if st.session_state['what_if_individual_result'] is not None:
+        display_what_if_individual_result(st.session_state['what_if_individual_result'])
+        
     st.markdown("---")
     
-    # --- SECCIÓN 5: RECOMENDACIONES (AHORA AL FINAL) ---
-    display_recommendations(st.session_state['prob_base'], st.session_state['base_input'])
+    # --- SECCIÓN 5: RECOMENDACIONES (AL FINAL DE TODO) ---
+    display_recommendations(
+        st.session_state['prob_base'], 
+        st.session_state['base_input'],
+        st.session_state['what_if_multi_result'],
+        st.session_state['what_if_individual_result']
+    )
 
 
 if __name__ == '__main__':
