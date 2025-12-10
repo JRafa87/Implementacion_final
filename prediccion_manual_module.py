@@ -398,7 +398,7 @@ def render_manual_prediction_tab():
     # B. ANÁLISIS WHAT-IF (SIMULACIÓN DE ESCENARIOS)
     # ====================================================================
     
-    st.markdown("<hr/>")
+    
     st.markdown("<h3 style='color:#1f77b4;'>💡 Análisis What-If (Simulación de Escenarios)</h3>", unsafe_allow_html=True)
 
     if 'base_input' in st.session_state:
