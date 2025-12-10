@@ -13,6 +13,7 @@ warnings.filterwarnings("ignore")
 # ====================================================================
 
 # RUTAS DE TUS ARCHIVOS 
+# Asegúrate de que estas rutas sean correctas en tu entorno
 MODEL_PATH = 'models/xgboost_model.pkl' 
 SCALER_PATH = 'models/scaler.pkl' 
 MAPPING_PATH = 'models/categorical_mapping.pkl' 
@@ -30,28 +31,28 @@ MODEL_COLUMNS = [
     'ConfianzaEmpresa', 'NumeroTardanzas', 'NumeroFaltas', 'tipo_contrato' 
 ]
 
-# Columnas categóricas a mapear (Se mapean a números antes del escalado)
+# Columnas categóricas a mapear
 CATEGORICAL_COLS_TO_MAP = [
     'BusinessTravel', 'Department', 'EducationField', 'Gender', 'JobRole',
     'MaritalStatus', 'OverTime', 'tipo_contrato'
 ]
 
-# Contiene TODAS las 33 columnas: Se asume que el scaler fue ajustado a todas.
-NUMERICAL_COLS_TO_SCALE = MODEL_COLUMNS
-
-# Valores por defecto para columnas no expuestas en la UI o con valores fijos
+# Valores por defecto para TODAS las 33 columnas (Necesario para el KeyError fix)
 DEFAULT_MODEL_INPUTS = {
-    'PercentSalaryHike': 12, 'PerformanceRating': 3, 'TrainingTimesLastYear': 3, 
-    'RelationshipSatisfaction': 3, 'WorkLifeBalance': 3,
-    # Valores por defecto de categóricas
-    'EducationField': 'LIFE_SCIENCES', 
-    'Gender': 'MALE', 
-    'MaritalStatus': 'MARRIED',
-    'BusinessTravel': 'TRAVEL_RARELY',
-    # Valores de satisfacción/comportamiento
-    'EnvironmentSatisfaction': 3, 'JobSatisfaction': 3, 
-    'CargaLaboralPercibida': 3, 'ConfianzaEmpresa': 3, 'IntencionPermanencia': 3,
-    'NumeroTardanzas': 0, 'NumeroFaltas': 0
+    # Numéricas iniciales (deben coincidir con el tipo de widget o el centro de los datos)
+    'Age': 30, 'DistanceFromHome': 10, 'Education': 3, 'EnvironmentSatisfaction': 3,
+    'JobInvolvement': 3, 'JobLevel': 2, 'JobSatisfaction': 3, 'MonthlyIncome': 5000,
+    'NumCompaniesWorked': 2, 'PercentSalaryHike': 12, 'PerformanceRating': 3,
+    'RelationshipSatisfaction': 3, 'TotalWorkingYears': 10, 'TrainingTimesLastYear': 3,
+    'WorkLifeBalance': 3, 'YearsAtCompany': 5, 'YearsInCurrentRole': 3,
+    'YearsSinceLastPromotion': 1, 'YearsWithCurrManager': 3, 
+    'IntencionPermanencia': 3, 'CargaLaboralPercibida': 3, 'SatisfaccionSalarial': 3,
+    'ConfianzaEmpresa': 3, 'NumeroTardanzas': 0, 'NumeroFaltas': 0,
+    # Categóricas
+    'BusinessTravel': 'TRAVEL_RARELY', 'Department': 'RESEARCH_AND_DEVELOPMENT', 
+    'EducationField': 'LIFE_SCIENCES', 'Gender': 'MALE', 
+    'JobRole': 'SALES_EXECUTIVE', 'MaritalStatus': 'MARRIED',
+    'OverTime': 'NO', 'tipo_contrato': 'PERMANENTE' 
 }
 
 # Columnas clave para la simulación What-If (subconjunto para editar)
@@ -97,7 +98,9 @@ def preprocess_and_predict(input_data: Dict[str, Any], model, scaler, mapping) -
         
         for col in MODEL_COLUMNS:
             # Transferir valores de input o usar valor por defecto
-            final_df[col] = df_input[col].iloc[0] if col in df_input.columns else DEFAULT_MODEL_INPUTS.get(col, 0)
+            # Garantizamos que la clave existe en df_input antes de acceder a iloc
+            val = df_input[col].iloc[0] if col in df_input.columns else DEFAULT_MODEL_INPUTS.get(col, 0)
+            final_df[col] = val
         
         # 2. Aplicar Mapeo Categórico (Label Encoding)
         for col in CATEGORICAL_COLS_TO_MAP:
@@ -106,12 +109,13 @@ def preprocess_and_predict(input_data: Dict[str, Any], model, scaler, mapping) -
                 final_df[col] = final_df[col].fillna(0) 
 
         # 3. Aplicar Escalado A TODAS las 33 columnas
-        df_to_scale = final_df[NUMERICAL_COLS_TO_SCALE].copy()
+        # Aseguramos que solo las columnas necesarias para el scaler estén presentes
+        df_to_scale = final_df[MODEL_COLUMNS].copy()
         
         scaled_values = scaler.transform(df_to_scale)
         
         # Reemplazamos TODAS las columnas escaladas
-        final_df.loc[:, NUMERICAL_COLS_TO_SCALE] = scaled_values
+        final_df.loc[:, MODEL_COLUMNS] = scaled_values
         
         # 4. Predicción (El orden está garantizado por MODEL_COLUMNS)
         final_input = final_df[MODEL_COLUMNS].astype(float) 
@@ -135,6 +139,7 @@ def load_employee_data(employee_id: str, model, scaler, mapping) -> Dict[str, An
     """
     
     # ⚠️ REEMPLAZAR con la llamada real a Supabase (fetch_employee_data_from_supabase)
+    # Por ahora, es una SIMULACIÓN temporal
     if employee_id == "ACTIVO-001":
         employee_data_raw = {
             'employee_id': 'ACTIVO-001', 'Age': 30, 'DistanceFromHome': 5, 'Education': 3, 
@@ -155,7 +160,7 @@ def load_employee_data(employee_id: str, model, scaler, mapping) -> Dict[str, An
     if not employee_data_raw:
         return None
         
-    # Calcular la probabilidad actual (P. Actual) usando las 33 features
+    # Calcular la probabilidad actual (P. Actual)
     input_for_model = {k: employee_data_raw.get(k) for k in MODEL_COLUMNS if k in employee_data_raw}
 
     final_input_for_model = DEFAULT_MODEL_INPUTS.copy()
@@ -233,21 +238,26 @@ def render_manual_prediction_tab():
         key='employee_selector'
     )
     
-    # Inicializar con valores por defecto
-    initial_input = DEFAULT_MODEL_INPUTS.copy()
+    # 🛑 FIX: Inicializar con valores por defecto (asegura que todas las claves existan)
+    initial_input = DEFAULT_MODEL_INPUTS.copy() 
     initial_history = {'Probabilidad_Historica': 0.0, 'Fecha_Historial': 'N/A'}
 
     if selected_id != "(Ingreso Manual)":
         loaded_data = load_employee_data(selected_id, model, scaler, mapping) 
         if loaded_data:
-            initial_input = {k: v for k, v in loaded_data.items() if k in MODEL_COLUMNS}
+            # Sobrescribimos initial_input solo con los valores que se cargaron correctamente
+            # Usamos update para que las claves no cargadas mantengan el valor DEFAULT
+            initial_input.update({k: v for k, v in loaded_data.items() if k in MODEL_COLUMNS})
+            
             initial_history['Probabilidad_Historica'] = loaded_data.get('Probabilidad_Historica', 0.0)
             initial_history['Fecha_Historial'] = loaded_data.get('Fecha_Historial', 'N/A')
+        else:
+             st.warning(f"No se pudieron cargar los datos para el empleado ID: {selected_id}. Usando valores por defecto.")
         
     st.session_state['prob_al_cargar'] = initial_history['Probabilidad_Historica']
     st.session_state['history'] = initial_history 
     
-    user_input = initial_input.copy() 
+    user_input = initial_input.copy() # user_input es el diccionario completo para el formulario
     
     # Obtener las opciones del mapping
     job_role_options = list(mapping['JobRole'].keys())
@@ -365,15 +375,19 @@ def render_manual_prediction_tab():
             
             # Lógica de inputs para el What-If
             if variable_key == 'MonthlyIncome':
+                # Asumiendo un aumento inicial del 10%
                 new_value = st.number_input(f"Nuevo valor de {variable_name} (S/.)", 1000, 30000, int(current_value * 1.1), key='whatif_new_val')
             elif variable_key in ['TotalWorkingYears', 'YearsAtCompany']:
+                # Asumiendo un aumento inicial de 1 año
                 new_value = st.number_input(f"Nuevo valor de {variable_name}", 0, 50, current_value + 1, key='whatif_new_val_num')
             elif variable_key == 'JobLevel':
+                # Asumiendo un aumento inicial de 1 nivel
                 new_value = st.slider(f"Nuevo valor de {variable_name}", 1, 5, current_value + 1 if current_value < 5 else 5, key='whatif_new_val_level')
             elif variable_key == 'OverTime':
                 index = overtime_options.index(current_value) 
                 new_value = st.selectbox(f"Nuevo valor de {variable_name}", overtime_options, index=index, key='whatif_new_val_cat')
             elif variable_key in ['SatisfaccionSalarial', 'ConfianzaEmpresa']:
+                 # El slider se inicia con el valor actual
                  new_value = st.slider(f"Nuevo valor de {variable_name}", 1, 4, current_value, key='whatif_new_val_sat')
             else:
                  new_value = st.text_input(f"Nuevo valor de {variable_name}", str(current_value), key='whatif_new_val_text')
@@ -403,7 +417,7 @@ def render_manual_prediction_tab():
                         f"Prob. Simulada", 
                         f"{prob_what_if:.1%}", 
                         delta=f"{cambio_pct:.1f}%",
-                        delta_color="inverse"
+                        delta_color="inverse" # Color inverso: verde si baja el riesgo, rojo si sube
                     )
                 
                 with col_res_2:
