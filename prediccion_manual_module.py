@@ -68,25 +68,18 @@ WHAT_IF_VARIABLES = {
     "ConfianzaEmpresa": "Confianza en la Empresa (1-4)"
 }
 
-# ====================================================================
-# 2. CONFIGURACIÓN DE SUPABASE (¡REEMPLAZAR CON VALORES REALES!)
-# ====================================================================
-SUPABASE_URL = "SUPABASE_URL" 
-SUPABASE_KEY = "SUPABASE_KEY" 
-EMPLOYEE_TABLE = "consolidado" # La tabla que contiene los datos
-KEY_COLUMN = "EmployeeNumber" # La columna de la BD para identificar al empleado
-
+# Conexión a Supabase (asegúrate de tener tus credenciales)
 @st.cache_resource
-def init_supabase_client():
-    """Inicializa el cliente de Supabase."""
-    try:
-        if SUPABASE_URL == "TU_URL_DE_SUPABASE":
-            st.error("❌ Error: Por favor, configura SUPABASE_URL y SUPABASE_KEY en el código.")
-            return None
-        return create_client(SUPABASE_URL, SUPABASE_KEY)
-    except Exception as e:
-        st.error(f"❌ Error al inicializar Supabase: {e}")
-        return None
+def get_supabase() -> Client:
+    """Inicializa y cachea el cliente de Supabase."""
+    url = st.secrets.get("SUPABASE_URL")
+    key = st.secrets.get("SUPABASE_KEY")
+    if not url or not key:
+        st.error("ERROR: Faltan SUPABASE_URL o SUPABASE_KEY en secrets.toml. La autenticación fallará.")
+        st.stop()  # Detenemos el script si las credenciales no están
+    return create_client(url, key)
+
+supabase = get_supabase()
 
 # ====================================================================
 # 3. FUNCIONES DE CARGA DE DATOS Y PREDICCIÓN
