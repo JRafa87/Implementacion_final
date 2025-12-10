@@ -13,6 +13,7 @@ from employees_crud import render_employee_management_page
 from app_reconocimiento import render_recognition_page
 from dashboard_rotacion import render_rotacion_dashboard
 from survey_control_logic import render_survey_control_panel
+from prediccion_manual_module import render_manual_prediction_tab
 
 # ============================================================
 # 0. CONFIGURACIÓN E INICIALIZACIÓN
@@ -505,7 +506,7 @@ if session_is_active:
         "Dashboard": render_rotacion_dashboard,
         "Gestión de Empleados":lambda: render_employee_management_page() , # Función CRUD dedicada
         "Predicción desde Archivo": lambda: render_placeholder_page("Predicción desde Archivo 📁"),
-        "Predicción Manual": lambda: render_placeholder_page("Predicción Manual ✏️"),
+        "Predicción Manual":render_manual_prediction_tab,
         "Reconocimiento": render_recognition_page
     }
     
