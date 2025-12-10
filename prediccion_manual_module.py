@@ -15,7 +15,7 @@ warnings.filterwarnings("ignore")
 # RUTAS DE TUS ARCHIVOS 
 MODEL_PATH = 'models/xgboost_model.pkl' 
 SCALER_PATH = 'models/scaler.pkl' 
-MAPPING_PATH = 'models/categorical_mapping.pkl' # Usaremos este mapping real
+MAPPING_PATH = 'models/categorical_mapping.pkl' 
 
 # **MODEL_COLUMNS: 33 Características con ORDEN EXACTO ESPERADO**
 MODEL_COLUMNS = [
@@ -38,7 +38,7 @@ CATEGORICAL_COLS_TO_MAP = [
 
 NUMERICAL_COLS_TO_SCALE = MODEL_COLUMNS
 
-# 🛑 VALORES POR DEFECTO ACTUALIZADOS: Usando 'indefinido' para tipo_contrato
+# VALORES POR DEFECTO SINCRONIZADOS con el mapeo real ('indefinido', 'MALE', etc.)
 DEFAULT_MODEL_INPUTS = {
     # Numéricas
     'Age': 30, 'DistanceFromHome': 10, 'Education': 3, 'JobInvolvement': 3, 
@@ -55,7 +55,7 @@ DEFAULT_MODEL_INPUTS = {
     'MaritalStatus': 'MARRIED', 'BusinessTravel': 'TRAVEL_RARELY', 
     'Department': 'RESEARCH_AND_DEVELOPMENT', 'JobRole': 'SALES_EXECUTIVE', 
     'OverTime': 'NO', 
-    'tipo_contrato': 'indefinido' # 🛑 CORRECCIÓN: debe ser 'indefinido'
+    'tipo_contrato': 'indefinido' 
 }
 
 # Columnas clave para la simulación What-If
@@ -67,6 +67,12 @@ WHAT_IF_VARIABLES = {
     "OverTime": "¿Hace Horas Extra? (Sí/No)",
     "SatisfaccionSalarial": "Satisfacción Salarial (1-4)",
     "ConfianzaEmpresa": "Confianza en la Empresa (1-4)"
+}
+
+# 🆕 DATOS SIMULADOS DEL CONSOLIDADO: Empleado ID -> Nombre
+EMPLOYEE_CONSOLIDADO = {
+    "ACTIVO-001": "Juan Pérez García",
+    "ACTIVO-002": "María López Torres"
 }
 
 # ====================================================================
@@ -136,11 +142,11 @@ def preprocess_and_predict(input_data: Dict[str, Any], model, scaler, mapping) -
 
 def load_employee_data(employee_id: str, model, scaler, mapping) -> Dict[str, Any] | None:
     """
-    Simula la carga de datos de Supabase y calcula la probabilidad inicial.
+    Simula la carga de datos de Supabase/consolidado y calcula la probabilidad inicial.
     """
     
+    # Simulación de la fuente de datos del empleado (ejemplo para ACTIVO-001)
     if employee_id == "ACTIVO-001":
-        # 🛑 CORRECCIÓN: Usar 'indefinido' para que coincida con el mapping real
         employee_data_raw = {
             'employee_id': 'ACTIVO-001', 'Age': 30, 'DistanceFromHome': 5, 'Education': 3, 
             'EnvironmentSatisfaction': 2, 'JobInvolvement': 3, 'JobLevel': 2, 'JobSatisfaction': 2, 
@@ -152,7 +158,22 @@ def load_employee_data(employee_id: str, model, scaler, mapping) -> Dict[str, An
             'ConfianzaEmpresa': 3, 'NumeroTardanzas': 1, 'NumeroFaltas': 0,
             'BusinessTravel': 'TRAVEL_RARELY', 'Department': 'SALES', 'EducationField': 'MARKETING', 
             'Gender': 'MALE', 'JobRole': 'SALES_EXECUTIVE', 'MaritalStatus': 'MARRIED',
-            'OverTime': 'YES', 'tipo_contrato': 'indefinido' # 🛑 CORREGIDO AQUÍ
+            'OverTime': 'YES', 'tipo_contrato': 'indefinido' 
+        }
+    elif employee_id == "ACTIVO-002":
+        # Ejemplo de empleado con riesgo bajo
+        employee_data_raw = {
+            'employee_id': 'ACTIVO-002', 'Age': 45, 'DistanceFromHome': 1, 'Education': 5, 
+            'EnvironmentSatisfaction': 4, 'JobInvolvement': 4, 'JobLevel': 5, 'JobSatisfaction': 4, 
+            'MonthlyIncome': 18000, 'NumCompaniesWorked': 1, 'PercentSalaryHike': 18, 
+            'PerformanceRating': 4, 'RelationshipSatisfaction': 4, 'TotalWorkingYears': 20, 
+            'TrainingTimesLastYear': 2, 'WorkLifeBalance': 4, 'YearsAtCompany': 20, 
+            'YearsInCurrentRole': 10, 'YearsSinceLastPromotion': 5, 'YearsWithCurrManager': 10, 
+            'IntencionPermanencia': 5, 'CargaLaboralPercibida': 2, 'SatisfaccionSalarial': 4, 
+            'ConfianzaEmpresa': 4, 'NumeroTardanzas': 0, 'NumeroFaltas': 0,
+            'BusinessTravel': 'NON-TRAVEL', 'Department': 'RESEARCH_AND_DEVELOPMENT', 'EducationField': 'MEDICAL', 
+            'Gender': 'FEMALE', 'JobRole': 'RESEARCH_DIRECTOR', 'MaritalStatus': 'DIVORCED',
+            'OverTime': 'NO', 'tipo_contrato': 'indefinido' 
         }
     else:
         employee_data_raw = None
@@ -184,25 +205,32 @@ def generar_recomendacion(prob_base: float, input_data: Dict[str, Any]) -> str:
     
     # 1. Alerta por nivel de riesgo
     if prob_base >= 0.7:
-        recomendaciones.append("**Revisión Urgente:** El riesgo es extremadamente alto.")
+        recomendaciones.append("Revisión Urgente: El riesgo es extremadamente alto.")
     elif prob_base >= 0.5:
         recomendaciones.append("Riesgo moderado/alto. Intervención recomendada.")
         
-    # 2. Alerta por factores clave
+    # 2. Alerta por factores clave (se agregan independientemente del riesgo)
+    
+    # Evaluar si la insatisfacción salarial es crítica (<= 2)
+    if input_data.get('SatisfaccionSalarial', 3) <= 2:
+        recomendaciones.append("Alta insatisfacción salarial (Nivel 1 o 2).")
+
+    # Evaluar si el ingreso es bajo (umbral ejemplo)
     if input_data.get('MonthlyIncome', 5000) < 3000:
         recomendaciones.append("Evaluar compensación (Ingreso bajo).")
-    if input_data.get('SatisfaccionSalarial', 3) <= 2:
-        recomendaciones.append("Alta insatisfacción salarial.")
+
     if input_data.get('JobLevel', 2) == 1:
         recomendaciones.append("Fomentar planes de carrera (Nivel bajo).")
+        
     if input_data.get('OverTime', 'NO') == 'YES':
         recomendaciones.append("Revisar carga y horas extra.")
+        
     if input_data.get('YearsAtCompany', 3) >= 7 and input_data.get('YearsSinceLastPromotion', 1) >= 3:
          recomendaciones.append("Revisar promoción o reconocimiento (Antigüedad sin ascenso).")
 
-    if not recomendaciones:
-        return "Sin alertas específicas. El riesgo general es bajo."
-        
+    if not recomendaciones and prob_base < 0.5:
+        return "Nivel de riesgo Satisfactorio. Monitoreo constante."
+    
     return " | ".join(recomendaciones)
 
 def simular_what_if_individual(base_data: Dict[str, Any], variable_to_change: str, new_value: Any, model, scaler, mapping) -> float:
@@ -228,12 +256,23 @@ def render_manual_prediction_tab():
     # --- SECCIÓN: CARGA DE EMPLEADO ACTIVO ---
     st.markdown("<h2>👤 Cargar Empleado Activo para Análisis</h2>", unsafe_allow_html=True)
     
-    employee_options = ["(Ingreso Manual)", "ACTIVO-001", "ACTIVO-002"] 
-    selected_id = st.selectbox(
-        "Seleccionar Empleado para Precargar:", 
-        options=employee_options, 
+    # 🆕 Mapeo de ID a Nombre para el Selectbox
+    employee_id_to_name = {"(Ingreso Manual)": "(Ingreso Manual)"}
+    employee_id_to_name.update(EMPLOYEE_CONSOLIDADO)
+    
+    # Crear una lista de las opciones que se mostrarán al usuario (Nombres)
+    display_options = list(employee_id_to_name.values())
+    
+    selected_name = st.selectbox(
+        "Seleccionar Empleado para Precargar (Nombre):", 
+        options=display_options, 
         key='employee_selector'
     )
+    
+    # Obtener el ID seleccionado a partir del Nombre
+    # Esto busca la clave (ID) cuyo valor (Nombre) coincida con el seleccionado.
+    selected_id = [k for k, v in employee_id_to_name.items() if v == selected_name][0]
+
     
     # Inicializar con valores por defecto
     initial_input = DEFAULT_MODEL_INPUTS.copy() 
@@ -258,7 +297,7 @@ def render_manual_prediction_tab():
     job_role_options = list(mapping['JobRole'].keys())
     dept_options = list(mapping['Department'].keys())
     overtime_options = list(mapping['OverTime'].keys())
-    contrato_options = list(mapping['tipo_contrato'].keys()) # Ahora contiene 'indefinido', 'temporal'
+    contrato_options = list(mapping['tipo_contrato'].keys())
     
     st.markdown("<h3>Modificar Datos (Formulario Rellenado)</h3>", unsafe_allow_html=True)
     
@@ -271,7 +310,6 @@ def render_manual_prediction_tab():
         user_input['Age'] = st.slider("Edad", 18, 60, value=initial_input['Age'], key='age_base')
         user_input['JobLevel'] = st.slider("Nivel de Puesto (1-5)", 1, 5, value=initial_input['JobLevel'], key='joblevel_base')
         
-        # 🛑 USO DE safe_index para prevenir el ValueError
         user_input['JobRole'] = st.selectbox("Puesto", job_role_options, 
             index=safe_index(job_role_options, initial_input['JobRole']), key='jobrole_base')
             
@@ -292,7 +330,6 @@ def render_manual_prediction_tab():
         user_input['YearsAtCompany'] = st.number_input("Años en la Compañía", 0, 40, value=initial_input['YearsAtCompany'], key='yearsatcomp_base')
         user_input['YearsInCurrentRole'] = st.number_input("Años en el Rol Actual", 0, 18, value=initial_input['YearsInCurrentRole'], key='yearscurrent_base')
         
-        # 🛑 CORREGIDO: Ahora usa safe_index con las opciones correctas
         user_input['tipo_contrato'] = st.selectbox("Tipo de Contrato", contrato_options, 
             index=safe_index(contrato_options, initial_input['tipo_contrato']), key='contrato_base')
             
@@ -335,23 +372,50 @@ def render_manual_prediction_tab():
             prob_al_cargar = st.session_state['prob_al_cargar']
             delta = prob_actual - prob_al_cargar
             
+            # Formato de Delta
+            delta_line = ""
             if selected_id != "(Ingreso Manual)" and abs(delta) > 0.001: 
-                delta_str = f"({delta * 100:+.1f} puntos porcentuales)"
+                delta_str = f"{delta * 100:+.1f} puntos porcentuales"
+                delta_color = "red" if delta > 0 else "green"
                 delta_line = f"""
-                    <p><b>Cambio vs Datos Cargados:</b> 
-                    <span style='color:{"red" if delta>0 else "green"}'>
-                        {delta_str}
-                    </span></p>"""
-            else:
-                delta_line = ""
-
+                    <p style='margin-bottom: 5px;'>
+                        <b>Cambio vs Carga Inicial:</b> 
+                        <span style='color:{delta_color}; font-weight: bold;'>{delta_str}</span>
+                    </p>"""
+            
+            # 🆕 Formato mejorado para la Recomendación
+            recomendacion_html = f"""
+                <div style='
+                    background-color: #FFF9C4; 
+                    border-left: 5px solid #FFC107; 
+                    padding: 10px; 
+                    border-radius: 4px;
+                    margin-top: 15px;
+                    text-align: left;
+                '>
+                    <p style='margin: 0; font-weight: bold;'>🚨 Recomendación/Estado:</p>
+                    <p style='margin: 5px 0 0 0; font-size: 15px;'>{recomendacion}</p>
+                </div>
+            """
+            
+            # Color del texto de probabilidad
+            prob_color = "#D32F2F" if prob_actual > 0.5 else "#388E3C" # Rojo para riesgo, Verde para bajo
+            
             st.markdown(f"""
-                <div style='background-color:#E3F2FD; padding:20px; border-radius:10px; text-align:center;'>
-                    <h4>Resultado de Predicción ACTUAL</h4>
-                    <p style='font-size:24px;'>Probabilidad de renuncia: 
-                    <b style='color:{"red" if prob_actual>0.5 else "green"}'>{prob_actual:.1%}</b></p>
+                <div style='
+                    background-color:#E3F2FD; 
+                    padding:25px; 
+                    border-radius:12px; 
+                    text-align:center;
+                    box-shadow: 2px 2px 10px rgba(0,0,0,0.1);
+                '>
+                    <h4 style='margin-bottom: 10px;'>Resultado de Predicción ACTUAL</h4>
                     {delta_line}
-                    <p><b>Recomendación:</b> {recomendacion}</p>
+                    <p style='font-size:26px; margin: 15px 0;'>
+                        Probabilidad de renuncia: 
+                        <b style='color:{prob_color}; font-size: 1.2em;'>{prob_actual:.1%}</b>
+                    </p>
+                    {recomendacion_html}
                 </div>
             """, unsafe_allow_html=True)
     
@@ -360,7 +424,7 @@ def render_manual_prediction_tab():
     # B. ANÁLISIS WHAT-IF (SIMULACIÓN DE ESCENARIOS)
     # ====================================================================
     
-    
+    st.markdown("<hr/>")
     st.markdown("<h3 style='color:#1f77b4;'>💡 Análisis What-If (Simulación de Escenarios)</h3>", unsafe_allow_html=True)
 
     if 'base_input' in st.session_state:
