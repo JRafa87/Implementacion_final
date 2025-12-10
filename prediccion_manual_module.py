@@ -15,7 +15,7 @@ warnings.filterwarnings("ignore")
 # RUTAS DE TUS ARCHIVOS 
 MODEL_PATH = 'models/xgboost_model.pkl' 
 SCALER_PATH = 'models/scaler.pkl' 
-MAPPING_PATH = 'models/categorical_mapping.pkl' 
+MAPPING_PATH = 'models/categorical_mapping.pkl' # Usaremos este mapping real
 
 # **MODEL_COLUMNS: 33 Características con ORDEN EXACTO ESPERADO**
 MODEL_COLUMNS = [
@@ -38,7 +38,7 @@ CATEGORICAL_COLS_TO_MAP = [
 
 NUMERICAL_COLS_TO_SCALE = MODEL_COLUMNS
 
-# Valores por defecto para TODAS las 33 columnas
+# 🛑 VALORES POR DEFECTO ACTUALIZADOS: Usando 'indefinido' para tipo_contrato
 DEFAULT_MODEL_INPUTS = {
     # Numéricas
     'Age': 30, 'DistanceFromHome': 10, 'Education': 3, 'JobInvolvement': 3, 
@@ -54,10 +54,11 @@ DEFAULT_MODEL_INPUTS = {
     'EducationField': 'LIFE_SCIENCES', 'Gender': 'MALE', 
     'MaritalStatus': 'MARRIED', 'BusinessTravel': 'TRAVEL_RARELY', 
     'Department': 'RESEARCH_AND_DEVELOPMENT', 'JobRole': 'SALES_EXECUTIVE', 
-    'OverTime': 'NO', 'tipo_contrato': 'PERMANENTE' 
+    'OverTime': 'NO', 
+    'tipo_contrato': 'indefinido' # 🛑 CORRECCIÓN: debe ser 'indefinido'
 }
 
-# Columnas clave para la simulación What-If (subconjunto para editar)
+# Columnas clave para la simulación What-If
 WHAT_IF_VARIABLES = {
     "MonthlyIncome": "Ingreso Mensual",
     "TotalWorkingYears": "Años Totales Trabajados",
@@ -69,8 +70,15 @@ WHAT_IF_VARIABLES = {
 }
 
 # ====================================================================
-# FUNCIONES DE CARGA Y PREDICCIÓN (MOTOR DE 33 FEATURES)
+# FUNCIONES DE SEGURIDAD Y PREDICCIÓN
 # ====================================================================
+
+def safe_index(options: list, value: Any, default_index: int = 0) -> int:
+    """Busca el índice de un valor en la lista de opciones de forma segura."""
+    try:
+        return options.index(value)
+    except ValueError:
+        return default_index
 
 @st.cache_resource
 def load_model_artefacts():
@@ -99,7 +107,6 @@ def preprocess_and_predict(input_data: Dict[str, Any], model, scaler, mapping) -
         final_df = pd.DataFrame(0, index=[0], columns=MODEL_COLUMNS)
         
         for col in MODEL_COLUMNS:
-            # Transferir valores de input o usar valor por defecto
             val = df_input[col].iloc[0] if col in df_input.columns else DEFAULT_MODEL_INPUTS.get(col, 0)
             final_df[col] = val
         
@@ -111,15 +118,11 @@ def preprocess_and_predict(input_data: Dict[str, Any], model, scaler, mapping) -
 
         # 3. Aplicar Escalado A TODAS las 33 columnas
         df_to_scale = final_df[MODEL_COLUMNS].copy()
-        
         scaled_values = scaler.transform(df_to_scale)
-        
-        # Reemplazamos TODAS las columnas escaladas
         final_df.loc[:, MODEL_COLUMNS] = scaled_values
         
-        # 4. Predicción (El orden está garantizado por MODEL_COLUMNS)
+        # 4. Predicción
         final_input = final_df[MODEL_COLUMNS].astype(float) 
-        
         prediction_proba = model.predict_proba(final_input)[:, 1][0]
         predicted_class = 1 if prediction_proba >= 0.5 else 0
         
@@ -129,15 +132,15 @@ def preprocess_and_predict(input_data: Dict[str, Any], model, scaler, mapping) -
         st.error(f"Error durante el preprocesamiento o la predicción: {e}")
         return -1, 0.0
 
-# --- FUNCIÓN PARA CARGAR DATOS (RESTAURADA) ---
+# --- FUNCIÓN PARA CARGAR DATOS (SIMULADA) ---
 
 def load_employee_data(employee_id: str, model, scaler, mapping) -> Dict[str, Any] | None:
     """
     Simula la carga de datos de Supabase y calcula la probabilidad inicial.
     """
     
-    # ⚠️ REEMPLAZAR con la llamada real a Supabase 
     if employee_id == "ACTIVO-001":
+        # 🛑 CORRECCIÓN: Usar 'indefinido' para que coincida con el mapping real
         employee_data_raw = {
             'employee_id': 'ACTIVO-001', 'Age': 30, 'DistanceFromHome': 5, 'Education': 3, 
             'EnvironmentSatisfaction': 2, 'JobInvolvement': 3, 'JobLevel': 2, 'JobSatisfaction': 2, 
@@ -149,7 +152,7 @@ def load_employee_data(employee_id: str, model, scaler, mapping) -> Dict[str, An
             'ConfianzaEmpresa': 3, 'NumeroTardanzas': 1, 'NumeroFaltas': 0,
             'BusinessTravel': 'TRAVEL_RARELY', 'Department': 'SALES', 'EducationField': 'MARKETING', 
             'Gender': 'MALE', 'JobRole': 'SALES_EXECUTIVE', 'MaritalStatus': 'MARRIED',
-            'OverTime': 'YES', 'tipo_contrato': 'PERMANENTE'
+            'OverTime': 'YES', 'tipo_contrato': 'indefinido' # 🛑 CORREGIDO AQUÍ
         }
     else:
         employee_data_raw = None
@@ -232,14 +235,13 @@ def render_manual_prediction_tab():
         key='employee_selector'
     )
     
-    # 🛑 FIX: Inicializar con valores por defecto (asegura que todas las claves existan)
+    # Inicializar con valores por defecto
     initial_input = DEFAULT_MODEL_INPUTS.copy() 
     initial_history = {'Probabilidad_Historica': 0.0, 'Fecha_Historial': 'N/A'}
 
     if selected_id != "(Ingreso Manual)":
         loaded_data = load_employee_data(selected_id, model, scaler, mapping) 
         if loaded_data:
-            # Sobrescribimos initial_input solo con los valores que se cargaron correctamente
             initial_input.update({k: v for k, v in loaded_data.items() if k in MODEL_COLUMNS})
             
             initial_history['Probabilidad_Historica'] = loaded_data.get('Probabilidad_Historica', 0.0)
@@ -247,22 +249,20 @@ def render_manual_prediction_tab():
         else:
              st.warning(f"No se pudieron cargar los datos para el empleado ID: {selected_id}. Usando valores por defecto.")
         
-    # Guardamos los datos de historial/carga
     st.session_state['prob_al_cargar'] = initial_history['Probabilidad_Historica']
     st.session_state['history'] = initial_history 
     
-    # user_input es el diccionario completo para el formulario
     user_input = initial_input.copy() 
     
     # Obtener las opciones del mapping
     job_role_options = list(mapping['JobRole'].keys())
     dept_options = list(mapping['Department'].keys())
     overtime_options = list(mapping['OverTime'].keys())
-    contrato_options = list(mapping['tipo_contrato'].keys())
+    contrato_options = list(mapping['tipo_contrato'].keys()) # Ahora contiene 'indefinido', 'temporal'
     
     st.markdown("<h3>Modificar Datos (Formulario Rellenado)</h3>", unsafe_allow_html=True)
     
-    # --- RENDERIZADO DEL FORMULARIO DE EDICIÓN (33 VARIABLES EDITABLES) ---
+    # --- RENDERIZADO DEL FORMULARIO DE EDICIÓN ---
     col_input_1, col_input_2, col_input_3 = st.columns(3)
     
     # --- Columna 1: Demografía y Puesto ---
@@ -270,10 +270,19 @@ def render_manual_prediction_tab():
         st.subheader("Puesto y Demografía")
         user_input['Age'] = st.slider("Edad", 18, 60, value=initial_input['Age'], key='age_base')
         user_input['JobLevel'] = st.slider("Nivel de Puesto (1-5)", 1, 5, value=initial_input['JobLevel'], key='joblevel_base')
-        user_input['JobRole'] = st.selectbox("Puesto", job_role_options, index=job_role_options.index(initial_input['JobRole']), key='jobrole_base')
-        user_input['Department'] = st.selectbox("Departamento", dept_options, index=dept_options.index(initial_input['Department']), key='dept_base')
+        
+        # 🛑 USO DE safe_index para prevenir el ValueError
+        user_input['JobRole'] = st.selectbox("Puesto", job_role_options, 
+            index=safe_index(job_role_options, initial_input['JobRole']), key='jobrole_base')
+            
+        user_input['Department'] = st.selectbox("Departamento", dept_options, 
+            index=safe_index(dept_options, initial_input['Department']), key='dept_base')
+            
         user_input['Education'] = st.slider("Nivel Educativo (1-5)", 1, 5, value=initial_input['Education'], key='edu_base')
-        user_input['Gender'] = st.selectbox("Género", list(mapping['Gender'].keys()), index=list(mapping['Gender'].keys()).index(initial_input['Gender']), key='gender_base')
+        
+        gender_options = list(mapping['Gender'].keys())
+        user_input['Gender'] = st.selectbox("Género", gender_options, 
+            index=safe_index(gender_options, initial_input['Gender']), key='gender_base')
 
     # --- Columna 2: Compensación y Antigüedad ---
     with col_input_2:
@@ -282,14 +291,22 @@ def render_manual_prediction_tab():
         user_input['TotalWorkingYears'] = st.number_input("Años Totales Trabajados", 0, 40, value=initial_input['TotalWorkingYears'], key='totalyears_base')
         user_input['YearsAtCompany'] = st.number_input("Años en la Compañía", 0, 40, value=initial_input['YearsAtCompany'], key='yearsatcomp_base')
         user_input['YearsInCurrentRole'] = st.number_input("Años en el Rol Actual", 0, 18, value=initial_input['YearsInCurrentRole'], key='yearscurrent_base')
-        user_input['tipo_contrato'] = st.selectbox("Tipo de Contrato", contrato_options, index=contrato_options.index(initial_input['tipo_contrato']), key='contrato_base')
-        user_input['MaritalStatus'] = st.selectbox("Estado Civil", list(mapping['MaritalStatus'].keys()), index=list(mapping['MaritalStatus'].keys()).index(initial_input['MaritalStatus']), key='marital_base')
+        
+        # 🛑 CORREGIDO: Ahora usa safe_index con las opciones correctas
+        user_input['tipo_contrato'] = st.selectbox("Tipo de Contrato", contrato_options, 
+            index=safe_index(contrato_options, initial_input['tipo_contrato']), key='contrato_base')
+            
+        marital_options = list(mapping['MaritalStatus'].keys())
+        user_input['MaritalStatus'] = st.selectbox("Estado Civil", marital_options, 
+            index=safe_index(marital_options, initial_input['MaritalStatus']), key='marital_base')
         
     # --- Columna 3: Factores de Satisfacción y Riesgo ---
     with col_input_3:
         st.subheader("Factores de Satisfacción")
         user_input['DistanceFromHome'] = st.number_input("Distancia del Hogar (km)", 1, 30, value=initial_input['DistanceFromHome'], key='distance_base')
-        user_input['OverTime'] = st.selectbox("¿Realiza Horas Extra?", overtime_options, index=overtime_options.index(initial_input['OverTime']), key='overtime_base')
+        
+        user_input['OverTime'] = st.selectbox("¿Realiza Horas Extra?", overtime_options, 
+            index=safe_index(overtime_options, initial_input['OverTime']), key='overtime_base')
         
         # Variables de Satisfacción (1-4) y Comportamiento (0+)
         user_input['EnvironmentSatisfaction'] = st.slider("Satisfacción Entorno (1-4)", 1, 4, value=initial_input['EnvironmentSatisfaction'], key='env_sat_base')
@@ -318,7 +335,6 @@ def render_manual_prediction_tab():
             prob_al_cargar = st.session_state['prob_al_cargar']
             delta = prob_actual - prob_al_cargar
             
-            # Mostramos el delta solo si el usuario cargó un empleado y modificó los datos
             if selected_id != "(Ingreso Manual)" and abs(delta) > 0.001: 
                 delta_str = f"({delta * 100:+.1f} puntos porcentuales)"
                 delta_line = f"""
@@ -356,7 +372,6 @@ def render_manual_prediction_tab():
         col_what_if_1, col_what_if_2 = st.columns(2)
         
         with col_what_if_1:
-            # Solo variables clave editables
             variable_key = st.selectbox(
                 "Selecciona la variable a modificar:",
                 options=list(WHAT_IF_VARIABLES.keys()),
@@ -376,7 +391,7 @@ def render_manual_prediction_tab():
             elif variable_key == 'JobLevel':
                 new_value = st.slider(f"Nuevo valor de {variable_name}", 1, 5, current_value + 1 if current_value < 5 else 5, key='whatif_new_val_level')
             elif variable_key == 'OverTime':
-                index = overtime_options.index(current_value) 
+                index = safe_index(overtime_options, current_value) 
                 new_value = st.selectbox(f"Nuevo valor de {variable_name}", overtime_options, index=index, key='whatif_new_val_cat')
             elif variable_key in ['SatisfaccionSalarial', 'ConfianzaEmpresa']:
                  new_value = st.slider(f"Nuevo valor de {variable_name}", 1, 4, current_value, key='whatif_new_val_sat')
