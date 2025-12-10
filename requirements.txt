@@ -6,3 +6,7 @@ httpx
 pandas
 lifelines
 plotly
+numpy
+xgboost
+matplotlib
+scikit-learn
