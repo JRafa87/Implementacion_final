@@ -10,7 +10,6 @@ numpy
 xgboost
 matplotlib
 scikit-learn
-warnings
 joblib
 openpyxl
 xlsxwriter
