@@ -9,10 +9,10 @@ import warnings
 warnings.filterwarnings("ignore") 
 
 # ====================================================================
-# CONFIGURACIÓN DEL MODELO Y ARTEFACTOS (ORDEN ESTRICTO)
+# CONFIGURACIÓN DEL MODELO Y ARTEFACTOS (33 FEATURES ESCALADAS)
 # ====================================================================
 
-# RUTAS DE TUS ARCHIVOS (Asumimos que están en 'models/')
+# RUTAS DE TUS ARCHIVOS 
 MODEL_PATH = 'models/xgboost_model.pkl' 
 SCALER_PATH = 'models/scaler.pkl' 
 MAPPING_PATH = 'models/categorical_mapping.pkl' 
@@ -30,25 +30,16 @@ MODEL_COLUMNS = [
     'ConfianzaEmpresa', 'NumeroTardanzas', 'NumeroFaltas', 'tipo_contrato' 
 ]
 
-# Columnas categóricas a mapear (NO SE ESCALAN)
+# Columnas categóricas a mapear (Se mapean a números antes del escalado)
 CATEGORICAL_COLS_TO_MAP = [
     'BusinessTravel', 'Department', 'EducationField', 'Gender', 'JobRole',
     'MaritalStatus', 'OverTime', 'tipo_contrato'
 ]
 
-# Columnas numéricas/ordinales que DEBEN ser escaladas (Son el resto)
-NUMERICAL_COLS_TO_SCALE = [
-    'Age', 'DistanceFromHome', 'Education', 'EnvironmentSatisfaction',
-    'JobInvolvement', 'JobLevel', 'JobSatisfaction', 'MonthlyIncome', 
-    'NumCompaniesWorked', 'PercentSalaryHike', 'PerformanceRating', 
-    'RelationshipSatisfaction', 'TotalWorkingYears', 'TrainingTimesLastYear', 
-    'WorkLifeBalance', 'YearsAtCompany', 'YearsInCurrentRole', 
-    'YearsSinceLastPromotion', 'YearsWithCurrManager',
-    'IntencionPermanencia', 'CargaLaboralPercibida', 'SatisfaccionSalarial', 
-    'ConfianzaEmpresa', 'NumeroTardanzas', 'NumeroFaltas' 
-]
+# 🛑 Contiene TODAS las 33 columnas: Se asume que el scaler fue ajustado a todas.
+NUMERICAL_COLS_TO_SCALE = MODEL_COLUMNS
 
-# Valores por defecto para columnas que no se piden en la interfaz o tienen valores fijos
+# Valores por defecto para columnas no expuestas en la UI o con valores fijos
 DEFAULT_MODEL_INPUTS = {
     'PercentSalaryHike': 12, 'PerformanceRating': 3, 'TrainingTimesLastYear': 3, 
     'RelationshipSatisfaction': 3, 'WorkLifeBalance': 3,
@@ -75,7 +66,7 @@ WHAT_IF_VARIABLES = {
 }
 
 # ====================================================================
-# FUNCIONES DE CARGA Y PREDICCIÓN (Lógica CLAVE para Feature Match)
+# FUNCIONES DE CARGA Y PREDICCIÓN
 # ====================================================================
 
 @st.cache_resource
@@ -97,7 +88,7 @@ def load_model_artefacts():
         return None, None, None
 
 def preprocess_and_predict(input_data: Dict[str, Any], model, scaler, mapping) -> tuple:
-    """Preprocesa el dict de entrada, asegura el orden y realiza la predicción."""
+    """Preprocesa el dict de entrada, asegura el orden y realiza la predicción escalando todo."""
     try:
         df_input = pd.DataFrame([input_data])
         
@@ -106,7 +97,6 @@ def preprocess_and_predict(input_data: Dict[str, Any], model, scaler, mapping) -
         
         for col in MODEL_COLUMNS:
             # Transferir valores de input o usar valor por defecto
-            # Esto debe usarse solo para variables no categóricas que tienen valores por defecto si no están en el input
             final_df[col] = df_input[col].iloc[0] if col in df_input.columns else DEFAULT_MODEL_INPUTS.get(col, 0)
         
         # 2. Aplicar Mapeo Categórico (Label Encoding)
@@ -114,20 +104,19 @@ def preprocess_and_predict(input_data: Dict[str, Any], model, scaler, mapping) -
             if col in mapping:
                 # Mapear el valor de texto al número entero
                 final_df[col] = final_df[col].map(mapping[col])
-                # Es crucial que aquí no queden NaNs (valores que no se mapearon)
-                # Si una categoría es desconocida, rellenar con un valor seguro (ej: la moda o -1)
+                # Rellenar con 0 si la categoría no existe 
                 final_df[col] = final_df[col].fillna(0) 
 
-        # 3. Aplicar Escalado SÓLO a las columnas numéricas/ordinales
+        # 3. Aplicar Escalado A TODAS las columnas
         df_to_scale = final_df[NUMERICAL_COLS_TO_SCALE].copy()
         
         scaled_values = scaler.transform(df_to_scale)
         
-        # Reemplazamos SÓLO las columnas escaladas en el DataFrame final
+        # Reemplazamos TODAS las columnas escaladas
         final_df.loc[:, NUMERICAL_COLS_TO_SCALE] = scaled_values
         
         # 4. Predicción (El orden está garantizado por MODEL_COLUMNS)
-        final_input = final_df[MODEL_COLUMNS].astype(float) # Aquí se usa el orden exacto
+        final_input = final_df[MODEL_COLUMNS].astype(float) 
         
         prediction_proba = model.predict_proba(final_input)[:, 1][0]
         predicted_class = 1 if prediction_proba >= 0.5 else 0
@@ -139,7 +128,7 @@ def preprocess_and_predict(input_data: Dict[str, Any], model, scaler, mapping) -
         return -1, 0.0
 
 # ====================================================================
-# FUNCIONES DE RECOMENDACIÓN Y WHAT-IF (Inclusión COMPLETA)
+# FUNCIONES DE RECOMENDACIÓN Y WHAT-IF
 # ====================================================================
 
 def generar_recomendacion(prob_base: float, input_data: Dict[str, Any]) -> str:
@@ -152,7 +141,7 @@ def generar_recomendacion(prob_base: float, input_data: Dict[str, Any]) -> str:
     elif prob_base >= 0.5:
         recomendaciones.append("Riesgo moderado/alto. Intervención recomendada.")
         
-    # 2. Alerta por factores clave (Usando las nuevas columnas)
+    # 2. Alerta por factores clave
     if input_data.get('MonthlyIncome', 5000) < 3000:
         recomendaciones.append("Evaluar compensación (Ingreso bajo).")
     if input_data.get('SatisfaccionSalarial', 3) <= 2:
