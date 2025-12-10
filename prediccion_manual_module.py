@@ -131,7 +131,7 @@ def fetch_employee_list() -> Dict[str, str]:
         
     try:
         # Asume que 'nombre_completo' (o similar) existe en la tabla consolidado
-        response = supabase.table(EMPLOYEE_TABLE).select(f"{KEY_COLUMN}, nombre_completo").execute()
+        response = supabase.table(consolidado).select(f"{KEY_COLUMN}, nombre_completo").execute()
         
         # Mapea los resultados: EmployeeNumber (ID) -> nombre_completo
         employee_map = {
