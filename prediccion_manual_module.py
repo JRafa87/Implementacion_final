@@ -9,26 +9,31 @@ import warnings
 warnings.filterwarnings("ignore") 
 
 # ====================================================================
-# CONFIGURACIÓN DEL MODELO Y ARTEFACTOS (AJUSTADO PARA LABEL ENCODING)
+# CONFIGURACIÓN DEL MODELO Y ARTEFACTOS (33 FEATURES EXACTAS)
 # ====================================================================
 
-# RUTAS DE TUS ARCHIVOS
+# RUTAS DE TUS ARCHIVOS (Asumimos que están en 'models/')
 MODEL_PATH = 'models/xgboost_model.pkl' 
 SCALER_PATH = 'models/scaler.pkl' 
-MAPPING_PATH = 'models/categorical_mapping.pkl' # <-- RUTA AÑADIDA
+MAPPING_PATH = 'models/categorical_mapping.pkl' 
 
-# **IMPORTANTE:** MODEL_COLUMNS debe contener los nombres originales de las columnas
-# categóricas, ya que serán transformadas por el mapeo numérico (Label Encoding)
+# **MODEL_COLUMNS: 33 Características EXACTAS**
 MODEL_COLUMNS = [
-    'Age', 'DailyRate', 'DistanceFromHome', 'Education', 'EnvironmentSatisfaction',
-    'JobInvolvement', 'JobLevel', 'MonthlyIncome', 'NumCompaniesWorked', 
-    'PerformanceRating', 'TotalWorkingYears', 'YearsAtCompany', 'YearsInCurrentRole', 
+    'Age', 'DistanceFromHome', 'Education', 'EnvironmentSatisfaction',
+    'JobInvolvement', 'JobLevel', 'JobSatisfaction', 'MonthlyIncome', 
+    'NumCompaniesWorked', 'PercentSalaryHike', 'PerformanceRating', 
+    'RelationshipSatisfaction', 'TotalWorkingYears', 'TrainingTimesLastYear', 
+    'WorkLifeBalance', 'YearsAtCompany', 'YearsInCurrentRole', 
     'YearsSinceLastPromotion', 'YearsWithCurrManager', 
+    # NUEVAS/ORDINALES
+    'IntencionPermanencia', 'CargaLaboralPercibida', 'SatisfaccionSalarial', 
+    'ConfianzaEmpresa', 'NumeroTardanzas', 'NumeroFaltas',
+    # CATEGÓRICAS
     'BusinessTravel', 'Department', 'EducationField', 'Gender', 'JobRole',
-    'MaritalStatus', 'OverTime', 'tipo_contrato' # <-- Columnas categóricas incluidas aquí
+    'MaritalStatus', 'OverTime', 'tipo_contrato' 
 ]
 
-# Las columnas categóricas a mapear
+# Las columnas categóricas a mapear (Según el mapeo proporcionado)
 CATEGORICAL_COLS_TO_MAP = [
     'BusinessTravel', 'Department', 'EducationField', 'Gender', 'JobRole',
     'MaritalStatus', 'OverTime', 'tipo_contrato'
@@ -36,33 +41,40 @@ CATEGORICAL_COLS_TO_MAP = [
 
 # Columnas numéricas/ordinales que deben ser escaladas
 NUMERICAL_COLS_TO_SCALE = [
-    'Age', 'DailyRate', 'DistanceFromHome', 'Education', 'EnvironmentSatisfaction',
-    'JobInvolvement', 'JobLevel', 'MonthlyIncome', 'NumCompaniesWorked', 
-    'PerformanceRating', 'TotalWorkingYears', 'YearsAtCompany', 'YearsInCurrentRole', 
-    'YearsSinceLastPromotion', 'YearsWithCurrManager'
+    'Age', 'DistanceFromHome', 'Education', 'EnvironmentSatisfaction',
+    'JobInvolvement', 'JobLevel', 'JobSatisfaction', 'MonthlyIncome', 
+    'NumCompaniesWorked', 'PercentSalaryHike', 'PerformanceRating', 
+    'RelationshipSatisfaction', 'TotalWorkingYears', 'TrainingTimesLastYear', 
+    'WorkLifeBalance', 'YearsAtCompany', 'YearsInCurrentRole', 
+    'YearsSinceLastPromotion', 'YearsWithCurrManager',
+    'IntencionPermanencia', 'CargaLaboralPercibida', 'SatisfaccionSalarial', 
+    'ConfianzaEmpresa', 'NumeroTardanzas', 'NumeroFaltas' 
 ]
 
-# Valores por defecto (ajustados para reflejar las columnas que se piden en la UI)
+# Valores por defecto para columnas que no se piden en la interfaz o tienen valores fijos
 DEFAULT_MODEL_INPUTS = {
-    'DailyRate': 800, 'Education': 3, 'EnvironmentSatisfaction': 3, 'JobInvolvement': 3, 
-    'PerformanceRating': 3, 'YearsSinceLastPromotion': 1, 'YearsWithCurrManager': 4,
-    'EducationField': 'LIFE_SCIENCES', # Ejemplo de valor por defecto
+    'PercentSalaryHike': 12, 'PerformanceRating': 3, 'TrainingTimesLastYear': 3, 
+    'RelationshipSatisfaction': 3, 
+    # Valores por defecto de categóricas (usando el valor del mapeo)
+    'EducationField': 'LIFE_SCIENCES', 
     'Gender': 'MALE', 
     'MaritalStatus': 'MARRIED',
     'BusinessTravel': 'TRAVEL_RARELY'
 }
 
-# Columnas para el What-If
+# Columnas clave para la simulación What-If
 WHAT_IF_VARIABLES = {
     "MonthlyIncome": "Ingreso Mensual",
     "TotalWorkingYears": "Años Totales Trabajados",
     "YearsAtCompany": "Años en la Compañía",
     "JobLevel": "Nivel de Puesto (1-5)",
-    "OverTime": "¿Hace Horas Extra? (Sí/No)"
+    "OverTime": "¿Hace Horas Extra? (Sí/No)",
+    "SatisfaccionSalarial": "Satisfacción Salarial (1-4)",
+    "ConfianzaEmpresa": "Confianza en la Empresa (1-4)"
 }
 
 # ====================================================================
-# FUNCIONES DE CARGA Y PREDICCIÓN (MODIFICADAS)
+# FUNCIONES DE CARGA Y PREDICCIÓN (SIN CAMBIOS ESTRUCTURALES)
 # ====================================================================
 
 @st.cache_resource
@@ -70,21 +82,13 @@ def load_model_artefacts():
     """Carga el modelo, el escalador y el mapeo categórico."""
     model, scaler, mapping = None, None, None
     try:
-        if os.path.exists(MODEL_PATH):
-            model = joblib.load(MODEL_PATH) 
-        else:
-            st.error(f"❌ Modelo no encontrado en: {MODEL_PATH}")
-        
-        if os.path.exists(SCALER_PATH):
-            scaler = joblib.load(SCALER_PATH)
-        else:
-            st.error(f"❌ Escalador no encontrado en: {SCALER_PATH}")
+        model = joblib.load(MODEL_PATH) if os.path.exists(MODEL_PATH) else None
+        scaler = joblib.load(SCALER_PATH) if os.path.exists(SCALER_PATH) else None
+        mapping = joblib.load(MAPPING_PATH) if os.path.exists(MAPPING_PATH) else None
 
-        # <-- CARGA DEL MAPPING AÑADIDA AQUÍ
-        if os.path.exists(MAPPING_PATH):
-            mapping = joblib.load(MAPPING_PATH)
-        else:
-            st.error(f"❌ Mapeo categórico no encontrado en: {MAPPING_PATH}")
+        if model is None: st.error(f"❌ Modelo no encontrado en: {MODEL_PATH}")
+        if scaler is None: st.error(f"❌ Escalador no encontrado en: {SCALER_PATH}")
+        if mapping is None: st.error(f"❌ Mapeo categórico no encontrado en: {MAPPING_PATH}")
         
         return model, scaler, mapping
     except Exception as e:
@@ -94,34 +98,33 @@ def load_model_artefacts():
 def preprocess_and_predict(input_data: Dict[str, Any], model, scaler, mapping) -> tuple:
     """Preprocesa el dict de entrada y realiza la predicción usando Label Encoding."""
     try:
-        # 1. Crear DataFrame e inicializar
         df_input = pd.DataFrame([input_data])
-        
-        # 2. Aplicar Mapeo Categórico (Label Encoding)
         df_processed = df_input.copy()
+        
+        # 1. Aplicar Mapeo Categórico (Label Encoding)
         for col in CATEGORICAL_COLS_TO_MAP:
             if col in df_processed.columns and col in mapping:
-                # Aplicar el mapeo numérico cargado
                 df_processed[col] = df_processed[col].map(mapping[col])
-                # Rellenar cualquier valor que no se mapeó (categoría desconocida) con NaN,
-                # o el valor que usaste para desconocidos durante el entrenamiento. Aquí asumimos 
-                # que no habrá desconocidos en el input manual.
-                df_processed[col] = df_processed[col].fillna(df_processed[col].mode()[0] if not df_processed[col].empty else -1)
-        
-        # 3. Aplicar Escalado a las columnas numéricas
-        df_scaled = df_processed.copy()
-        
-        # Asegurar que las columnas numéricas estén en el DataFrame (necesario para el escalador)
-        for col in NUMERICAL_COLS_TO_SCALE:
-            if col not in df_scaled.columns:
-                df_scaled[col] = 0 # Rellenar con un valor si falta
+                # Manejar categorías desconocidas (si el valor no está en el mapeo)
+                df_processed[col] = df_processed[col].fillna(-1) 
 
-        df_to_scale = df_scaled[NUMERICAL_COLS_TO_SCALE].copy()
+        # 2. Añadir/reordenar las columnas faltantes (Feature Matching)
+        final_df = pd.DataFrame(0, index=[0], columns=MODEL_COLUMNS)
+        
+        for col in MODEL_COLUMNS:
+            if col in df_processed.columns:
+                final_df[col] = df_processed[col].iloc[0]
+            else:
+                # Usar el valor por defecto si la columna no se pasó (debería ser raro)
+                final_df[col] = DEFAULT_MODEL_INPUTS.get(col, 0)
+
+        # 3. Aplicar Escalado
+        df_to_scale = final_df[NUMERICAL_COLS_TO_SCALE].copy()
         scaled_values = scaler.transform(df_to_scale)
-        df_scaled.loc[:, NUMERICAL_COLS_TO_SCALE] = scaled_values
+        final_df.loc[:, NUMERICAL_COLS_TO_SCALE] = scaled_values
         
         # 4. Predicción
-        final_input = df_scaled[MODEL_COLUMNS].astype(float)
+        final_input = final_df[MODEL_COLUMNS].astype(float)
         
         prediction_proba = model.predict_proba(final_input)[:, 1][0]
         predicted_class = 1 if prediction_proba >= 0.5 else 0
@@ -133,26 +136,27 @@ def preprocess_and_predict(input_data: Dict[str, Any], model, scaler, mapping) -
         return -1, 0.0
 
 # ====================================================================
-# FUNCIONES DE RECOMENDACIÓN Y WHAT-IF (NO NECESITAN CAMBIOS INTERNOS)
+# FUNCIONES DE RECOMENDACIÓN Y WHAT-IF
 # ====================================================================
 
-# (Las funciones generar_recomendacion y simular_what_if_individual no requieren cambios
-# en su estructura, solo en cómo llaman a preprocess_and_predict)
-
 def generar_recomendacion(prob_base: float, input_data: Dict[str, Any]) -> str:
-    # ... (La lógica de recomendaciones sigue siendo la misma) ...
+    """Genera recomendaciones basadas en reglas y la probabilidad."""
     recomendaciones = []
     
+    # 1. Alerta por nivel de riesgo
     if prob_base >= 0.7:
         recomendaciones.append("**Revisión Urgente:** El riesgo es extremadamente alto.")
     elif prob_base >= 0.5:
         recomendaciones.append("Riesgo moderado/alto. Intervención recomendada.")
         
+    # 2. Alerta por factores clave (Usando las nuevas columnas)
     if input_data.get('MonthlyIncome', 5000) < 3000:
         recomendaciones.append("Evaluar compensación (Ingreso bajo).")
+    if input_data.get('SatisfaccionSalarial', 3) <= 2:
+        recomendaciones.append("Alta insatisfacción salarial.")
     if input_data.get('JobLevel', 2) == 1:
         recomendaciones.append("Fomentar planes de carrera (Nivel bajo).")
-    if input_data.get('OverTime', 'NO') == 'YES': # Usar 'NO' y 'YES' para matching
+    if input_data.get('OverTime', 'NO') == 'YES':
         recomendaciones.append("Revisar carga y horas extra.")
     if input_data.get('YearsAtCompany', 3) >= 7 and input_data.get('YearsSinceLastPromotion', 1) >= 3:
          recomendaciones.append("Revisar promoción o reconocimiento (Antigüedad sin ascenso).")
@@ -167,29 +171,26 @@ def simular_what_if_individual(base_data: Dict[str, Any], variable_to_change: st
     df_input = base_data.copy()
     df_input[variable_to_change] = new_value
     
-    # Se añade 'mapping' como argumento
     _, prob_what_if = preprocess_and_predict(df_input, model, scaler, mapping) 
     
     return prob_what_if
 
 # ====================================================================
-# FUNCIÓN DE RENDERIZADO (MODIFICADA)
+# FUNCIÓN DE RENDERIZADO (INTERFAZ ACTUALIZADA)
 # ====================================================================
 
 def render_manual_prediction_tab():
     """Renderiza la interfaz completa de simulación y What-If en Streamlit."""
     
-    model, scaler, mapping = load_model_artefacts() # <-- Carga el mapeo
+    model, scaler, mapping = load_model_artefacts() 
     if model is None or scaler is None or mapping is None:
-        st.warning("No se puede ejecutar la simulación. Verifique los logs de error.")
         return
 
-    st.markdown("<h3 style='color:#1f77b4;'>Ingrese los Datos del Empleado para Predicción Base</h3>", unsafe_allow_html=True)
+    st.markdown("<h3 style='color:#1f77b4;'>Ingrese los Datos del Empleado</h3>", unsafe_allow_html=True)
     
-    # --- A. ENTRADA DE DATOS BASE (Formulario de Streamlit) ---
     user_input = DEFAULT_MODEL_INPUTS.copy()
     
-    # Obtener las opciones para los selectbox del mapping
+    # Obtener las opciones del mapping
     job_role_options = list(mapping['JobRole'].keys())
     dept_options = list(mapping['Department'].keys())
     overtime_options = list(mapping['OverTime'].keys())
@@ -197,35 +198,50 @@ def render_manual_prediction_tab():
     
     col_input_1, col_input_2, col_input_3 = st.columns(3)
     
-    # 1. Datos Personales y Puesto
+    # --- Columna 1: Demografía y Puesto ---
     with col_input_1:
         st.subheader("Puesto y Demografía")
         user_input['Age'] = st.slider("Edad", 18, 60, 30, key='age_base')
         user_input['JobLevel'] = st.slider("Nivel de Puesto (1-5)", 1, 5, 2, key='joblevel_base')
         user_input['JobRole'] = st.selectbox("Puesto", job_role_options, key='jobrole_base')
         user_input['Department'] = st.selectbox("Departamento", dept_options, key='dept_base')
+        user_input['Education'] = st.slider("Nivel Educativo (1-5)", 1, 5, 3, key='edu_base')
+        user_input['Gender'] = st.selectbox("Género", list(mapping['Gender'].keys()), key='gender_base')
 
-    # 2. Experiencia y Compensación
+    # --- Columna 2: Compensación y Antigüedad ---
     with col_input_2:
         st.subheader("Compensación y Antigüedad")
         user_input['MonthlyIncome'] = st.number_input("Ingreso Mensual (S/.)", 1000, 25000, 5000, key='income_base')
         user_input['TotalWorkingYears'] = st.number_input("Años Totales Trabajados", 0, 40, 5, key='totalyears_base')
         user_input['YearsAtCompany'] = st.number_input("Años en la Compañía", 0, 40, 3, key='yearsatcomp_base')
+        user_input['YearsInCurrentRole'] = st.number_input("Años en el Rol Actual", 0, 18, 2, key='yearscurrent_base')
         user_input['tipo_contrato'] = st.selectbox("Tipo de Contrato", contrato_options, key='contrato_base')
+        user_input['MaritalStatus'] = st.selectbox("Estado Civil", list(mapping['MaritalStatus'].keys()), key='marital_base')
         
-    # 3. Factores Físicos y Rol
+    # --- Columna 3: Factores de Satisfacción y Riesgo ---
     with col_input_3:
-        st.subheader("Factores de Riesgo")
+        st.subheader("Factores de Satisfacción")
         user_input['DistanceFromHome'] = st.number_input("Distancia del Hogar (km)", 1, 30, 10, key='distance_base')
         user_input['OverTime'] = st.selectbox("¿Realiza Horas Extra?", overtime_options, key='overtime_base')
-        user_input['YearsInCurrentRole'] = st.number_input("Años en el Rol Actual", 0, 18, 2, key='yearscurrent_base')
         
+        # Variables de Satisfacción
+        user_input['EnvironmentSatisfaction'] = st.slider("Satisfacción Entorno (1-4)", 1, 4, 3, key='env_sat_base')
+        user_input['JobSatisfaction'] = st.slider("Satisfacción Laboral (1-4)", 1, 4, 3, key='job_sat_base')
+        user_input['SatisfaccionSalarial'] = st.slider("Satisfacción Salarial (1-4)", 1, 4, 3, key='sal_sat_base')
+        user_input['CargaLaboralPercibida'] = st.slider("Carga Laboral Percibida (1-5)", 1, 5, 3, key='carga_base')
+        user_input['ConfianzaEmpresa'] = st.slider("Confianza en la Empresa (1-4)", 1, 4, 3, key='confianza_base')
+        user_input['IntencionPermanencia'] = st.slider("Intención de Permanencia (1-5)", 1, 5, 3, key='intencion_base')
+        user_input['NumeroTardanzas'] = st.number_input("Número de Tardanzas (Último año)", 0, 20, 0, key='tardanzas_base')
+        user_input['NumeroFaltas'] = st.number_input("Número de Faltas (Último año)", 0, 20, 0, key='faltas_base')
+        
+    # --- Almacenamiento del Input para What-If ---
+    st.session_state['base_input'] = user_input.copy()
+    
     # --- 2. PREDICCIÓN BASE Y RESULTADOS ---
+    st.markdown("---")
     if st.button("🔮 Ejecutar Predicción Base", type="primary", use_container_width=True):
         
-        st.session_state['base_input'] = user_input.copy()
-        
-        _, prob_base = preprocess_and_predict(user_input, model, scaler, mapping) # Pasa el mapping
+        _, prob_base = preprocess_and_predict(user_input, model, scaler, mapping) 
         
         if prob_base != -1.0:
             st.session_state['prob_base'] = prob_base
@@ -243,16 +259,26 @@ def render_manual_prediction_tab():
     
     
     # ====================================================================
-    # B. ANÁLISIS WHAT-IF
+    # B. ANÁLISIS WHAT-IF (INDEPENDIENTE)
     # ====================================================================
     
     st.markdown("<hr/>")
     st.markdown("<h3 style='color:#1f77b4;'>💡 Análisis What-If (Simulación de Escenarios)</h3>", unsafe_allow_html=True)
 
-    if 'prob_base' in st.session_state and 'base_input' in st.session_state:
-        prob_base = st.session_state['prob_base']
+    if 'base_input' in st.session_state:
         base_input = st.session_state['base_input']
         
+        # 1. Obtener la probabilidad base (calculándola si es necesario)
+        prob_base_for_whatif = st.session_state.get('prob_base', None)
+        if prob_base_for_whatif is None or prob_base_for_whatif == -1.0:
+            # Calcular la probabilidad base en segundo plano si no se ha presionado el botón
+            _, prob_base_for_whatif = preprocess_and_predict(base_input, model, scaler, mapping)
+            st.session_state['prob_base'] = prob_base_for_whatif
+        
+        if prob_base_for_whatif == -1.0:
+            st.warning("No se puede realizar el What-If. Corrija los errores de predicción base.")
+            return
+
         col_what_if_1, col_what_if_2 = st.columns(2)
         
         with col_what_if_1:
@@ -277,6 +303,8 @@ def render_manual_prediction_tab():
             elif variable_key == 'OverTime':
                 index = overtime_options.index(current_value) 
                 new_value = st.selectbox(f"Nuevo valor de {variable_name}", overtime_options, index=index, key='whatif_new_val_cat')
+            elif variable_key in ['SatisfaccionSalarial', 'ConfianzaEmpresa']:
+                 new_value = st.slider(f"Nuevo valor de {variable_name}", 1, 4, current_value, key='whatif_new_val_sat')
             else:
                  new_value = st.text_input(f"Nuevo valor de {variable_name}", str(current_value), key='whatif_new_val_text')
         
@@ -288,10 +316,11 @@ def render_manual_prediction_tab():
                 new_value=new_value,
                 model=model,
                 scaler=scaler,
-                mapping=mapping # Pasa el mapping
+                mapping=mapping 
             )
             
             if prob_what_if != -1.0:
+                prob_base = st.session_state['prob_base'] 
                 cambio_pct = (prob_what_if - prob_base) / prob_base * 100 if prob_base > 0 else 0
                 
                 st.markdown("#### 🎯 Resultados de la Simulación")
@@ -311,4 +340,4 @@ def render_manual_prediction_tab():
                     st.info(f"El cambio de **{WHAT_IF_VARIABLES[variable_key]}** a **{new_value}** resultó en un cambio del riesgo de renuncia de **{prob_base:.1%}** a **{prob_what_if:.1%}**.")
             
     else:
-        st.warning("⚠️ Primero ejecuta la **Predicción Base** para habilitar el análisis What-If.")
+        st.info("💡 Complete los datos del formulario arriba para que el What-If funcione automáticamente.")
