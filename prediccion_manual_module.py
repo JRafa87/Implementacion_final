@@ -9,7 +9,7 @@ import warnings
 warnings.filterwarnings("ignore") 
 
 # ====================================================================
-# CONFIGURACIÓN DEL MODELO Y ARTEFACTOS (33 FEATURES EXACTAS)
+# CONFIGURACIÓN DEL MODELO Y ARTEFACTOS (ORDEN ESTRICTO)
 # ====================================================================
 
 # RUTAS DE TUS ARCHIVOS (Asumimos que están en 'models/')
@@ -17,29 +17,26 @@ MODEL_PATH = 'models/xgboost_model.pkl'
 SCALER_PATH = 'models/scaler.pkl' 
 MAPPING_PATH = 'models/categorical_mapping.pkl' 
 
-# **MODEL_COLUMNS: 33 Características EXACTAS (ORDEN IMPORTA)**
+# **MODEL_COLUMNS: 33 Características con ORDEN EXACTO ESPERADO**
 MODEL_COLUMNS = [
-    'Age', 'DistanceFromHome', 'Education', 'EnvironmentSatisfaction',
-    'JobInvolvement', 'JobLevel', 'JobSatisfaction', 'MonthlyIncome', 
-    'NumCompaniesWorked', 'PercentSalaryHike', 'PerformanceRating', 
-    'RelationshipSatisfaction', 'TotalWorkingYears', 'TrainingTimesLastYear', 
+    'Age', 'BusinessTravel', 'Department', 'DistanceFromHome', 'Education',
+    'EducationField', 'EnvironmentSatisfaction', 'Gender', 'JobInvolvement',
+    'JobLevel', 'JobRole', 'JobSatisfaction', 'MaritalStatus', 'MonthlyIncome',
+    'NumCompaniesWorked', 'OverTime', 'PercentSalaryHike', 'PerformanceRating',
+    'RelationshipSatisfaction', 'TotalWorkingYears', 'TrainingTimesLastYear',
     'WorkLifeBalance', 'YearsAtCompany', 'YearsInCurrentRole', 
     'YearsSinceLastPromotion', 'YearsWithCurrManager', 
-    # NUEVAS/ORDINALES
-    'IntencionPermanencia', 'CargaLaboralPercibida', 'SatisfaccionSalarial', 
-    'ConfianzaEmpresa', 'NumeroTardanzas', 'NumeroFaltas',
-    # CATEGÓRICAS
-    'BusinessTravel', 'Department', 'EducationField', 'Gender', 'JobRole',
-    'MaritalStatus', 'OverTime', 'tipo_contrato' 
+    'IntencionPermanencia', 'CargaLaboralPercibida', 'SatisfaccionSalarial',
+    'ConfianzaEmpresa', 'NumeroTardanzas', 'NumeroFaltas', 'tipo_contrato' 
 ]
 
-# Las columnas categóricas a mapear (NO SE ESCALAN)
+# Columnas categóricas a mapear (NO SE ESCALAN)
 CATEGORICAL_COLS_TO_MAP = [
     'BusinessTravel', 'Department', 'EducationField', 'Gender', 'JobRole',
     'MaritalStatus', 'OverTime', 'tipo_contrato'
 ]
 
-# Columnas numéricas/ordinales que DEBEN ser escaladas
+# Columnas numéricas/ordinales que DEBEN ser escaladas (Son el resto)
 NUMERICAL_COLS_TO_SCALE = [
     'Age', 'DistanceFromHome', 'Education', 'EnvironmentSatisfaction',
     'JobInvolvement', 'JobLevel', 'JobSatisfaction', 'MonthlyIncome', 
@@ -51,19 +48,22 @@ NUMERICAL_COLS_TO_SCALE = [
     'ConfianzaEmpresa', 'NumeroTardanzas', 'NumeroFaltas' 
 ]
 
-# (Los valores por defecto y WHAT_IF_VARIABLES no cambian en esta revisión)
+# Valores por defecto para columnas que no se piden en la interfaz o tienen valores fijos
 DEFAULT_MODEL_INPUTS = {
     'PercentSalaryHike': 12, 'PerformanceRating': 3, 'TrainingTimesLastYear': 3, 
-    'RelationshipSatisfaction': 3, 
+    'RelationshipSatisfaction': 3, 'WorkLifeBalance': 3,
+    # Valores por defecto de categóricas (usando el valor del mapeo)
     'EducationField': 'LIFE_SCIENCES', 
     'Gender': 'MALE', 
     'MaritalStatus': 'MARRIED',
     'BusinessTravel': 'TRAVEL_RARELY',
+    # Valores de satisfacción/comportamiento
     'EnvironmentSatisfaction': 3, 'JobSatisfaction': 3, 
     'CargaLaboralPercibida': 3, 'ConfianzaEmpresa': 3, 'IntencionPermanencia': 3,
     'NumeroTardanzas': 0, 'NumeroFaltas': 0
 }
 
+# Columnas clave para la simulación What-If
 WHAT_IF_VARIABLES = {
     "MonthlyIncome": "Ingreso Mensual",
     "TotalWorkingYears": "Años Totales Trabajados",
@@ -75,7 +75,7 @@ WHAT_IF_VARIABLES = {
 }
 
 # ====================================================================
-# FUNCIONES DE CARGA Y PREDICCIÓN (Lógica de Preprocesamiento CLAVE)
+# FUNCIONES DE CARGA Y PREDICCIÓN (Lógica CLAVE para Feature Match)
 # ====================================================================
 
 @st.cache_resource
@@ -84,8 +84,6 @@ def load_model_artefacts():
     model, scaler, mapping = None, None, None
     try:
         model = joblib.load(MODEL_PATH) if os.path.exists(MODEL_PATH) else None
-        # NOTA: Si usaste StandardScaler, el objeto cargado será un StandardScaler.
-        # Si usaste MinMaxScaler, el objeto cargado será un MinMaxScaler. No hay que cambiar la instanciación.
         scaler = joblib.load(SCALER_PATH) if os.path.exists(SCALER_PATH) else None
         mapping = joblib.load(MAPPING_PATH) if os.path.exists(MAPPING_PATH) else None
 
@@ -99,39 +97,37 @@ def load_model_artefacts():
         return None, None, None
 
 def preprocess_and_predict(input_data: Dict[str, Any], model, scaler, mapping) -> tuple:
-    """Preprocesa el dict de entrada y realiza la predicción."""
+    """Preprocesa el dict de entrada, asegura el orden y realiza la predicción."""
     try:
         df_input = pd.DataFrame([input_data])
         
-        # 1. Crear DataFrame Final con todas las columnas y valores por defecto
+        # 1. Crear DataFrame Final con todas las columnas y valores de entrada/defecto
         final_df = pd.DataFrame(0, index=[0], columns=MODEL_COLUMNS)
         
         for col in MODEL_COLUMNS:
             # Transferir valores de input o usar valor por defecto
+            # Esto debe usarse solo para variables no categóricas que tienen valores por defecto si no están en el input
             final_df[col] = df_input[col].iloc[0] if col in df_input.columns else DEFAULT_MODEL_INPUTS.get(col, 0)
         
         # 2. Aplicar Mapeo Categórico (Label Encoding)
         for col in CATEGORICAL_COLS_TO_MAP:
             if col in mapping:
-                # El valor en final_df es la etiqueta (ej: 'MALE', 'SALES')
-                # La mapeamos al valor numérico (ej: 1, 2)
+                # Mapear el valor de texto al número entero
                 final_df[col] = final_df[col].map(mapping[col])
-                # Rellenar con -1 si la categoría no existe (esto puede causar problemas si -1 no fue visto en entrenamiento)
-                # Idealmente, las opciones de la UI garantizan valores válidos.
-                final_df[col] = final_df[col].fillna(-1) 
+                # Es crucial que aquí no queden NaNs (valores que no se mapearon)
+                # Si una categoría es desconocida, rellenar con un valor seguro (ej: la moda o -1)
+                final_df[col] = final_df[col].fillna(0) 
 
         # 3. Aplicar Escalado SÓLO a las columnas numéricas/ordinales
-        # Separamos la parte a escalar del resto del DataFrame
         df_to_scale = final_df[NUMERICAL_COLS_TO_SCALE].copy()
         
-        # Transformamos
         scaled_values = scaler.transform(df_to_scale)
         
         # Reemplazamos SÓLO las columnas escaladas en el DataFrame final
         final_df.loc[:, NUMERICAL_COLS_TO_SCALE] = scaled_values
         
-        # 4. Predicción (Aseguramos el orden final)
-        final_input = final_df[MODEL_COLUMNS].astype(float)
+        # 4. Predicción (El orden está garantizado por MODEL_COLUMNS)
+        final_input = final_df[MODEL_COLUMNS].astype(float) # Aquí se usa el orden exacto
         
         prediction_proba = model.predict_proba(final_input)[:, 1][0]
         predicted_class = 1 if prediction_proba >= 0.5 else 0
@@ -140,16 +136,54 @@ def preprocess_and_predict(input_data: Dict[str, Any], model, scaler, mapping) -
         
     except Exception as e:
         st.error(f"Error durante el preprocesamiento o la predicción: {e}")
-        # st.error(f"Columna problemática: {col}") # Ayuda para debug si el error persiste
         return -1, 0.0
 
-# (Las funciones generar_recomendacion, simular_what_if_individual y render_manual_prediction_tab
-# mantienen la misma lógica que en la respuesta anterior, pero ahora usarán las nuevas listas
-# NUMERICAL_COLS_TO_SCALE y MODEL_COLUMNS, lo que debe resolver el problema de 'Feature Names').
-# ...
+# ====================================================================
+# FUNCIONES DE RECOMENDACIÓN Y WHAT-IF (Inclusión COMPLETA)
+# ====================================================================
+
+def generar_recomendacion(prob_base: float, input_data: Dict[str, Any]) -> str:
+    """Genera recomendaciones basadas en reglas y la probabilidad."""
+    recomendaciones = []
+    
+    # 1. Alerta por nivel de riesgo
+    if prob_base >= 0.7:
+        recomendaciones.append("**Revisión Urgente:** El riesgo es extremadamente alto.")
+    elif prob_base >= 0.5:
+        recomendaciones.append("Riesgo moderado/alto. Intervención recomendada.")
+        
+    # 2. Alerta por factores clave (Usando las nuevas columnas)
+    if input_data.get('MonthlyIncome', 5000) < 3000:
+        recomendaciones.append("Evaluar compensación (Ingreso bajo).")
+    if input_data.get('SatisfaccionSalarial', 3) <= 2:
+        recomendaciones.append("Alta insatisfacción salarial.")
+    if input_data.get('JobLevel', 2) == 1:
+        recomendaciones.append("Fomentar planes de carrera (Nivel bajo).")
+    if input_data.get('OverTime', 'NO') == 'YES':
+        recomendaciones.append("Revisar carga y horas extra.")
+    if input_data.get('YearsAtCompany', 3) >= 7 and input_data.get('YearsSinceLastPromotion', 1) >= 3:
+         recomendaciones.append("Revisar promoción o reconocimiento (Antigüedad sin ascenso).")
+
+    if not recomendaciones:
+        return "Sin alertas específicas. El riesgo general es bajo."
+        
+    return " | ".join(recomendaciones)
+
+def simular_what_if_individual(base_data: Dict[str, Any], variable_to_change: str, new_value: Any, model, scaler, mapping) -> float:
+    """Ejecuta la predicción con un solo cambio para el análisis What-If."""
+    df_input = base_data.copy()
+    df_input[variable_to_change] = new_value
+    
+    _, prob_what_if = preprocess_and_predict(df_input, model, scaler, mapping) 
+    
+    return prob_what_if
+
+# ====================================================================
+# FUNCIÓN DE RENDERIZADO (INTERFAZ COMPLETA)
+# ====================================================================
 
 def render_manual_prediction_tab():
-    # ... (El código de la interfaz es el mismo que en la respuesta anterior) ...
+    """Renderiza la interfaz completa de simulación y What-If en Streamlit."""
     
     model, scaler, mapping = load_model_artefacts() 
     if model is None or scaler is None or mapping is None:
