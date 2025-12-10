@@ -11,7 +11,7 @@ from supabase import create_client, Client
 warnings.filterwarnings("ignore")
 
 # ====================================================================
-# 1. CONFIGURACIÓN DEL ENTORNO Y ARTEFACTOS
+# 1. CONFIGURACIÓN DEL ENTORNO Y ARTEFACTOS (SIN CAMBIOS)
 # ====================================================================
 
 # RUTAS DE TUS ARCHIVOS (Asegúrate que existan)
@@ -70,7 +70,7 @@ WHAT_IF_VARIABLES = {
 }
 
 # ====================================================================
-# 2. CONFIGURACIÓN DE SUPABASE
+# 2. CONFIGURACIÓN DE SUPABASE (SIN CAMBIOS)
 # ====================================================================
 
 EMPLOYEE_TABLE = "consolidado"  # Tabla que contiene los datos
@@ -95,29 +95,24 @@ def init_supabase_client():
         return None
 
 # ====================================================================
-# 3. FUNCIONES DE CARGA DE DATOS Y PREDICCIÓN
+# 3. FUNCIONES DE CARGA DE DATOS Y PREDICCIÓN (SIN CAMBIOS)
 # ====================================================================
 
 @st.cache_data(ttl=3600)
 def fetch_employee_numbers() -> Dict[str, str]:
-    """
-    Obtiene la lista de EmployeeNumber de empleados activos (sin fecha de salida).
-    Mapea EmployeeNumber (ID) -> EmployeeNumber (ID).
-    """
+    # ... (Sin cambios)
     supabase: Client = init_supabase_client()
     if not supabase:
         return {}
         
     try:
-        # Consulta solo el ID y filtra donde la columna de fecha de salida es nula
         response = (
             supabase.table(EMPLOYEE_TABLE)
             .select(f"{KEY_COLUMN}")
-            .is_(DATE_COLUMN, None) # FILTRO CLAVE: Solo empleados activos
+            .is_(DATE_COLUMN, None)
             .execute()
         )
         
-        # Mapea los resultados: ID -> ID
         employee_map = {
             str(row[KEY_COLUMN]): str(row[KEY_COLUMN])
             for row in response.data
@@ -128,7 +123,7 @@ def fetch_employee_numbers() -> Dict[str, str]:
         return {}
 
 def load_employee_data(employee_number: str) -> Dict[str, Any] | None:
-    """Carga los datos reales del empleado desde Supabase (tabla 'consolidado')."""
+    # ... (Sin cambios)
     supabase: Client = init_supabase_client()
     if not supabase:
         return None
@@ -142,7 +137,6 @@ def load_employee_data(employee_number: str) -> Dict[str, Any] | None:
             
         employee_data_raw = response.data[0]
         
-        # Mapeo de columnas de la BD a las 33 columnas del modelo
         input_for_model = {
             k: employee_data_raw.get(k, DEFAULT_MODEL_INPUTS.get(k)) 
             for k in MODEL_COLUMNS
@@ -154,12 +148,12 @@ def load_employee_data(employee_number: str) -> Dict[str, Any] | None:
         return None
         
 # ====================================================================
-# 4. FUNCIONES DE CARGA DEL MODELO
+# 4. FUNCIONES DE CARGA DEL MODELO (SIN CAMBIOS)
 # ====================================================================
 
 @st.cache_resource
 def load_model_artefacts():
-    """Carga el modelo, el escalador y el mapeo categórico."""
+    # ... (Sin cambios)
     model, scaler, mapping = None, None, None
     try:
         model = joblib.load(MODEL_PATH) if os.path.exists(MODEL_PATH) else None
@@ -176,35 +170,27 @@ def load_model_artefacts():
         return None, None, None
 
 # ====================================================================
-# 5. PREDICCIÓN Y SIMULACIÓN
+# 5. PREDICCIÓN Y SIMULACIÓN (SIN CAMBIOS)
 # ====================================================================
 
 def preprocess_and_predict(input_data: Dict[str, Any], model, scaler, mapping) -> tuple:
-    """Preprocesa el dict de entrada y realiza la predicción."""
+    # ... (Sin cambios)
     try:
         df_input = pd.DataFrame([input_data])
-        
-        # Crear DataFrame con las 33 columnas del modelo
         final_df = pd.DataFrame(0, index=[0], columns=MODEL_COLUMNS)
         
-        # Copiar valores de entrada al DataFrame final
         for col in MODEL_COLUMNS:
             val = df_input[col].iloc[0] if col in df_input.columns else DEFAULT_MODEL_INPUTS.get(col, 0)
             final_df[col] = val
         
-        # Aplicar mapeo categórico (Label Encoding)
         for col in CATEGORICAL_COLS_TO_MAP:
             if col in mapping:
-                final_df[col] = final_df[col].map(mapping[col])
-                # Rellenar con 0 si la categoría no existe en el mapping
-                final_df[col] = final_df[col].fillna(0)
+                final_df[col] = final_df[col].map(mapping[col]).fillna(0)
 
-        # Aplicar escalado a TODAS las 33 columnas
         df_to_scale = final_df[MODEL_COLUMNS].copy()
         scaled_values = scaler.transform(df_to_scale)
         final_df.loc[:, MODEL_COLUMNS] = scaled_values
         
-        # Realizar la predicción
         final_input = final_df[MODEL_COLUMNS].astype(float)
         prediction_proba = model.predict_proba(final_input)[:, 1][0]
         predicted_class = 1 if prediction_proba >= 0.5 else 0
@@ -216,11 +202,11 @@ def preprocess_and_predict(input_data: Dict[str, Any], model, scaler, mapping) -
         return -1, 0.0
 
 # ====================================================================
-# 6. FUNCIÓN DE RENDERIZADO (INTERFAZ COMPLETA)
+# 6. FUNCIÓN DE RENDERIZADO (INTERFAZ Y LÓGICA SEPARADA)
 # ====================================================================
 
 def render_manual_prediction_tab():
-    """Renderiza la interfaz completa de simulación y predicción de empleados."""
+    """Renderiza la interfaz completa de predicción base y simulación What-If."""
     
     st.set_page_config(layout="wide", page_title="Predicción de Renuncia")
     st.title("Sistema de Predicción de Riesgo de Renuncia 📉")
@@ -229,50 +215,60 @@ def render_manual_prediction_tab():
     if model is None or scaler is None or mapping is None:
         return
 
-    # 1. Cargar Employee Numbers (Solo Activos: ID -> ID)
     employee_map = fetch_employee_numbers() 
     
-    # 2. Selector de Empleado (Versión Simple, mostrando solo el ID)
-    st.subheader("👤 Selecciona el ID de un empleado activo:")
-    
-    # Opciones para el selectbox: Solo los IDs
-    employee_options = ["(Ingreso Manual/Valores por Defecto)"] + list(employee_map.keys())
-    
+    # --- SECCIÓN 1: SELECCIÓN DE EMPLEADO Y PREDICCIÓN BASE ---
+    st.header("1. Predicción Base (Datos Reales)")
+    st.info("Selecciona un empleado para cargar sus datos y hacer una predicción sin modificaciones (ejecución independiente).")
+
+    employee_options = ["--- Seleccionar un Empleado Activo ---"] + list(employee_map.keys())
     selected_id = st.selectbox(
         "Employee Number (ID):", 
-        options=employee_options
+        options=employee_options,
+        key='base_id_selector'
     )
     
-    # 3. Carga de Datos Base
-    initial_inputs = DEFAULT_MODEL_INPUTS.copy()
+    # Inicializa el diccionario de inputs que se usará para la predicción
+    prediction_inputs = None
     
-    if selected_id != "(Ingreso Manual/Valores por Defecto)":
-        # Muestra la confirmación del ID seleccionado
-        st.write(f"Empleado seleccionado: **{selected_id}**")
+    if selected_id != "--- Seleccionar un Empleado Activo ---":
         
         loaded_data = load_employee_data(selected_id)
         if loaded_data:
-            initial_inputs.update({k: v for k, v in loaded_data.items() if k in MODEL_COLUMNS})
-            st.info(f"Datos precargados para el ID: **{selected_id}**")
+            # Los inputs de la predicción base son los datos cargados.
+            prediction_inputs = loaded_data.copy()
+            
+            st.write(f"Datos cargados para el ID: **{selected_id}**")
+            
+            # Botón de Predicción Base
+            if st.button(f"🔮 Predecir Riesgo Base (ID: {selected_id})", type="primary"):
+                st.subheader("Resultado de la Predicción Base")
+                
+                predicted_class, prediction_proba = preprocess_and_predict(prediction_inputs, model, scaler, mapping)
+                display_prediction_result(predicted_class, prediction_proba)
         else:
-            st.warning("No se pudieron cargar datos específicos. Usando valores por defecto.")
-    else:
-        st.info("Usando valores por defecto para simulación manual.")
-    
+            st.warning("No se pudieron cargar datos específicos.")
     
     st.markdown("---")
-    st.subheader("Modificar Parámetros Clave para Predicción/What-If")
     
-    # Inicializa user_inputs con los valores base (cargados o por defecto)
-    user_inputs = initial_inputs.copy()
+    # --- SECCIÓN 2: SIMULACIÓN WHAT-IF (EJECUCIÓN INDEPENDIENTE) ---
+    st.header("2. Simulación What-If (Manual)")
+    st.info("Ajusta los parámetros para simular un escenario. Esto utiliza los valores por defecto o los últimos datos cargados como punto de partida.")
+
+    # Usamos los datos por defecto como punto de partida para la simulación
+    initial_inputs_for_what_if = prediction_inputs if prediction_inputs else DEFAULT_MODEL_INPUTS.copy()
+    user_inputs = initial_inputs_for_what_if.copy()
+    
+    st.subheader("Ajustar Parámetros Clave para Simulación What-If")
     
     col_input_1, col_input_2 = st.columns(2)
 
     i = 0
+    # Creamos los widgets de input para la simulación What-If
     for key, label in WHAT_IF_VARIABLES.items():
         
         col = col_input_1 if i % 2 == 0 else col_input_2
-        current_val = initial_inputs.get(key, DEFAULT_MODEL_INPUTS.get(key))
+        current_val = initial_inputs_for_what_if.get(key, DEFAULT_MODEL_INPUTS.get(key))
         
         with col:
             # Manejar los tipos de entrada según la variable
@@ -282,7 +278,7 @@ def render_manual_prediction_tab():
                     label=f"{label}", 
                     value=int(current_val), 
                     min_value=0,
-                    key=f'input_num_{key}'
+                    key=f'whatif_num_{key}'
                 )
             elif key in ['JobLevel', 'SatisfaccionSalarial', 'ConfianzaEmpresa']:
                 # Sliders de 1 a 5 o 1 a 4
@@ -293,12 +289,11 @@ def render_manual_prediction_tab():
                     min_value=min_v, 
                     max_value=max_v, 
                     value=int(current_val), 
-                    key=f'input_slider_{key}'
+                    key=f'whatif_slider_{key}'
                 )
             elif key == 'OverTime':
                 # Selectbox para categóricas binarias (OverTime)
                 options = ['YES', 'NO']
-                # Si el valor de la BD es None o nulo, usa 'NO' como default
                 current_val_safe = current_val if current_val in options else 'NO'
                 default_index = options.index(current_val_safe)
                 
@@ -306,38 +301,42 @@ def render_manual_prediction_tab():
                     label=f"{label}", 
                     options=options, 
                     index=default_index,
-                    key=f'input_cat_{key}'
+                    key=f'whatif_cat_{key}'
                 )
         i += 1
     
-    # Asegúrate de que TODAS las columnas que no están en WHAT_IF_VARIABLES mantengan su valor cargado/defecto
-    final_input_data = initial_inputs.copy()
-    final_input_data.update(user_inputs) # Sobreescribe solo las 7 variables del what-if
+    # 4. Integración del What-If: Los datos finales para la simulación
+    final_whatif_data = initial_inputs_for_what_if.copy()
+    final_whatif_data.update(user_inputs) 
     
     st.markdown("---")
     
-    # 5. Ejecutar Predicción
-    if st.button("🔮 Predecir Riesgo de Renuncia", type="primary", use_container_width=True):
+    # Botón de Predicción What-If
+    if st.button("🔮 Ejecutar Predicción What-If", type="secondary", use_container_width=True):
+        st.subheader("Resultado de la Simulación What-If")
         
-        predicted_class, prediction_proba = preprocess_and_predict(final_input_data, model, scaler, mapping)
-        
-        if predicted_class == -1:
-            st.error("No se pudo realizar la predicción debido a un error de preprocesamiento.")
-        else:
-            st.markdown("### Resultado de la Predicción")
-            
-            risk_label = "ALTO RIESGO (Acción requerida)" if prediction_proba >= 0.5 else "Bajo a Moderado (Monitoreo)"
-            st.metric(
-                label="Probabilidad de Renuncia",
-                value=f"{prediction_proba * 100:.2f}%",
-                delta=risk_label,
-                delta_color="inverse"
-            )
+        predicted_class, prediction_proba = preprocess_and_predict(final_whatif_data, model, scaler, mapping)
+        display_prediction_result(predicted_class, prediction_proba)
 
-            if predicted_class == 1:
-                st.warning("🚨 **Riesgo ALTO:** Este empleado requiere atención inmediata.")
-            else:
-                st.success("✅ **Riesgo BAJO:** La probabilidad de renuncia es baja con los parámetros actuales.")
+# Función auxiliar para mostrar el resultado (para no repetir código)
+def display_prediction_result(predicted_class: int, prediction_proba: float):
+    """Muestra el resultado de la predicción con formato Streamlit."""
+    if predicted_class == -1:
+        st.error("No se pudo realizar la predicción debido a un error de preprocesamiento.")
+        return
+
+    risk_label = "ALTO RIESGO (Acción requerida)" if prediction_proba >= 0.5 else "Bajo a Moderado (Monitoreo)"
+    st.metric(
+        label="Probabilidad de Renuncia",
+        value=f"{prediction_proba * 100:.2f}%",
+        delta=risk_label,
+        delta_color="inverse"
+    )
+
+    if predicted_class == 1:
+        st.warning("🚨 **Riesgo ALTO:** Este empleado requiere atención inmediata.")
+    else:
+        st.success("✅ **Riesgo BAJO:** La probabilidad de renuncia es baja con los parámetros actuales.")
 
 
 if __name__ == '__main__':
