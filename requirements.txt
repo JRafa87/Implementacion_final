@@ -14,4 +14,3 @@ warnings
 joblib
 openpyxl
 xlsxwriter
-plotly.express
