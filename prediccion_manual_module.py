@@ -11,15 +11,15 @@ from supabase import create_client, Client
 warnings.filterwarnings("ignore")
 
 # ====================================================================
-# 1. CONFIGURACIÓN DEL ENTORNO Y ARTEFACTOS (RESTAURANDO VARIABLES NECESARIAS)
+# 1. CONFIGURACIÓN DEL ENTORNO Y ARTEFACTOS (SIN CAMBIOS)
 # ====================================================================
+# ... (Se mantienen las rutas, MODEL_COLUMNS, CATEGORICAL_COLS_TO_MAP, DEFAULT_MODEL_INPUTS) ...
+# ... (Se mantienen ALL_DISPLAY_VARIABLES, WHAT_IF_VARIABLES, LABEL_TO_KEY, SELECTBOX_OPTIONS) ...
 
-# RUTAS DE TUS ARCHIVOS (Asegúrate que existan)
 MODEL_PATH = 'models/xgboost_model.pkl'
 SCALER_PATH = 'models/scaler.pkl'
 MAPPING_PATH = 'models/categorical_mapping.pkl'
 
-# **MODEL_COLUMNS: 33 Características con ORDEN EXACTO ESPERADO**
 MODEL_COLUMNS = [
     'Age', 'BusinessTravel', 'Department', 'DistanceFromHome', 'Education',
     'EducationField', 'EnvironmentSatisfaction', 'Gender', 'JobInvolvement',
@@ -32,13 +32,11 @@ MODEL_COLUMNS = [
     'ConfianzaEmpresa', 'NumeroTardanzas', 'NumeroFaltas', 'tipo_contrato' 
 ]
 
-# Columnas categóricas a mapear
 CATEGORICAL_COLS_TO_MAP = [
     'BusinessTravel', 'Department', 'EducationField', 'Gender', 'JobRole',
     'MaritalStatus', 'OverTime', 'tipo_contrato'
 ]
 
-# VALORES POR DEFECTO SINCRONIZADOS
 DEFAULT_MODEL_INPUTS = {
     'Age': 30, 'DistanceFromHome': 10, 'Education': 3, 'JobInvolvement': 3, 
     'JobLevel': 2, 'MonthlyIncome': 5000, 'NumCompaniesWorked': 2, 
@@ -56,7 +54,6 @@ DEFAULT_MODEL_INPUTS = {
     'tipo_contrato': 'PERMANENTE' 
 }
 
-# Columnas clave para la visualización/simulación manual (Paso 3)
 ALL_DISPLAY_VARIABLES = {
     'Age': "Edad", 'Gender': "Género", 'Department': "Departamento",
     'JobRole': "Puesto de trabajo", 'MonthlyIncome': "Ingreso mensual (S./)", 
@@ -68,7 +65,6 @@ ALL_DISPLAY_VARIABLES = {
     'BusinessTravel': "Frecuencia de viaje"
 }
 
-# Columnas clave para la Simulación Individual What-If (Paso 4)
 WHAT_IF_VARIABLES = {
     "MonthlyIncome": "Ingreso Mensual",
     "TotalWorkingYears": "Años Totales Trabajados",
@@ -79,16 +75,13 @@ WHAT_IF_VARIABLES = {
     "ConfianzaEmpresa": "Confianza en la Empresa (1-4)"
 }
 
-# Mapeo inverso de etiqueta a clave (para el selectbox del What-If Individual)
 LABEL_TO_KEY = {v: k for k, v in WHAT_IF_VARIABLES.items()}
 
-# Mapeo de opciones para Selectbox
 SELECTBOX_OPTIONS = {
     'Gender': ['MALE', 'FEMALE'],
     'Department': ['RESEARCH_AND_DEVELOPMENT', 'SALES', 'HUMAN_RESOURCES'],
     'JobRole': ['SALES_EXECUTIVE', 'RESEARCH_SCIENTIST', 'LABORATORY_TECHNICIAN', 'MANUFACTURING_DIRECTOR', 'HEALTHCARE_REPRESENTATIVE', 'MANAGER', 'SALES_REPRESENTATIVE', 'RESEARCH_DIRECTOR', 'HUMAN_RESOURCES'],
     'BusinessTravel': ['TRAVEL_RARELY', 'TRAVEL_FREQUENTLY', 'NON_TRAVEL'],
-    # Asegúrate de tener las opciones completas de tu dataset real
 }
 
 # ====================================================================
@@ -100,7 +93,7 @@ DATE_COLUMN = "FechaSalida"
 
 @st.cache_resource
 def init_supabase_client():
-    # ... (Sin cambios)
+    # ... (código de inicialización de Supabase)
     try:
         url = st.secrets.get("SUPABASE_URL")
         key = st.secrets.get("SUPABASE_KEY")
@@ -114,7 +107,7 @@ def init_supabase_client():
 
 @st.cache_data(ttl=3600)
 def fetch_employee_numbers() -> Dict[str, str]:
-    # ... (Sin cambios)
+    # ... (código para obtener IDs de empleados)
     supabase: Client = init_supabase_client()
     if not supabase: return {}
     try:
@@ -126,7 +119,7 @@ def fetch_employee_numbers() -> Dict[str, str]:
         return {}
 
 def load_employee_data(employee_number: str) -> Dict[str, Any] | None:
-    # ... (Sin cambios)
+    # ... (código para cargar datos del empleado)
     supabase: Client = init_supabase_client()
     if not supabase: return None
     try:
@@ -143,7 +136,7 @@ def load_employee_data(employee_number: str) -> Dict[str, Any] | None:
         
 @st.cache_resource
 def load_model_artefacts():
-    # ... (Sin cambios en carga de artefactos)
+    # ... (código para cargar artefactos del modelo)
     model, scaler, mapping = None, None, None
     try:
         model = joblib.load(MODEL_PATH) if os.path.exists(MODEL_PATH) else None
@@ -158,11 +151,11 @@ def load_model_artefacts():
         return None, None, None
 
 # ====================================================================
-# 3. PREDICCIÓN Y SIMULACIÓN (MANTENIENDO LÓGICA)
+# 3. PREDICCIÓN Y SIMULACIÓN (SIN CAMBIOS)
 # ====================================================================
 
 def preprocess_and_predict(input_data: Dict[str, Any], model, scaler, mapping) -> tuple:
-    # ... (Función de preprocesamiento y predicción sin cambios)
+    # ... (código de preprocesamiento y predicción)
     try:
         df_input = pd.DataFrame([input_data])
         final_df = pd.DataFrame(0, index=[0], columns=MODEL_COLUMNS)
@@ -197,16 +190,14 @@ def simular_what_if_individual(
     scaler, 
     mapping
 ) -> float:
-    """Modifica una sola variable en los datos base y ejecuta la predicción (Para Paso 4)."""
+    # ... (código de simulación individual)
     simulated_data = base_data.copy()
     simulated_data[variable_to_change] = new_value
     _, prediction_proba = preprocess_and_predict(simulated_data, model, scaler, mapping)
     return prediction_proba
 
-# Función auxiliar para mostrar el resultado (ESTRUCTURA DE DOS COLUMNAS - SIN CAMBIOS)
 def display_prediction_result(predicted_class: int, prediction_proba: float, title: str):
-    """Muestra el resultado de la predicción con el formato de métricas deseado."""
-    
+    # ... (código para mostrar el resultado)
     st.markdown(f"#### {title}")
     
     if predicted_class == -1:
@@ -239,8 +230,7 @@ def display_prediction_result(predicted_class: int, prediction_proba: float, tit
 # ====================================================================
 
 def display_simulation_widgets(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Muestra los datos del empleado en widgets EDITABLES y devuelve los valores modificados."""
-    
+    # ... (código de simulación multi-variable)
     st.subheader("3. Simulación Multi-Variable (What-If: Múltiples variables)")
     st.info("Modifica los valores de las variables deseadas para crear un **Escenario Múltiple**.")
     
@@ -256,7 +246,6 @@ def display_simulation_widgets(data: Dict[str, Any]) -> Dict[str, Any]:
         current_val = data.get(key)
         
         with col:
-            # Lógica para crear los widgets EDITABLES
             if key in ['Age', 'MonthlyIncome', 'NumeroTardanzas', 'NumeroFaltas']:
                 user_inputs[key] = st.number_input(label=label, value=int(current_val), min_value=0, key=f'sim_num_{key}')
             elif key in ['IntencionPermanencia', 'CargaLaboralPercibida', 'SatisfaccionSalarial', 'ConfianzaEmpresa']:
@@ -277,12 +266,66 @@ def display_simulation_widgets(data: Dict[str, Any]) -> Dict[str, Any]:
     return user_inputs
 
 # ====================================================================
-# 6. FUNCIÓN DE RENDERIZADO (LÓGICA PRINCIPAL CON AMBAS SIMULACIONES)
+# NUEVA FUNCIÓN: RECOMENDACIONES PERSONALIZADAS (Paso 5)
+# ====================================================================
+
+def display_recommendations(prob_base: float, base_data: Dict[str, Any]):
+    """Muestra recomendaciones de acción basadas en el riesgo y los datos base."""
+    
+    st.header("5. 💡 Recomendaciones de Acción")
+    
+    if prob_base < 0.5:
+        st.success("✅ **Riesgo de Renuncia BAJO/MODERADO:** El empleado no presenta un riesgo significativo. Se recomienda un **monitoreo periódico** de sus niveles de satisfacción.")
+        return
+
+    st.warning("🚨 **Riesgo de Renuncia ALTO:** Se requieren acciones inmediatas. Revise las siguientes áreas de foco:")
+    
+    # 1. Identificar áreas de baja satisfacción (usando un umbral, ej. valor < 3)
+    
+    low_satisfaction_areas = {}
+    
+    # Asumimos que los valores bajos indican insatisfacción (1=Baja, 4/5=Alta)
+    if base_data.get('MonthlyIncome', 5000) < 4000: low_satisfaction_areas['Ingreso Mensual'] = "Salario bajo."
+    if base_data.get('JobSatisfaction', 3) < 3: low_satisfaction_areas['Satisfacción Laboral'] = "Bajo gusto por el trabajo actual."
+    if base_data.get('IntencionPermanencia', 3) < 3: low_satisfaction_areas['Intención de Permanencia'] = "Falta de compromiso a largo plazo."
+    if base_data.get('CargaLaboralPercibida', 3) > 3: low_satisfaction_areas['Carga Laboral'] = "Estrés o sobrecarga percibida."
+    if base_data.get('OverTime') == 'YES': low_satisfaction_areas['Horas Extras'] = "Necesidad o imposición de trabajar tiempo extra."
+
+    # 2. Mostrar las recomendaciones basadas en los datos
+    
+    if low_satisfaction_areas:
+        st.markdown("#### Áreas de Foco Basadas en Datos Actuales:")
+        for area, motivo in low_satisfaction_areas.items():
+            st.error(f"**{area}:** {motivo} Acción Recomendada: {get_specific_action(area)}")
+            
+        st.markdown("""
+        #### Estrategia General:
+        * **Entrevista de Retención:** Agendar una reunión confidencial con RR.HH. para identificar puntos de dolor.
+        * **Plan de Carrera:** Ofrecer un camino de crecimiento claro o una oportunidad de promoción (**JobLevel**).
+        * **Uso de Simulación:** Utilice la **Simulación Individual (Paso 4)** para determinar qué variable (ej. subir sueldo o reducir carga) tiene el **mayor impacto positivo** en la probabilidad de retención.
+        """)
+    else:
+        st.info("No se identificaron factores de riesgo obvios en las variables de satisfacción, pero el modelo predice riesgo alto. Se recomienda una revisión integral de su gestión y ambiente laboral.")
+    
+    st.markdown("---") 
+
+def get_specific_action(area: str) -> str:
+    """Devuelve una acción específica para cada área de riesgo."""
+    actions = {
+        'Ingreso Mensual': "Evaluar un ajuste salarial o bono de retención.",
+        'Satisfacción Laboral': "Revisar responsabilidades y proyectos; ofrecer rotación de puesto o capacitación especializada.",
+        'Intención de Permanencia': "Ofrecer un contrato a largo plazo o comunicar los planes de crecimiento futuros de la empresa.",
+        'Carga Laboral': "Redistribuir tareas, contratar apoyo temporal o invertir en herramientas de automatización.",
+        'Horas Extras': "Analizar la causa raíz de las horas extras (ineficiencia vs. volumen de trabajo) y buscar un equilibrio de vida-trabajo."
+    }
+    return actions.get(area, "Investigar más a fondo la causa de la insatisfacción.")
+
+# ====================================================================
+# 7. FUNCIÓN DE RENDERIZADO (INTEGRACIÓN DEL PASO 5)
 # ====================================================================
 
 def render_manual_prediction_tab():
-    """Renderiza la interfaz completa de predicción base y ambas simulaciones What-If."""
-    
+    # ... (código de setup y carga de artefactos)
     st.set_page_config(layout="wide", page_title="Predicción de Renuncia")
     st.title("Sistema de Predicción de Riesgo de Renuncia 📉")
 
@@ -293,12 +336,9 @@ def render_manual_prediction_tab():
     employee_map = fetch_employee_numbers() 
     
     # 1. INICIALIZAR SESSION STATE
-    if 'prob_base' not in st.session_state:
-        st.session_state['prob_base'] = 0.0
-    if 'base_input' not in st.session_state:
-        st.session_state['base_input'] = DEFAULT_MODEL_INPUTS.copy()
-    if 'base_predicted' not in st.session_state:
-        st.session_state['base_predicted'] = False
+    if 'prob_base' not in st.session_state: st.session_state['prob_base'] = 0.0
+    if 'base_input' not in st.session_state: st.session_state['base_input'] = DEFAULT_MODEL_INPUTS.copy()
+    if 'base_predicted' not in st.session_state: st.session_state['base_predicted'] = False
 
 
     # --- SECCIÓN 1: SELECCIÓN DE EMPLEADO BASE ---
@@ -313,12 +353,10 @@ def render_manual_prediction_tab():
         key='base_id_selector'
     )
     
-    # Si el ID cambia, reseteamos el estado de predicción
     if selected_id != current_selected_id:
         st.session_state['base_predicted'] = False
         st.session_state['prob_base'] = 0.0
     
-    # Lógica de carga de datos
     if selected_id != "--- Seleccionar un Empleado Activo ---":
         loaded_data = load_employee_data(selected_id)
         if loaded_data:
@@ -338,7 +376,6 @@ def render_manual_prediction_tab():
     
     disabled_button = (selected_id == "--- Seleccionar un Empleado Activo ---" and not employee_map)
 
-    # 2.1 Botón para ejecutar la predicción base
     if st.button(f"🔮 Ejecutar Predicción con Datos Actuales (ID: {selected_id})", type="primary", use_container_width=True, disabled=disabled_button):
         
         predicted_class, prediction_proba = preprocess_and_predict(st.session_state['base_input'], model, scaler, mapping)
@@ -350,11 +387,14 @@ def render_manual_prediction_tab():
         
     st.markdown("---")
         
-    # --- VERIFICACIÓN DE ESTADO PARA SIMULACIONES ---
+    # --- VERIFICACIÓN DE ESTADO PARA SIMULACIONES Y RECOMENDACIONES ---
     if not st.session_state['base_predicted']:
         st.warning("⚠️ Debes ejecutar la Predicción Actual (Paso 2) antes de usar las Simulaciones What-If para establecer la Probabilidad Base.")
         return
 
+    # --- NUEVA LLAMADA A RECOMENDACIONES ---
+    display_recommendations(st.session_state['prob_base'], st.session_state['base_input'])
+    
     # --- SECCIÓN 3: SIMULACIÓN WHAT-IF MULTI-VARIABLE (Completa, con sliders editables) ---
     
     # 3.1 Mostrar y capturar los valores modificados
@@ -416,7 +456,6 @@ def render_manual_prediction_tab():
         # 4.2 Widget de entrada (Nuevo Valor)
         current_val = st.session_state['base_input'].get(variable_key, DEFAULT_MODEL_INPUTS.get(variable_key))
         
-        # Lógica para renderizar el widget correcto para el nuevo valor
         if variable_key in ['MonthlyIncome', 'TotalWorkingYears', 'YearsAtCompany']:
             new_value = st.number_input(label=f"Nuevo valor para {variable_label}", value=int(current_val), min_value=0, key='whatif_new_value_individual')
         elif variable_key in ['JobLevel', 'SatisfaccionSalarial', 'ConfianzaEmpresa']:
@@ -453,12 +492,10 @@ def render_manual_prediction_tab():
             
             col_res_base, col_res_whatif = st.columns(2)
             
-            # Columna de Resultado Base 
             with col_res_base:
                 st.markdown("**Predicción Actual (Base)**")
                 st.metric("Probabilidad Base", f"{prob_base:.1%}")
 
-            # Columna de Resultado What-If (Comparación y Delta)
             with col_res_whatif:
                 st.markdown("**Escenario Individual**")
                 st.metric(
@@ -468,7 +505,6 @@ def render_manual_prediction_tab():
                     delta_color="inverse"
                 )
             
-            # Conclusión del Impacto
             st.markdown("---")
             if cambio_pct > 0:
                 st.warning(f"🚨 **Conclusión:** El cambio de **{WHAT_IF_VARIABLES[variable_key]}** a **{new_value}** ha **AUMENTADO** el riesgo de renuncia en **{cambio_pct:.1f}%**.")
