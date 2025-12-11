@@ -6,15 +6,6 @@ import plotly.express as px
 from datetime import datetime
 from typing import Optional
 
-# --- Configuración de Supabase (Importación Directa) ---
-# Requiere: pip install supabase-py
-try:
-    from supabase import create_client, Client 
-except ImportError:
-    # Si el paquete falta, esta ImportError será atrapada al inicio del script.
-    # No usamos la lógica de placeholder, ya que requeriste la importación directa.
-    st.error("❌ ERROR: El paquete 'supabase-py' no está instalado. Instálalo para usar la opción de base de datos.")
-    raise
 
 # ==============================================================================
 # 1. CONSTANTES Y CONFIGURACIÓN (Se mantiene igual)
