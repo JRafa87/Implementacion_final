@@ -390,7 +390,23 @@ def render_predictor_page():
 
     # Mostrar la única sección de resultados (Alerta, Top 10 y CSV) con el mismo formato, 
     # incluyendo la fuente de los datos en el título.
-    display_results_and_demo(st.session_state.df_resultados, st.session_state.source)
+    with tab1:
+    ...
+    mostrar_archivo = True
+
+with tab2:
+    ...
+    mostrar_supabase = True
+
+# Después de los tabs:
+if 'mostrar_archivo' in locals() and mostrar_archivo:
+    display_results_and_demo(st.session_state.df_resultados_archivo,
+                             st.session_state.source_archivo)
+
+if 'mostrar_supabase' in locals() and mostrar_supabase:
+    display_results_and_demo(st.session_state.df_resultados_supabase,
+                             st.session_state.source_supabase)
+
 
 # ============================================================================== 
 # 8. PUNTO DE ENTRADA (Para ejecución directa)
