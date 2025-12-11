@@ -6,26 +6,18 @@ import plotly.express as px
 from datetime import datetime
 from typing import Optional
 
-# --- Configuración de Supabase (Necesita 'supabase-py') ---
-# Esto maneja el caso de que 'supabase-py' no esté instalado sin detener el script
+# --- Configuración de Supabase (Importación Directa) ---
+# Requiere: pip install supabase-py
 try:
     from supabase import create_client, Client 
 except ImportError:
-    class SupabaseClientPlaceholder:
-        def table(self, table_name):
-            class TablePlaceholder:
-                def select(self, columns):
-                    return self
-                def execute(self):
-                    raise ImportError("El módulo 'supabase' no está instalado. Instálalo con 'pip install supabase-py'.")
-            return TablePlaceholder()
-    
-    def create_client(url, key):
-        return SupabaseClientPlaceholder()
-
+    # Si el paquete falta, esta ImportError será atrapada al inicio del script.
+    # No usamos la lógica de placeholder, ya que requeriste la importación directa.
+    st.error("❌ ERROR: El paquete 'supabase-py' no está instalado. Instálalo para usar la opción de base de datos.")
+    raise
 
 # ==============================================================================
-# 1. CONSTANTES Y CONFIGURACIÓN
+# 1. CONSTANTES Y CONFIGURACIÓN (Se mantiene igual)
 # ==============================================================================
 
 # Columnas que deben entrar al modelo, en el orden correcto (33 variables)
@@ -50,14 +42,13 @@ CATEGORICAL_COLS_TO_MAP = [
 
 
 # ==============================================================================
-# 2. CARGA DE MODELO Y ARTEFACTOS
+# 2. CARGA DE MODELO Y ARTEFACTOS (Se mantiene igual)
 # ==============================================================================
 
 @st.cache_resource
 def load_model_artefacts():
     """Carga el modelo pre-entrenado, el mapeo de categóricas y el escalador."""
     try:
-        # Asegúrate de que estos archivos .pkl existan en la ruta 'models/'
         model = joblib.load('models/xgboost_model.pkl')
         categorical_mapping = joblib.load('models/categorical_mapping.pkl')
         scaler = joblib.load('models/scaler.pkl')
@@ -72,7 +63,7 @@ def load_model_artefacts():
 
 
 # ==============================================================================
-# 3. PREPROCESAMIENTO
+# 3. PREPROCESAMIENTO (Se mantiene igual)
 # ==============================================================================
 
 def preprocess_data(df, model_columns, categorical_mapping, scaler):
@@ -104,7 +95,6 @@ def preprocess_data(df, model_columns, categorical_mapping, scaler):
             if col in categorical_mapping:
                 df_processed[col] = df_processed[col].map(categorical_mapping[col])
             
-            # Relleno de valores desconocidos/faltantes en categóricas después del mapeo
             df_processed[col] = df_processed[col].fillna(-1)
 
     # 4. Escalado
@@ -116,39 +106,32 @@ def preprocess_data(df, model_columns, categorical_mapping, scaler):
         st.error(f"⚠️ Error al escalar datos: {e}. El DataFrame podría no ser apto.")
         return None
 
-    # Devolver SOLO las columnas del modelo en el orden correcto
     return df_processed[model_columns]
 
 
 # ==============================================================================
-# 4. GENERACIÓN DE RECOMENDACIONES Y PREDICCIÓN
+# 4. GENERACIÓN DE RECOMENDACIONES Y PREDICCIÓN (Se mantiene igual)
 # ==============================================================================
 
 def generar_recomendacion_personalizada(row):
     """Genera recomendaciones basadas en umbrales lógicos de las columnas de encuesta/RRHH."""
     recomendaciones = []
     
-    # Intención de Permanencia (escala 1-5, 1=Baja)
     if row.get('IntencionPermanencia', 3) <= 2:
         recomendaciones.append("Reforzar desarrollo profesional (Baja intención de permanencia).")
         
-    # Carga Laboral Percibida (escala 1-5, 5=Alta)
     if row.get('CargaLaboralPercibida', 3) >= 4:
         recomendaciones.append("Revisar carga laboral (Percepción de alta sobrecarga).")
         
-    # Satisfacción Salarial (escala 1-5, 1=Baja)
     if row.get('SatisfaccionSalarial', 3) <= 2:
         recomendaciones.append("Evaluar ajustes salariales (Baja satisfacción salarial).")
         
-    # Confianza en la Empresa (escala 1-5, 1=Baja)
     if row.get('ConfianzaEmpresa', 3) <= 2:
         recomendaciones.append("Fomentar la confianza y comunicación (Baja confianza en la empresa).")
         
-    # Ausentismo
     if row.get('NumeroTardanzas', 0) > 3 or row.get('NumeroFaltas', 0) > 1:
         recomendaciones.append("Analizar causas de ausentismo (Tardanzas/Faltas frecuentes).")
         
-    # Desempeño
     if row.get('PerformanceRating', 3) == 1:
         recomendaciones.append("Plan de mejora de desempeño (Performance Rating bajo).")
 
@@ -171,7 +154,6 @@ def run_prediction_pipeline(df_raw, model, categorical_mapping, scaler):
     # Predicción
     prob = model.predict_proba(processed)[:, 1]
     
-    # Ensamblar resultados con el DataFrame original (para mantener todas las columnas)
     df_raw['Probabilidad_Renuncia'] = prob
     df_raw['Prediction_Renuncia'] = (prob > 0.5).astype(int)
     df_raw['Recomendacion'] = df_raw.apply(generar_recomendacion_personalizada, axis=1)
@@ -190,12 +172,12 @@ def fetch_data_from_supabase(supabase_client: Client):
     Se espera que esta tabla contenga las 33 variables de MODEL_COLUMNS.
     """
     if supabase_client is None:
+        # Esta comprobación es redundante si el código está bien estructurado, pero es un buen guardrail
         st.error("❌ El cliente de Supabase no es válido. No se puede conectar.")
         return None
         
     st.info(f"Consultando Supabase. Obteniendo datos de la tabla 'consolidado' ({len(MODEL_COLUMNS)} variables esperadas)...")
     try:
-        # Consulta de datos principales de 'consolidado'
         data = supabase_client.table('consolidado').select('*').execute().data
         
         if not data:
@@ -205,12 +187,10 @@ def fetch_data_from_supabase(supabase_client: Client):
         df = pd.DataFrame(data)
         st.success(f"✅ {len(df)} registros obtenidos de 'consolidado'.")
         
-        # Verificación de las variables clave del modelo
         missing_cols = [col for col in MODEL_COLUMNS if col not in df.columns]
         if missing_cols:
             st.warning(f"⚠️ Atención: Faltan {len(missing_cols)} variables críticas del modelo en la tabla 'consolidado'. El preprocesamiento intentará imputarlas.")
         
-        # Opcional: Asegurar que EmployeeNumber existe si se necesita para visualización
         if 'EmployeeNumber' not in df.columns and 'id' in df.columns:
              df = df.rename(columns={'id': 'EmployeeNumber'})
              
@@ -257,7 +237,6 @@ def predict_employee_data(df: pd.DataFrame = None, source: str = 'file', supabas
     elif source == 'file' and df is not None:
         df_raw = df.copy()
     else:
-        # Mensaje de error clave
         st.error("Se requiere un DataFrame de entrada (source='file') o un cliente de Supabase válido (source='supabase').")
         return pd.DataFrame()
     
@@ -268,7 +247,7 @@ def predict_employee_data(df: pd.DataFrame = None, source: str = 'file', supabas
 
 
 # ==============================================================================
-# 7. FUNCIONES DE EXPORTACIÓN Y DEMO
+# 7. FUNCIONES DE EXPORTACIÓN Y DEMO (Se mantienen igual)
 # ==============================================================================
 
 @st.cache_data
@@ -342,7 +321,6 @@ def display_results_and_demo(df):
     )
 
     st.subheader("📊 Análisis General")
-    # Es necesario que 'Department' exista en el DataFrame de salida
     if 'Department' in df.columns and not df['Department'].isnull().all():
         dept_avg = df.groupby('Department')['Probabilidad_Renuncia'].mean().reset_index()
 
@@ -370,68 +348,13 @@ def display_results_and_demo(df):
 
 
 # ==============================================================================
-# 8. DEMOSTRACIÓN DE STREAMLIT (Para ejecutar el módulo directamente)
+# 8. DEMOSTRACIÓN DE STREAMLIT (Con Inicialización de Cliente)
 # ==============================================================================
 
 if __name__ == '__main__':
     st.set_page_config(page_title="Módulo de Predicción de Renuncia", layout="wide")
     st.markdown("<h1 style='text-align:center; color:#1f77b4;'>📦 Módulo de Predicción de Renuncia (Demo)</h1>", unsafe_allow_html=True)
     st.markdown("---")
-
-    # --- INICIALIZACIÓN DEL CLIENTE DE SUPABASE (simulando tu script principal) ---
-    @st.cache_resource
-    def get_supabase() -> Optional[Client]:
-        """Inicializa y cachea el cliente de Supabase (asumiendo lectura de secrets.toml)."""
-        # Debe reemplazar 'your_url...' y 'your_public...' con valores reales en secrets.toml
-        url = st.secrets.get("SUPABASE_URL", "https://your_url.supabase.co") 
-        key = st.secrets.get("SUPABASE_KEY", "your_public_anon_key")
-        
-        if url == "https://your_url.supabase.co":
-            st.error("ERROR: Credenciales de Supabase no configuradas. La función de DB está deshabilitada.")
-            return None 
-        try:
-            return create_client(url, key)
-        except Exception as e:
-            st.error(f"ERROR: No se pudo crear el cliente de Supabase: {e}")
-            return None
-
-    SUPABASE_CLIENT = get_supabase()
-    # --------------------------------------------------------------------------
-
-    if 'df_resultados' not in st.session_state:
-        st.session_state.df_resultados = pd.DataFrame()
-
-    tab1, tab2 = st.tabs(["📂 Predicción desde archivo", "☁️ Predicción desde Supabase"])
-
-    with tab1:
-        df_input = None
-        uploaded_file = st.file_uploader("Sube tu archivo CSV o Excel", type=["csv", "xlsx"])
-        if uploaded_file:
-            try:
-                # Leer el archivo, manejando ambos tipos
-                df_input = pd.read_csv(uploaded_file) if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
-                st.info(f"Archivo cargado: {len(df_input)} registros.")
-            except Exception as e:
-                st.error(f"Error al leer archivo: {e}")
-                df_input = None
-            
-        if st.button("🚀 Ejecutar Predicción desde Archivo", use_container_width=True, key='predict_file'):
-            # Si df_input es None, la función predict_employee_data mostrará el error interno.
-            with st.spinner('Procesando datos y generando predicciones...'):
-                st.session_state.df_resultados = predict_employee_data(df=df_input, source='file')
-
-
-    with tab2:
-        st.markdown("Presiona para obtener los datos más recientes directamente de la tabla **`consolidado`**.")
-        
-        if SUPABASE_CLIENT is not None:
-            if st.button("🔄 Ejecutar Predicción desde Supabase", use_container_width=True, key='predict_supabase'):
-                with st.spinner('Conectando a Supabase y procesando datos...'):
-                    # Pasa el cliente autenticado
-                    st.session_state.df_resultados = predict_employee_data(source='supabase', supabase_client=SUPABASE_CLIENT)
-        else:
-            st.warning("⚠️ La conexión a Supabase está deshabilitada. Revisa tu configuración.")
-
-    st.markdown("---")
     
-    display_results_and_demo(st.session_state.df_resultados)
+    # --- INICIALIZACIÓN DEL CLIENTE DE SUPABASE (Tu código) ---
+    @st.cache_resource
