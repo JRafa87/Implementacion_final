@@ -14,6 +14,7 @@ from app_reconocimiento import render_recognition_page
 from dashboard_rotacion import render_rotacion_dashboard
 from survey_control_logic import render_survey_control_panel
 from prediccion_manual_module import render_manual_prediction_tab
+from attrition_predictor import predict_employee_data
 
 # ============================================================
 # 0. CONFIGURACIÓN E INICIALIZACIÓN
@@ -505,7 +506,7 @@ if session_is_active:
         "Mi Perfil": lambda: render_profile_page(supabase, request_password_reset),
         "Dashboard": render_rotacion_dashboard,
         "Gestión de Empleados":lambda: render_employee_management_page() , # Función CRUD dedicada
-        "Predicción desde Archivo": lambda: render_placeholder_page("Predicción desde Archivo 📁"),
+        "Predicción desde Archivo": predict_employee_data,
         "Predicción Manual":render_manual_prediction_tab,
         "Reconocimiento": render_recognition_page
     }
