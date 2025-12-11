@@ -15,7 +15,7 @@ except ImportError:
         pass
     SUPABASE_INSTALLED = False
 
-# ==============================================================================
+# ============================================================================== 
 # 1. CONSTANTES Y CONFIGURACIÓN
 # ==============================================================================
 
@@ -28,8 +28,8 @@ MODEL_COLUMNS = [
     'TrainingTimesLastYear','WorkLifeBalance','YearsAtCompany','YearsInCurrentRole',
     'YearsSinceLastPromotion','YearsWithCurrManager',
     'IntencionPermanencia','CargaLaboralPercibida','SatisfaccionSalarial',
-    'ConfianzaEmpresa','NumeroTardanzas','NumeroFaltas',
-    'tipo_contrato'
+    'ConfianzaEmpresa','NumeroTardanzas','NumeroFaltas', 
+    'tipo_contrato' 
 ]
 
 CATEGORICAL_COLS_TO_MAP = [
@@ -37,44 +37,47 @@ CATEGORICAL_COLS_TO_MAP = [
     'MaritalStatus', 'OverTime', 'tipo_contrato'
 ]
 
-# ==============================================================================
+# ============================================================================== 
 # 2. CARGA DE MODELO Y ARTEFACTOS
 # ==============================================================================
 
 @st.cache_resource
 def load_model_artefacts():
     try:
-        # Asegúrate de que estos archivos existan en la ruta 'models/'
         model = joblib.load('models/xgboost_model.pkl')
         categorical_mapping = joblib.load('models/categorical_mapping.pkl')
         scaler = joblib.load('models/scaler.pkl')
+        # NOTA: st.success se mueve fuera de cache_resource si bloquea, pero aquí se mantiene por simplicidad
         st.success("✅ Modelo y artefactos cargados correctamente.")
         return model, categorical_mapping, scaler
     except FileNotFoundError as e:
-        st.error(f"❌ Archivo no encontrado. Asegúrate de que el directorio 'models/' exista y contenga: 'xgboost_model.pkl', 'categorical_mapping.pkl' y 'scaler.pkl'. Error: {e}")
+        st.error(f"❌ Archivo no encontrado. Error: {e}")
         return None, None, None
     except Exception as e:
         st.error(f"❌ Error al cargar modelo: {e}")
         return None, None, None
 
-# ==============================================================================
+# ============================================================================== 
 # 3. PREPROCESAMIENTO
 # ==============================================================================
 
 def preprocess_data(df, model_columns, categorical_mapping, scaler):
     df_processed = df.copy()
 
+    # Rellenar columnas faltantes en el input (deben estar en model_columns)
     for col in model_columns:
         if col not in df_processed.columns:
             df_processed[col] = np.nan
 
+    # Imputación de columnas numéricas existentes
     numeric_cols = df_processed.select_dtypes(include=np.number).columns.tolist()
     for col in numeric_cols:
         if not df_processed[col].isnull().all():
             df_processed[col] = df_processed[col].fillna(df_processed[col].mean())
         else:
-            df_processed[col] = df_processed[col].fillna(0)
+            df_processed[col] = df_processed[col].fillna(0) # Si toda la columna es NaN
 
+    # Mapeo de columnas categóricas
     for col in CATEGORICAL_COLS_TO_MAP:
         if col in df_processed.columns:
             df_processed[col] = df_processed[col].astype(str).str.strip().str.upper()
@@ -82,58 +85,75 @@ def preprocess_data(df, model_columns, categorical_mapping, scaler):
                 try:
                     df_processed[col] = df_processed[col].map(categorical_mapping[col])
                 except:
-                    # Rellenar con NaN si el mapeo falla (por ejemplo, valor nuevo)
                     df_processed[col] = np.nan
             df_processed[col] = df_processed[col].fillna(-1) # Rellenar categorías no mapeadas
+            
+            # Asegurar que la columna mapeada es numérica para el escalado
+            df_processed[col] = pd.to_numeric(df_processed[col], errors='coerce').fillna(-1) 
+
+    # Crear el DataFrame solo con las columnas del modelo para asegurar el orden
+    df_for_scaling = pd.DataFrame(index=df.index)
+    
+    for col in model_columns:
+        if col in df_processed.columns:
+            # Asegurar que todas las columnas de entrada al scaler son numéricas
+            df_for_scaling[col] = pd.to_numeric(df_processed[col], errors='coerce')
+        else:
+            df_for_scaling[col] = 0.0 # Rellenar columnas que faltaban y no se crearon antes
+
+    # Rellenar cualquier NaN que quede después de la conversión a numérico
+    df_for_scaling = df_for_scaling.fillna(df_for_scaling.mean(numeric_only=True))
 
     try:
-        present_cols = [c for c in model_columns if c in df_processed.columns]
-        df_to_scale = df_processed[present_cols].copy()
         if scaler is None:
             st.error("⚠️ No hay scaler disponible.")
             return None
-        # Solo escalar las columnas numéricas que realmente se escalaron durante el entrenamiento
-        # (Esto es una simplificación, en un entorno real se usaría la lista de columnas numéricas del scaler)
-        df_processed[present_cols] = scaler.transform(df_to_scale)
+            
+        if df_for_scaling.empty:
+            st.error("⚠️ El DataFrame de entrada está vacío después del preprocesamiento inicial.")
+            return None
+            
+        scaled_data = scaler.transform(df_for_scaling)
+        df_scaled = pd.DataFrame(scaled_data, columns=model_columns, index=df.index)
+        
+        return df_scaled
+
     except Exception as e:
-        st.error(f"⚠️ Error al escalar datos: {e}")
+        st.error(f"⚠️ Error al escalar datos. Asegúrate de que las columnas coincidan con el scaler: {e}")
         return None
 
-    return df_processed[model_columns]
 
-
-# ==============================================================================
+# ============================================================================== 
 # 4. PREDICCIÓN Y RECOMENDACIONES
 # ==============================================================================
 
 def generar_recomendacion_personalizada(row):
-    """Genera recomendaciones basadas en las métricas blandas (soft) del empleado."""
     recomendaciones = []
-
-    # Las variables blandas se asumen en una escala de 1 a 5, donde 1 es el peor y 5 es el mejor,
-    # excepto Carga Laboral, donde 5 es la peor.
     
-    # Intención de permanencia baja (1 o 2)
+    # Se asume una escala de 1 a 5 (Intención, Satisfacción, Confianza) donde 1 es el peor, 5 el mejor.
+    # Carga laboral: 1 es el mejor, 5 es el peor.
+    
+    # Intención de permanencia baja
     if row.get('IntencionPermanencia', 3) <= 2:
         recomendaciones.append("Reforzar desarrollo profesional.")
-
-    # Carga laboral percibida alta (4 o 5)
+        
+    # Carga laboral percibida alta
     if row.get('CargaLaboralPercibida', 3) >= 4:
         recomendaciones.append("Revisar carga laboral.")
-
-    # Satisfacción salarial baja (1 o 2)
+        
+    # Satisfacción salarial baja
     if row.get('SatisfaccionSalarial', 3) <= 2:
         recomendaciones.append("Evaluar ajustes salariales.")
-
-    # Confianza en la empresa baja (1 o 2)
+        
+    # Confianza en la empresa baja
     if row.get('ConfianzaEmpresa', 3) <= 2:
         recomendaciones.append("Fomentar confianza.")
-
+        
     # Ausentismo alto
     if row.get('NumeroTardanzas', 0) > 3 or row.get('NumeroFaltas', 0) > 1:
         recomendaciones.append("Analizar ausentismo.")
-
-    # Rendimiento bajo (1, asumiendo una escala donde 1 es el más bajo)
+        
+    # Rendimiento bajo
     if row.get('PerformanceRating', 3) == 1:
         recomendaciones.append("Plan de mejora de desempeño.")
 
@@ -141,62 +161,71 @@ def generar_recomendacion_personalizada(row):
 
 def run_prediction_pipeline(df_raw, model, categorical_mapping, scaler):
     df_original = df_raw.copy()
-    # No dropear la columna 'Attrition' del raw data, sino antes de preprocess_data
     df_input = df_original.drop(columns=['Attrition'], errors='ignore')
 
     processed = preprocess_data(df_input, MODEL_COLUMNS, categorical_mapping, scaler)
-    if processed is None:
-        return None
+    
+    if processed is None or processed.empty:
+         st.error("❌ La predicción no pudo continuar porque el preprocesamiento falló o devolvió un DataFrame vacío.")
+         return None 
 
     try:
-        # Predicción de probabilidad de renuncia (clase 1)
         prob = model.predict_proba(processed)[:, 1]
     except Exception as e:
-        st.error(f"⚠️ Error en predicción: {e}")
+        st.error(f"⚠️ Error en predicción. El formato de las columnas preprocesadas no coincide con el modelo: {e}")
         return None
-
+    
     df_original['Probabilidad_Renuncia'] = prob
-    # 1 si Probabilidad > 0.5, 0 en otro caso
     df_original['Prediction_Renuncia'] = (prob > 0.5).astype(int)
-    # Generar las recomendaciones
     df_original['Recomendacion'] = df_original.apply(generar_recomendacion_personalizada, axis=1)
-
+    
     return df_original
 
 
-# ==============================================================================
+# ============================================================================== 
 # 5. SUPABASE
 # ==============================================================================
 
-@st.cache_data(ttl=600)
-def fetch_data_from_supabase(supabase_client: Client):
-    if not SUPABASE_INSTALLED or supabase_client is None:
-        st.error("❌ Cliente Supabase inválido. Asegúrate de tener 'supabase' instalado y las secrets configuradas.")
+@st.cache_resource
+def init_supabase_client():
+    """Inicializa y cachea el cliente Supabase, sin comandos de UI."""
+    try:
+        url = st.secrets.get("SUPABASE_URL")
+        key = st.secrets.get("SUPABASE_KEY")
+        
+        # Si faltan las claves, devuelve None para manejar el error en el main
+        if not url or not key:
+            return None
+            
+        return create_client(url, key)
+        
+    except Exception:
+        # Devuelve None si hay un error de inicialización
         return None
 
+@st.cache_data(ttl=600)
+def fetch_data_from_supabase(supabase_client: Client):
+    if supabase_client is None:
+        return None
+        
     try:
-        # Reemplaza 'consolidado' con el nombre real de tu tabla si es diferente
         result = supabase_client.table('consolidado').select('*').execute()
         data = getattr(result, 'data', None)
         if not data:
-            st.warning("⚠️ Tabla vacía o sin datos.")
             return None
-
+            
         df = pd.DataFrame(data)
-        # Convertir nombres de columnas a mayúsculas para un manejo más robusto
-        df.columns = [col.capitalize() for col in df.columns]
         return df
 
     except Exception as e:
-        st.error(f"Error Supabase: {e}")
+        st.error(f"Error al obtener datos de Supabase: {e}")
         return None
 
-# ==============================================================================
+# ============================================================================== 
 # 6. FUNCIÓN PRINCIPAL
 # ==============================================================================
 
 def predict_employee_data(df: pd.DataFrame = None, source: str = 'file', supabase_client: Optional[Client] = None):
-    """Función principal para cargar el modelo y ejecutar la predicción."""
     model, categorical_mapping, scaler = load_model_artefacts()
     if not model:
         return pd.DataFrame()
@@ -207,19 +236,19 @@ def predict_employee_data(df: pd.DataFrame = None, source: str = 'file', supabas
 
     if source == 'supabase':
         if supabase_client is None:
-            st.error("⚠️ Cliente Supabase no válido.")
+            st.error("⚠️ Cliente Supabase no válido para la predicción.")
             return pd.DataFrame()
         df_raw = fetch_data_from_supabase(supabase_client)
         if df_raw is None:
+            st.error("⚠️ No se pudieron cargar datos de Supabase.")
             return pd.DataFrame()
     else:
         df_raw = df.copy()
 
     return run_prediction_pipeline(df_raw, model, categorical_mapping, scaler)
 
-
-# ==============================================================================
-# 7. VISUALIZACIÓN DE RESULTADOS (FUNCIÓN FALTANTE)
+# ============================================================================== 
+# 7. VISUALIZACIÓN DE RESULTADOS
 # ==============================================================================
 
 def display_results_and_demo(df_resultados: pd.DataFrame):
@@ -246,7 +275,6 @@ def display_results_and_demo(df_resultados: pd.DataFrame):
     
     col_chart, col_filter = st.columns([2, 1])
 
-    # Filtros
     with col_filter:
         threshold = st.slider("Umbral de Probabilidad de Renuncia", min_value=0.0, max_value=1.0, value=0.5, step=0.05)
         
@@ -258,10 +286,8 @@ def display_results_and_demo(df_resultados: pd.DataFrame):
              df_filtered = df_filtered[df_filtered['JobRole'].isin(selected_roles)]
 
 
-    # Gráfico
     with col_chart:
         if 'Department' in df_filtered.columns:
-            # Gráfico de barras de renuncia predicha por Departamento
             df_chart = df_filtered.groupby('Department')['Prediction_Renuncia'].sum().reset_index()
             df_chart.columns = ['Department', 'Renuncias_Predichas']
             
@@ -278,6 +304,7 @@ def display_results_and_demo(df_resultados: pd.DataFrame):
             st.warning("Columna 'Department' no encontrada en los datos de resultado.")
 
     st.subheader(f"Tabla de Resultados Filtrados ({len(df_filtered)} registros)")
+    
     # --- 7.3 Tabla de Resultados ---
     st.dataframe(
         df_filtered[['JobRole', 'Department', 'MonthlyIncome', 'Probabilidad_Renuncia', 'Prediction_Renuncia', 'Recomendacion']].sort_values(
@@ -308,7 +335,6 @@ def display_results_and_demo(df_resultados: pd.DataFrame):
     st.markdown("---")
     col_dl, col_demo = st.columns(2)
 
-    # Botón de Descarga
     csv_download = df_filtered.to_csv(index=False).encode('utf-8')
     col_dl.download_button(
         label="📥 Descargar Resultados Filtrados (CSV)",
@@ -318,11 +344,10 @@ def display_results_and_demo(df_resultados: pd.DataFrame):
         use_container_width=True
     )
 
-    # Botón de Demostración (Simulado)
-    # Este botón no hace nada funcionalmente en este código, es solo una demostración de un botón
-    col_demo.button("🔍 Ver Dashboard Interactivo (Demo)", use_container_width=True, help="Simula la navegación a un dashboard de BI.")
+    col_demo.button("🔍 Ver Dashboard Interactivo (Demo)", key="btn_demo_dashboard", use_container_width=True, help="Simula la navegación a un dashboard de BI.")
 
-# ==============================================================================
+
+# ============================================================================== 
 # 8. STREAMLIT
 # ==============================================================================
 
@@ -331,76 +356,76 @@ if __name__ == '__main__':
     st.markdown("<h1 style='text-align:center;'>📦 Módulo de Predicción de Renuncia</h1>", unsafe_allow_html=True)
     st.markdown("---")
     
-
+    # --- Inicialización del Cliente Supabase (Manejo de UI Separado) ---
     SUPABASE_CLIENT = None
-
+    supabase_ready = False
+    
     if SUPABASE_INSTALLED:
-        @st.cache_resource
-        def get_supabase():
-            try:
-                # Intenta obtener las secrets de Streamlit
-                url = st.secrets.get("SUPABASE_URL")
-                key = st.secrets.get("SUPABASE_KEY")
-                if not url or not key:
-                    st.error("❌ Falta configuración de Supabase. Asegúrate de tener 'SUPABASE_URL' y 'SUPABASE_KEY' en .streamlit/secrets.toml.")
-                    return None
-                return create_client(url, key)
-            except Exception as e:
-                st.error(f"Error al inicializar Supabase: {e}")
-                return None
+        SUPABASE_CLIENT = init_supabase_client()
+        
+        if SUPABASE_CLIENT is None:
+            # Si el cliente falló, mostramos el error aquí, sin bloquear el renderizado de tabs
+            st.warning("⚠️ No se pudo inicializar Supabase. La pestaña de BD estará deshabilitada o fallará si se intenta usar.")
+        else:
+            supabase_ready = True
 
-        SUPABASE_CLIENT = get_supabase()
-
+    # --- Inicialización de Session State ---
     if 'df_resultados' not in st.session_state:
         st.session_state.df_resultados = pd.DataFrame()
+    if 'df_entrada' not in st.session_state: # Agregado para persistir el DataFrame de Archivo
+        st.session_state.df_entrada = pd.DataFrame()
 
     tab1, tab2 = st.tabs(["📂 Predicción desde archivo", "☁️ Predicción desde Supabase"])
 
     # --------------------------------------------------------------------------
-    # TAB 1 — ARCHIVO
+    # TAB 1 — ARCHIVO (Corregido para usar st.session_state y persistir la carga)
     # --------------------------------------------------------------------------
     with tab1:
         st.subheader("📁 Cargar archivo")
-        df_input = None
-
         uploaded_file = st.file_uploader("Sube un archivo CSV o Excel", type=["csv", "xlsx"])
 
-        if uploaded_file:
+        # Lógica para leer el archivo y guardarlo en el estado
+        if uploaded_file is not None:
             try:
-                # Determinar el tipo de archivo y leer
+                # Resetear la posición del puntero del archivo
+                uploaded_file.seek(0)
+                
                 if uploaded_file.name.endswith('.csv'):
-                    df_input = pd.read_csv(uploaded_file)
-                elif uploaded_file.name.endswith('.xlsx'):
-                    df_input = pd.read_excel(uploaded_file)
+                    new_df_input = pd.read_csv(uploaded_file)
                 else:
-                    st.error("Formato de archivo no soportado.")
-                    df_input = None
-
-                if df_input is not None:
-                    st.success(f"Archivo cargado correctamente ({len(df_input)} registros).")
-                    st.dataframe(df_input.head(), use_container_width=True) # Mostrar solo el encabezado
+                    new_df_input = pd.read_excel(uploaded_file)
+                
+                st.session_state.df_entrada = new_df_input 
+                
+                st.success(f"Archivo cargado correctamente ({len(st.session_state.df_entrada)} registros).")
+                st.dataframe(st.session_state.df_entrada.head(), use_container_width=True)
+                
             except Exception as e:
                 st.error(f"Error al leer archivo: {e}")
-                df_input = None
+                st.session_state.df_entrada = pd.DataFrame()
 
+        # Botón de ejecución, verifica el estado guardado
         if st.button("🚀 Ejecutar Predicción desde Archivo", key="btn_file_predict", use_container_width=True):
-            if df_input is None:
-                st.error("⚠️ Debes subir un archivo antes de ejecutar.")
+            if st.session_state.df_entrada.empty:
+                st.error("⚠️ Debes subir un archivo válido antes de ejecutar.")
             else:
                 with st.spinner("Procesando la predicción..."):
-                    st.session_state.df_resultados = predict_employee_data(df=df_input, source='file')
+                    st.session_state.df_resultados = predict_employee_data(df=st.session_state.df_entrada, source='file')
                     if not st.session_state.df_resultados.empty:
                         st.success("Predicción completada.")
                     else:
-                         st.error("La predicción falló o devolvió resultados vacíos.")
+                         st.error("❌ La predicción falló. Revisa los mensajes de error en el preprocesamiento o el modelo.")
 
     #--------------------------------------------------------------------------
     # TAB 2 — SUPABASE
     # --------------------------------------------------------------------------
     with tab2:
         st.subheader("☁️ Obtener datos desde Supabase")
-
-        if st.button("🔄 Ejecutar Predicción desde Supabase", key="btn_supabase_predict", use_container_width=True):
+        
+        if not supabase_ready:
+             st.info("La conexión a Supabase no está lista. Verifica las claves en `secrets.toml`.")
+        
+        if st.button("🔄 Ejecutar Predicción desde Supabase", key="btn_supabase_predict", use_container_width=True, disabled=not supabase_ready):
             if SUPABASE_CLIENT is None:
                 st.error("⚠️ Cliente Supabase no válido. Revisa tu configuración.")
             else:
@@ -409,11 +434,11 @@ if __name__ == '__main__':
                     if not st.session_state.df_resultados.empty:
                         st.success("Predicción completada desde Supabase.")
                     else:
-                        st.error("La predicción falló o devolvió resultados vacíos. Revisa la conexión y la tabla 'consolidado'.")
+                        st.error("❌ La predicción falló al cargar datos de Supabase. Revisa la tabla 'consolidado'.")
 
     st.markdown("---")
 
-    # Mostrar resultados (Esta es la llamada a la función que faltaba y se agregó arriba)
+    # Mostrar resultados
     display_results_and_demo(st.session_state.df_resultados)
 
 
