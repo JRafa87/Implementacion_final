@@ -47,12 +47,9 @@ def load_model_artefacts():
         model = joblib.load('models/xgboost_model.pkl')
         categorical_mapping = joblib.load('models/categorical_mapping.pkl')
         scaler = joblib.load('models/scaler.pkl')
-        # NOTA: st.success se deja aquí, pero la clave es que NO HAY st.error dentro del cache
         st.success("✅ Modelo y artefactos cargados correctamente.")
         return model, categorical_mapping, scaler
     except FileNotFoundError as e:
-        # Se podría usar st.error, pero si bloquea, mejor devolver None y manejar afuera
-        # Para este script, como es crítico, lo dejamos para que falle visiblemente si no hay archivos
         st.error(f"❌ Archivo no encontrado. Error: {e}")
         return None, None, None
     except Exception as e:
@@ -66,20 +63,17 @@ def load_model_artefacts():
 def preprocess_data(df, model_columns, categorical_mapping, scaler):
     df_processed = df.copy()
 
-    # Rellenar columnas faltantes en el input (deben estar en model_columns)
     for col in model_columns:
         if col not in df_processed.columns:
             df_processed[col] = np.nan
 
-    # Imputación de columnas numéricas existentes
     numeric_cols = df_processed.select_dtypes(include=np.number).columns.tolist()
     for col in numeric_cols:
         if not df_processed[col].isnull().all():
             df_processed[col] = df_processed[col].fillna(df_processed[col].mean())
         else:
-            df_processed[col] = df_processed[col].fillna(0) # Si toda la columna es NaN
+            df_processed[col] = df_processed[col].fillna(0)
 
-    # Mapeo de columnas categóricas
     for col in CATEGORICAL_COLS_TO_MAP:
         if col in df_processed.columns:
             df_processed[col] = df_processed[col].astype(str).str.strip().str.upper()
@@ -88,22 +82,17 @@ def preprocess_data(df, model_columns, categorical_mapping, scaler):
                     df_processed[col] = df_processed[col].map(categorical_mapping[col])
                 except:
                     df_processed[col] = np.nan
-            df_processed[col] = df_processed[col].fillna(-1) # Rellenar categorías no mapeadas
-            
-            # Asegurar que la columna mapeada es numérica para el escalado
+            df_processed[col] = df_processed[col].fillna(-1)
             df_processed[col] = pd.to_numeric(df_processed[col], errors='coerce').fillna(-1) 
 
-    # Crear el DataFrame solo con las columnas del modelo para asegurar el orden
     df_for_scaling = pd.DataFrame(index=df.index)
     
     for col in model_columns:
         if col in df_processed.columns:
-            # Asegurar que todas las columnas de entrada al scaler son numéricas
             df_for_scaling[col] = pd.to_numeric(df_processed[col], errors='coerce')
         else:
-            df_for_scaling[col] = 0.0 # Rellenar columnas que faltaban y no se crearon antes
+            df_for_scaling[col] = 0.0
 
-    # Rellenar cualquier NaN que quede después de la conversión a numérico
     df_for_scaling = df_for_scaling.fillna(df_for_scaling.mean(numeric_only=True))
 
     try:
@@ -126,36 +115,22 @@ def preprocess_data(df, model_columns, categorical_mapping, scaler):
 
 
 # ============================================================================== 
-# 4. PREDICCIÓN Y RECOMENDACIONES
+# 4. PREDICCIÓN Y RECOMENDACIONES (Lógica de Negocio)
 # ==============================================================================
 
 def generar_recomendacion_personalizada(row):
     recomendaciones = []
     
-    # Se asume una escala de 1 a 5 (Intención, Satisfacción, Confianza) donde 1 es el peor, 5 el mejor.
-    # Carga laboral: 1 es el mejor, 5 es el peor.
-    
-    # Intención de permanencia baja
     if row.get('IntencionPermanencia', 3) <= 2:
         recomendaciones.append("Reforzar desarrollo profesional.")
-        
-    # Carga laboral percibida alta
     if row.get('CargaLaboralPercibida', 3) >= 4:
         recomendaciones.append("Revisar carga laboral.")
-        
-    # Satisfacción salarial baja
     if row.get('SatisfaccionSalarial', 3) <= 2:
         recomendaciones.append("Evaluar ajustes salariales.")
-        
-    # Confianza en la empresa baja
     if row.get('ConfianzaEmpresa', 3) <= 2:
         recomendaciones.append("Fomentar confianza.")
-        
-    # Ausentismo alto
     if row.get('NumeroTardanzas', 0) > 3 or row.get('NumeroFaltas', 0) > 1:
         recomendaciones.append("Analizar ausentismo.")
-        
-    # Rendimiento bajo
     if row.get('PerformanceRating', 3) == 1:
         recomendaciones.append("Plan de mejora de desempeño.")
 
@@ -190,65 +165,33 @@ def run_prediction_pipeline(df_raw, model, categorical_mapping, scaler):
 
 @st.cache_resource
 def init_supabase_client():
-    """Inicializa y cachea el cliente Supabase, sin comandos de UI (st.error/st.warning)."""
     try:
         url = st.secrets.get("SUPABASE_URL")
         key = st.secrets.get("SUPABASE_KEY")
-        
-        # Si faltan las claves, devuelve None
         if not url or not key:
             return None
-            
         return create_client(url, key)
-        
     except Exception:
-        # Devuelve None si hay un error de inicialización
         return None
 
 @st.cache_data(ttl=600)
 def fetch_data_from_supabase(supabase_client: Client):
     if supabase_client is None:
         return None
-        
     try:
-        # Asumiendo que 'consolidado' es el nombre de la tabla
         result = supabase_client.table('consolidado').select('*').execute()
         data = getattr(result, 'data', None)
         if not data:
             return None
-            
         df = pd.DataFrame(data)
         return df
-
     except Exception as e:
-        # Se permite st.error aquí ya que esto no es st.cache_resource
         st.error(f"Error al obtener datos de Supabase: {e}") 
         return None
 
-# ============================================================================== 
-# 6. FUNCIÓN PRINCIPAL WRAPPER (Se mantiene, pero no se usa en el main)
-# ==============================================================================
-
-def predict_employee_data(df: pd.DataFrame = None, source: str = 'file', supabase_client: Optional[Client] = None):
-    # Esta función se mantiene para propósitos de modularidad, 
-    # pero el flujo de carga ahora se maneja en el main para mejor control de Streamlit.
-    model, categorical_mapping, scaler = load_model_artefacts()
-    if not model:
-        return pd.DataFrame()
-
-    if source == 'supabase':
-        df_raw = fetch_data_from_supabase(supabase_client)
-    else:
-        df_raw = df.copy()
-
-    if df_raw is None or df_raw.empty:
-        return pd.DataFrame()
-        
-    return run_prediction_pipeline(df_raw, model, categorical_mapping, scaler)
-
 
 # ============================================================================== 
-# 7. VISUALIZACIÓN DE RESULTADOS
+# 6. VISUALIZACIÓN DE RESULTADOS
 # ==============================================================================
 
 def display_results_and_demo(df_resultados: pd.DataFrame):
@@ -279,7 +222,6 @@ def display_results_and_demo(df_resultados: pd.DataFrame):
         threshold = st.slider("Umbral de Probabilidad de Renuncia", min_value=0.0, max_value=1.0, value=0.5, step=0.05)
         
         roles = df_resultados['JobRole'].unique().tolist() if 'JobRole' in df_resultados.columns else []
-        # Limita la selección a roles presentes para evitar errores de filtro
         selected_roles = st.multiselect("Filtrar por Rol de Trabajo", options=roles, default=roles)
 
         df_filtered = df_resultados[df_resultados['Probabilidad_Renuncia'] >= threshold]
@@ -336,7 +278,6 @@ def display_results_and_demo(df_resultados: pd.DataFrame):
     st.markdown("---")
     col_dl, col_demo = st.columns(2)
 
-    # Convertir a CSV para descarga
     csv_download = df_filtered.to_csv(index=False).encode('utf-8')
     col_dl.download_button(
         label="📥 Descargar Resultados Filtrados (CSV)",
@@ -350,29 +291,30 @@ def display_results_and_demo(df_resultados: pd.DataFrame):
 
 
 # ============================================================================== 
-# 8. STREAMLIT (Lógica principal - Flujo corregido)
+# 8. FUNCIÓN DE RENDERIZADO PARA IMPORTACIÓN EN APP.PY (render_predictor_page)
 # ==============================================================================
 
-if __name__ == '__main__':
-    st.set_page_config(page_title="Módulo de Predicción de Renuncia", layout="wide")
+def render_predictor_page():
+    """
+    Función principal de UI que renderiza el módulo de predicción
+    y contiene las pestañas de Archivo y Supabase.
+    """
     st.markdown("<h1 style='text-align:center;'>📦 Módulo de Predicción de Renuncia</h1>", unsafe_allow_html=True)
     st.markdown("---")
     
     # --- Carga de Modelo (Prerrequisito) ---
     model, categorical_mapping, scaler = load_model_artefacts()
     if not model:
-        # Si el modelo falla, detenemos toda la ejecución.
         st.error("🛑 La aplicación no puede iniciar debido a errores en la carga del modelo.")
-        st.stop()
+        return
     
     # --- Inicialización del Cliente Supabase ---
     SUPABASE_CLIENT = None
     supabase_ready = False
     if SUPABASE_INSTALLED:
-        SUPABASE_CLIENT = init_supabase_client() # init_supabase_client NO usa st.error()
-        
+        SUPABASE_CLIENT = init_supabase_client()
         if SUPABASE_CLIENT is None:
-            st.warning("⚠️ No se pudo inicializar Supabase. La pestaña de BD puede estar deshabilitada.")
+            st.warning("⚠️ No se pudo inicializar Supabase.")
         else:
             supabase_ready = True
 
@@ -383,13 +325,14 @@ if __name__ == '__main__':
     tab1, tab2 = st.tabs(["📂 Predicción desde archivo", "☁️ Predicción desde Supabase"])
 
     # --------------------------------------------------------------------------
-    # TAB 1 — ARCHIVO (Corregido: El botón se renderiza solo si el archivo se carga con éxito)
+    # TAB 1 — ARCHIVO (El botón funciona porque df_raw existe al hacer clic)
     # --------------------------------------------------------------------------
     with tab1:
         st.subheader("📁 Cargar archivo")
-        uploaded_file = st.file_uploader("Sube un archivo CSV o Excel", type=["csv", "xlsx"])
+        # Cambié la clave del uploader para aislarlo de otros elementos en app.py
+        uploaded_file = st.file_uploader("Sube un archivo CSV o Excel", type=["csv", "xlsx"], key="file_upload_module_key")
         
-        df_raw = None # DataFrame local para el flujo
+        df_raw = None
         
         if uploaded_file is not None:
             try:
@@ -397,18 +340,14 @@ if __name__ == '__main__':
                 df_raw = pd.read_csv(uploaded_file) if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
                 st.success(f"Archivo cargado correctamente ({len(df_raw)} registros).")
                 st.dataframe(df_raw.head(), use_container_width=True)
-                
             except Exception as e:
                 st.error(f"Error al leer archivo: {e}")
                 df_raw = None
         
-        # El botón solo se activa si la variable df_raw tiene contenido válido
         if df_raw is not None:
             if st.button("🚀 Ejecutar Predicción desde Archivo", key="btn_file_predict", use_container_width=True):
                 with st.spinner("Procesando la predicción..."):
-                    
                     df_predicho = run_prediction_pipeline(df_raw, model, categorical_mapping, scaler)
-                    
                     if df_predicho is not None and not df_predicho.empty:
                         st.session_state.df_resultados = df_predicho
                         st.success("Predicción completada.")
@@ -436,7 +375,6 @@ if __name__ == '__main__':
                     
                     if df_raw is not None and not df_raw.empty:
                         df_predicho = run_prediction_pipeline(df_raw, model, categorical_mapping, scaler)
-                        
                         if df_predicho is not None and not df_predicho.empty:
                             st.session_state.df_resultados = df_predicho
                             st.success("Predicción completada desde Supabase.")
@@ -449,6 +387,13 @@ if __name__ == '__main__':
 
     st.markdown("---")
 
-    # Mostrar resultados (Sección Final)
+    # Mostrar resultados
     display_results_and_demo(st.session_state.df_resultados)
+
+# ============================================================================== 
+# 9. PUNTO DE ENTRADA (Para ejecución directa)
+# ==============================================================================
+if __name__ == '__main__':
+    st.set_page_config(page_title="Módulo de Predicción de Renuncia", layout="wide")
+    render_predictor_page()
 
