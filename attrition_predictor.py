@@ -179,6 +179,7 @@ def fetch_data_from_supabase(supabase_client: Client):
     if supabase_client is None:
         return None
     try:
+        # Se elimina @st.cache_data para evitar UnhashableParamError y asegurar independencia
         result = supabase_client.table('consolidado').select('*').execute()
         data = getattr(result, 'data', None)
         if not data:
@@ -191,16 +192,16 @@ def fetch_data_from_supabase(supabase_client: Client):
 
 
 # ============================================================================== 
-# 6. VISUALIZACIÓN FINAL (Alerta y Top 10)
+# 6. VISUALIZACIÓN FINAL (Formato Top 10)
 # ==============================================================================
 
 def display_results_and_demo(df_resultados: pd.DataFrame):
     """
     Muestra únicamente las métricas de alerta y la tabla del Top 10
-    de empleados con mayor probabilidad de renuncia.
+    de empleados con mayor probabilidad de renuncia (formato solicitado).
     """
     if df_resultados.empty:
-        st.info("💡 Esperando la ejecución de una predicción (archivo o Supabase) para mostrar resultados.")
+        st.info("💡 Ejecuta una predicción (desde archivo o Supabase) para ver los resultados.")
         return
 
     df = df_resultados.copy()
@@ -248,7 +249,7 @@ def display_results_and_demo(df_resultados: pd.DataFrame):
     with col_h4: st.write("**Salario (S/.)**")
     with col_h5: st.write("**Riesgo**")
     with col_h6: st.write("**Acción**")
-    st.markdown("---") # Línea de separación
+    st.markdown("---") 
 
     # Filas de la tabla (Top 10)
     for i, row in df_top10.iterrows():
@@ -316,7 +317,7 @@ def render_predictor_page():
     tab1, tab2 = st.tabs(["📂 Predicción desde archivo", "☁️ Predicción desde Supabase"])
 
     # --------------------------------------------------------------------------
-    # TAB 1 — ARCHIVO
+    # TAB 1 — ARCHIVO (Actualización de resultados independiente)
     # --------------------------------------------------------------------------
     with tab1:
         st.subheader("📁 Cargar archivo")
@@ -336,19 +337,21 @@ def render_predictor_page():
         
         if df_raw is not None:
             if st.button("🚀 Ejecutar Predicción desde Archivo", key="btn_file_predict", use_container_width=True):
-                with st.spinner("Procesando la predicción..."):
+                with st.spinner("Procesando la predicción desde archivo..."):
                     df_predicho = run_prediction_pipeline(df_raw, model, categorical_mapping, scaler)
                     if df_predicho is not None and not df_predicho.empty:
+                        # Solo actualiza la variable de estado si la predicción es exitosa
                         st.session_state.df_resultados = df_predicho
                         st.success("Predicción completada.")
                     else:
+                        # Si falla, no actualiza el estado, pero el error ya se mostró
                         st.session_state.df_resultados = pd.DataFrame() 
                         st.error("❌ La predicción falló. Verifique el formato de las columnas de entrada.")
         else:
             st.info("Debes subir un archivo antes de ejecutar la predicción.")
 
     # --------------------------------------------------------------------------
-    # TAB 2 — SUPABASE
+    # TAB 2 — SUPABASE (Actualización de resultados independiente)
     # --------------------------------------------------------------------------
     with tab2:
         st.subheader("☁️ Obtener datos desde Supabase")
@@ -360,15 +363,19 @@ def render_predictor_page():
             if SUPABASE_CLIENT is None:
                 st.error("⚠️ Cliente Supabase no válido para la predicción.")
             else:
-                with st.spinner("Conectando y procesando..."):
+                with st.spinner("Conectando y procesando desde Supabase..."):
                     df_raw = fetch_data_from_supabase(SUPABASE_CLIENT)
                     
                     if df_raw is not None and not df_raw.empty:
+                        st.dataframe(df_raw.head(), use_container_width=True) # Muestra el encabezado de los datos de Supabase
+                        
                         df_predicho = run_prediction_pipeline(df_raw, model, categorical_mapping, scaler)
                         if df_predicho is not None and not df_predicho.empty:
+                             # Solo actualiza la variable de estado si la predicción es exitosa
                             st.session_state.df_resultados = df_predicho
                             st.success("Predicción completada desde Supabase.")
                         else:
+                            # Si falla, no actualiza el estado
                             st.session_state.df_resultados = pd.DataFrame()
                             st.error("❌ Fallo en el pipeline de predicción con datos de Supabase.")
                     else:
@@ -377,7 +384,7 @@ def render_predictor_page():
 
     st.markdown("---")
 
-    # Mostrar la única sección de resultados (Alerta, Top 10 y CSV)
+    # Mostrar la única sección de resultados (Alerta, Top 10 y CSV) con el mismo formato
     display_results_and_demo(st.session_state.df_resultados)
 
 # ============================================================================== 
