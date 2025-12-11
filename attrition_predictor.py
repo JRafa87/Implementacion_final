@@ -19,7 +19,6 @@ except ImportError:
 # 1. CONSTANTES Y CONFIGURACIÓN
 # ==============================================================================
 
-# **LISTA DE COLUMNAS REQUERIDAS POR EL MODELO (33 COLUMNAS)**
 MODEL_COLUMNS = [
     'Age', 'BusinessTravel', 'Department', 'DistanceFromHome', 'Education',
     'EducationField', 'EnvironmentSatisfaction', 'Gender', 'JobInvolvement', 
@@ -47,6 +46,7 @@ def load_model_artefacts():
         model = joblib.load('models/xgboost_model.pkl')
         categorical_mapping = joblib.load('models/categorical_mapping.pkl')
         scaler = joblib.load('models/scaler.pkl')
+        # No usar st.success en producción de carga repetida; está bien aquí.
         st.success("✅ Modelo y artefactos cargados correctamente.")
         return model, categorical_mapping, scaler
     except FileNotFoundError as e:
@@ -81,10 +81,10 @@ def preprocess_data(df, model_columns, categorical_mapping, scaler):
     for col in CATEGORICAL_COLS_TO_MAP:
         if col in df_processed.columns:
             df_processed[col] = df_processed[col].astype(str).str.strip().str.upper()
-            if col in categorical_mapping:
+            if col in categorical_mapping and categorical_mapping[col] is not None:
                 try:
                     df_processed[col] = df_processed[col].map(categorical_mapping[col])
-                except:
+                except Exception:
                     df_processed[col] = np.nan
             df_processed[col] = df_processed[col].fillna(-1)
             df_processed[col] = pd.to_numeric(df_processed[col], errors='coerce').fillna(-1) 
@@ -99,7 +99,9 @@ def preprocess_data(df, model_columns, categorical_mapping, scaler):
             df_for_scaling[col] = 0.0
 
     df_for_scaling = df_for_scaling[model_columns] 
-    df_for_scaling = df_for_scaling.fillna(df_for_scaling.mean(numeric_only=True))
+    # Rellenar NaNs por la media (numérica)
+    if not df_for_scaling.empty:
+        df_for_scaling = df_for_scaling.fillna(df_for_scaling.mean(numeric_only=True))
 
     try:
         if scaler is None or df_for_scaling.empty:
@@ -113,7 +115,6 @@ def preprocess_data(df, model_columns, categorical_mapping, scaler):
     except Exception as e:
         st.error(f"⚠️ Error al escalar datos: {e}")
         return None
-
 
 # ============================================================================== 
 # 4. PREDICCIÓN Y RECOMENDACIONES (Lógica de Negocio)
@@ -159,7 +160,6 @@ def run_prediction_pipeline(df_raw, model, categorical_mapping, scaler):
     
     return df_original
 
-
 # ============================================================================== 
 # 5. SUPABASE
 # ==============================================================================
@@ -189,7 +189,6 @@ def fetch_data_from_supabase(supabase_client: Client):
         st.error(f"Error al obtener datos de Supabase: {e}") 
         return None
 
-
 # ============================================================================== 
 # 6. VISUALIZACIÓN FINAL (Formato Top 10)
 # ==============================================================================
@@ -200,7 +199,7 @@ def display_results_and_demo(df_resultados: pd.DataFrame, source: Optional[str])
     de empleados con mayor probabilidad de renuncia (formato solicitado),
     incluyendo la fuente de los datos.
     """
-    if df_resultados.empty:
+    if df_resultados is None or df_resultados.empty:
         st.info("💡 Ejecuta una predicción (desde archivo o Supabase) para ver los resultados.")
         return
     
@@ -283,7 +282,6 @@ def display_results_and_demo(df_resultados: pd.DataFrame, source: Optional[str])
         use_container_width=True
     )
 
-
 # ============================================================================== 
 # 7. FUNCIÓN DE RENDERIZADO PARA LA PREDICCIÓN (render_predictor_page)
 # ==============================================================================
@@ -298,7 +296,8 @@ def render_predictor_page():
     
     # --- Carga de Modelo (Prerrequisito) ---
     model, categorical_mapping, scaler = load_model_artefacts()
-    if not model:
+    if model is None:
+        # Si no cargó, salir temprano
         return
     
     # --- Inicialización del Cliente Supabase ---
@@ -311,16 +310,21 @@ def render_predictor_page():
         else:
             supabase_ready = True
 
-    # --- Inicialización de Session State ---
-    if 'df_resultados' not in st.session_state:
-        st.session_state.df_resultados = pd.DataFrame()
-    if 'source' not in st.session_state:
-        st.session_state.source = None # <--- NUEVA VARIABLE DE ESTADO
+    # --- Inicialización de Session State (variables separadas por pestaña) ---
+    if 'df_resultados_archivo' not in st.session_state:
+        st.session_state.df_resultados_archivo = pd.DataFrame()
+    if 'source_archivo' not in st.session_state:
+        st.session_state.source_archivo = None
+
+    if 'df_resultados_supabase' not in st.session_state:
+        st.session_state.df_resultados_supabase = pd.DataFrame()
+    if 'source_supabase' not in st.session_state:
+        st.session_state.source_supabase = None
 
     tab1, tab2 = st.tabs(["📂 Predicción desde archivo", "☁️ Predicción desde Supabase"])
 
     # --------------------------------------------------------------------------
-    # TAB 1 — ARCHIVO (Actualiza 'df_resultados' y 'source')
+    # TAB 1 — ARCHIVO (resultados y UI independientes)
     # --------------------------------------------------------------------------
     with tab1:
         st.subheader("📁 Cargar archivo")
@@ -343,18 +347,21 @@ def render_predictor_page():
                 with st.spinner("Procesando la predicción desde archivo..."):
                     df_predicho = run_prediction_pipeline(df_raw, model, categorical_mapping, scaler)
                     if df_predicho is not None and not df_predicho.empty:
-                        st.session_state.df_resultados = df_predicho
-                        st.session_state.source = 'Archivo' # <--- ESTABLECE LA FUENTE
+                        st.session_state.df_resultados_archivo = df_predicho
+                        st.session_state.source_archivo = 'Archivo'
                         st.success("Predicción completada.")
                     else:
-                        st.session_state.df_resultados = pd.DataFrame() 
-                        st.session_state.source = None
+                        st.session_state.df_resultados_archivo = pd.DataFrame() 
+                        st.session_state.source_archivo = None
                         st.error("❌ La predicción falló. Verifique el formato de las columnas de entrada.")
         else:
             st.info("Debes subir un archivo antes de ejecutar la predicción.")
 
+        # Mostrar resultados del archivo (si existen) dentro de la misma pestaña
+        display_results_and_demo(st.session_state.df_resultados_archivo, st.session_state.source_archivo)
+
     # --------------------------------------------------------------------------
-    # TAB 2 — SUPABASE (Actualiza 'df_resultados' y 'source')
+    # TAB 2 — SUPABASE (resultados y UI independientes)
     # --------------------------------------------------------------------------
     with tab2:
         st.subheader("☁️ Obtener datos desde Supabase")
@@ -370,48 +377,31 @@ def render_predictor_page():
                     df_raw = fetch_data_from_supabase(SUPABASE_CLIENT)
                     
                     if df_raw is not None and not df_raw.empty:
-                        st.dataframe(df_raw.head(), use_container_width=True) # Muestra el encabezado de los datos de Supabase
+                        st.dataframe(df_raw.head(), use_container_width=True)
                         
                         df_predicho = run_prediction_pipeline(df_raw, model, categorical_mapping, scaler)
                         if df_predicho is not None and not df_predicho.empty:
-                            st.session_state.df_resultados = df_predicho
-                            st.session_state.source = 'Supabase' # <--- ESTABLECE LA FUENTE
+                            st.session_state.df_resultados_supabase = df_predicho
+                            st.session_state.source_supabase = 'Supabase'
                             st.success("Predicción completada desde Supabase.")
                         else:
-                            st.session_state.df_resultados = pd.DataFrame()
-                            st.session_state.source = None
+                            st.session_state.df_resultados_supabase = pd.DataFrame()
+                            st.session_state.source_supabase = None
                             st.error("❌ Fallo en el pipeline de predicción con datos de Supabase.")
                     else:
-                        st.session_state.df_resultados = pd.DataFrame()
-                        st.session_state.source = None
+                        st.session_state.df_resultados_supabase = pd.DataFrame()
+                        st.session_state.source_supabase = None
                         st.error("❌ No se pudieron cargar datos de Supabase.")
 
-    st.markdown("---")
-
-    # Mostrar la única sección de resultados (Alerta, Top 10 y CSV) con el mismo formato, 
-    # incluyendo la fuente de los datos en el título.
-    with tab1:
-    ...
-    mostrar_archivo = True
-
-with tab2:
-    ...
-    mostrar_supabase = True
-
-# Después de los tabs:
-if 'mostrar_archivo' in locals() and mostrar_archivo:
-    display_results_and_demo(st.session_state.df_resultados_archivo,
-                             st.session_state.source_archivo)
-
-if 'mostrar_supabase' in locals() and mostrar_supabase:
-    display_results_and_demo(st.session_state.df_resultados_supabase,
-                             st.session_state.source_supabase)
-
+        # Mostrar resultados de Supabase (si existen) dentro de la misma pestaña
+        display_results_and_demo(st.session_state.df_resultados_supabase, st.session_state.source_supabase)
 
 # ============================================================================== 
 # 8. PUNTO DE ENTRADA (Para ejecución directa)
 # ==============================================================================
+
 if __name__ == '__main__':
     st.set_page_config(page_title="Módulo de Predicción de Renuncia", layout="wide")
     render_predictor_page()
+
 
