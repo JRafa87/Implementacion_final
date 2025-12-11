@@ -179,7 +179,6 @@ def fetch_data_from_supabase(supabase_client: Client):
     if supabase_client is None:
         return None
     try:
-        # Se elimina @st.cache_data para evitar UnhashableParamError y asegurar independencia
         result = supabase_client.table('consolidado').select('*').execute()
         data = getattr(result, 'data', None)
         if not data:
@@ -195,18 +194,21 @@ def fetch_data_from_supabase(supabase_client: Client):
 # 6. VISUALIZACIÓN FINAL (Formato Top 10)
 # ==============================================================================
 
-def display_results_and_demo(df_resultados: pd.DataFrame):
+def display_results_and_demo(df_resultados: pd.DataFrame, source: Optional[str]):
     """
     Muestra únicamente las métricas de alerta y la tabla del Top 10
-    de empleados con mayor probabilidad de renuncia (formato solicitado).
+    de empleados con mayor probabilidad de renuncia (formato solicitado),
+    incluyendo la fuente de los datos.
     """
     if df_resultados.empty:
         st.info("💡 Ejecuta una predicción (desde archivo o Supabase) para ver los resultados.")
         return
+    
+    source_display = f" desde {source}" if source else ""
 
     df = df_resultados.copy()
     
-    st.markdown("<h2 style='text-align:center;'>📈 Dashboard de Riesgo de Rotación</h2>", unsafe_allow_html=True)
+    st.markdown(f"<h2 style='text-align:center;'>📈 Dashboard de Riesgo de Rotación{source_display}</h2>", unsafe_allow_html=True)
     st.markdown("---")
     
     # --- 6.1 Métricas Clave y Alertas ---
@@ -276,7 +278,7 @@ def display_results_and_demo(df_resultados: pd.DataFrame):
     st.download_button(
         label="📥 Descargar Resultados Completos (CSV)",
         data=csv_download,
-        file_name=f'Predicciones_Renuncia_{datetime.now().strftime("%Y%m%d")}.csv',
+        file_name=f'Predicciones_Renuncia_{datetime.now().strftime("%Y%m%d")}_{source}.csv',
         mime='text/csv',
         use_container_width=True
     )
@@ -312,12 +314,13 @@ def render_predictor_page():
     # --- Inicialización de Session State ---
     if 'df_resultados' not in st.session_state:
         st.session_state.df_resultados = pd.DataFrame()
-
+    if 'source' not in st.session_state:
+        st.session_state.source = None # <--- NUEVA VARIABLE DE ESTADO
 
     tab1, tab2 = st.tabs(["📂 Predicción desde archivo", "☁️ Predicción desde Supabase"])
 
     # --------------------------------------------------------------------------
-    # TAB 1 — ARCHIVO (Actualización de resultados independiente)
+    # TAB 1 — ARCHIVO (Actualiza 'df_resultados' y 'source')
     # --------------------------------------------------------------------------
     with tab1:
         st.subheader("📁 Cargar archivo")
@@ -340,18 +343,18 @@ def render_predictor_page():
                 with st.spinner("Procesando la predicción desde archivo..."):
                     df_predicho = run_prediction_pipeline(df_raw, model, categorical_mapping, scaler)
                     if df_predicho is not None and not df_predicho.empty:
-                        # Solo actualiza la variable de estado si la predicción es exitosa
                         st.session_state.df_resultados = df_predicho
+                        st.session_state.source = 'Archivo' # <--- ESTABLECE LA FUENTE
                         st.success("Predicción completada.")
                     else:
-                        # Si falla, no actualiza el estado, pero el error ya se mostró
                         st.session_state.df_resultados = pd.DataFrame() 
+                        st.session_state.source = None
                         st.error("❌ La predicción falló. Verifique el formato de las columnas de entrada.")
         else:
             st.info("Debes subir un archivo antes de ejecutar la predicción.")
 
     # --------------------------------------------------------------------------
-    # TAB 2 — SUPABASE (Actualización de resultados independiente)
+    # TAB 2 — SUPABASE (Actualiza 'df_resultados' y 'source')
     # --------------------------------------------------------------------------
     with tab2:
         st.subheader("☁️ Obtener datos desde Supabase")
@@ -371,21 +374,23 @@ def render_predictor_page():
                         
                         df_predicho = run_prediction_pipeline(df_raw, model, categorical_mapping, scaler)
                         if df_predicho is not None and not df_predicho.empty:
-                             # Solo actualiza la variable de estado si la predicción es exitosa
                             st.session_state.df_resultados = df_predicho
+                            st.session_state.source = 'Supabase' # <--- ESTABLECE LA FUENTE
                             st.success("Predicción completada desde Supabase.")
                         else:
-                            # Si falla, no actualiza el estado
                             st.session_state.df_resultados = pd.DataFrame()
+                            st.session_state.source = None
                             st.error("❌ Fallo en el pipeline de predicción con datos de Supabase.")
                     else:
                         st.session_state.df_resultados = pd.DataFrame()
+                        st.session_state.source = None
                         st.error("❌ No se pudieron cargar datos de Supabase.")
 
     st.markdown("---")
 
-    # Mostrar la única sección de resultados (Alerta, Top 10 y CSV) con el mismo formato
-    display_results_and_demo(st.session_state.df_resultados)
+    # Mostrar la única sección de resultados (Alerta, Top 10 y CSV) con el mismo formato, 
+    # incluyendo la fuente de los datos en el título.
+    display_results_and_demo(st.session_state.df_resultados, st.session_state.source)
 
 # ============================================================================== 
 # 8. PUNTO DE ENTRADA (Para ejecución directa)
