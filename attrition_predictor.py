@@ -20,7 +20,6 @@ except ImportError:
 # ==============================================================================
 
 # **LISTA DE COLUMNAS REQUERIDAS POR EL MODELO (33 COLUMNAS)**
-# **CORREGIDA PARA COINCIDIR CON EL SCALER**
 MODEL_COLUMNS = [
     'Age', 'BusinessTravel', 'Department', 'DistanceFromHome', 'Education',
     'EducationField', 'EnvironmentSatisfaction', 'Gender', 'JobInvolvement', 
@@ -45,9 +44,11 @@ CATEGORICAL_COLS_TO_MAP = [
 @st.cache_resource
 def load_model_artefacts():
     try:
+        # Nota: Asegúrate de que los paths 'models/...' sean correctos
         model = joblib.load('models/xgboost_model.pkl')
         categorical_mapping = joblib.load('models/categorical_mapping.pkl')
         scaler = joblib.load('models/scaler.pkl')
+        # Este mensaje es el que aparece en la imagen 64570f.png
         st.success("✅ Modelo y artefactos cargados correctamente.")
         return model, categorical_mapping, scaler
     except FileNotFoundError as e:
@@ -64,7 +65,7 @@ def load_model_artefacts():
 def preprocess_data(df, model_columns, categorical_mapping, scaler):
     df_processed = df.copy()
 
-    # 1. Asegurar la presencia de todas las columnas requeridas (aunque vengan vacías)
+    # 1. Asegurar la presencia de todas las columnas requeridas
     for col in model_columns:
         if col not in df_processed.columns:
             df_processed[col] = np.nan
@@ -72,8 +73,7 @@ def preprocess_data(df, model_columns, categorical_mapping, scaler):
     # 2. Imputación de columnas numéricas existentes
     numeric_cols = df_processed.select_dtypes(include=np.number).columns.tolist()
     for col in numeric_cols:
-        # Solo imputar si la columna es relevante para el modelo o contiene datos
-        if col in model_columns:
+        if col in model_columns: # Solo imputar si es columna del modelo
             if not df_processed[col].isnull().all():
                 df_processed[col] = df_processed[col].fillna(df_processed[col].mean())
             else:
@@ -91,25 +91,19 @@ def preprocess_data(df, model_columns, categorical_mapping, scaler):
             df_processed[col] = df_processed[col].fillna(-1)
             df_processed[col] = pd.to_numeric(df_processed[col], errors='coerce').fillna(-1) 
 
-    # ----------------------------------------------------------------------
-    # 4. CREAR EL DATAFRAME FINAL PARA EL ESCALADO (SOLUCIÓN DEL ERROR)
-    # ----------------------------------------------------------------------
-    
-    # Crear el DataFrame solo con las columnas del modelo para asegurar el orden
+    # 4. CREAR EL DATAFRAME FINAL PARA EL ESCALADO (Asegurando orden y columnas)
     df_for_scaling = pd.DataFrame(index=df.index)
     
     for col in model_columns:
         if col in df_processed.columns:
-            # Transferir la columna asegurando tipo numérico
             df_for_scaling[col] = pd.to_numeric(df_processed[col], errors='coerce')
         else:
-            # Esto maneja el caso extremo si la columna faltó
             df_for_scaling[col] = 0.0
 
-    # Asegurar el ORDEN EXACTO de las columnas que entran al scaler
+    # Asegurar el ORDEN EXACTO y exclusividad de las columnas que entran al scaler
     df_for_scaling = df_for_scaling[model_columns] 
 
-    # Rellenar cualquier NaN que quede después de la conversión a numérico
+    # Rellenar cualquier NaN que quede
     df_for_scaling = df_for_scaling.fillna(df_for_scaling.mean(numeric_only=True))
 
     try:
@@ -122,8 +116,7 @@ def preprocess_data(df, model_columns, categorical_mapping, scaler):
         return df_scaled
 
     except Exception as e:
-        # Este error ahora debería ser raro, ya que el orden está forzado
-        st.error(f"⚠️ Error al escalar datos. Error de último recurso: {e}")
+        st.error(f"⚠️ Error al escalar datos: {e}")
         return None
 
 
@@ -162,7 +155,7 @@ def run_prediction_pipeline(df_raw, model, categorical_mapping, scaler):
     try:
         prob = model.predict_proba(processed)[:, 1]
     except Exception as e:
-        st.error(f"⚠️ Error en predicción. El formato de las columnas preprocesadas no coincide con el modelo: {e}")
+        st.error(f"⚠️ Error en predicción: {e}")
         return None
     
     df_original['Probabilidad_Renuncia'] = prob
@@ -178,6 +171,7 @@ def run_prediction_pipeline(df_raw, model, categorical_mapping, scaler):
 
 @st.cache_resource
 def init_supabase_client():
+    # Inicializa el cliente Supabase
     try:
         url = st.secrets.get("SUPABASE_URL")
         key = st.secrets.get("SUPABASE_KEY")
@@ -187,9 +181,9 @@ def init_supabase_client():
     except Exception:
         return None
 
-# **CORRECCIÓN:** Se elimina @st.cache_data para evitar UnhashableParamError 
-# al pasar el objeto SUPABASE_CLIENT.
+# **CORRECCIÓN:** Se elimina @st.cache_data para evitar UnhashableParamError
 def fetch_data_from_supabase(supabase_client: Client):
+    # Obtiene datos de la base de datos sin cacheo
     if supabase_client is None:
         return None
     try:
@@ -205,7 +199,7 @@ def fetch_data_from_supabase(supabase_client: Client):
 
 
 # ============================================================================== 
-# 6. VISUALIZACIÓN DE RESULTADOS
+# 6. VISUALIZACIÓN DETALLADA (Gráfico y Tabla - Corresponde a image_62fa75.png)
 # ==============================================================================
 
 def display_results_and_demo(df_resultados: pd.DataFrame):
@@ -214,10 +208,10 @@ def display_results_and_demo(df_resultados: pd.DataFrame):
         st.info("💡 Esperando la ejecución de una predicción (archivo o Supabase) para mostrar resultados.")
         return
 
-    st.markdown("<h2 style='text-align:center;'>📊 Resultados de la Predicción</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='text-align:center;'>📊 Análisis Detallado de Predicciones</h2>", unsafe_allow_html=True)
     st.markdown("---")
 
-    # --- 7.1 Métricas Clave ---
+    # --- 6.1 Métricas Clave ---
     total_registros = len(df_resultados)
     renuncia_predicha = df_resultados['Prediction_Renuncia'].sum()
     tasa_predicha = (renuncia_predicha / total_registros) * 100 if total_registros > 0 else 0
@@ -227,7 +221,7 @@ def display_results_and_demo(df_resultados: pd.DataFrame):
     col2.metric("Renuncia Predicha", f"{renuncia_predicha} empleados", delta=f"{tasa_predicha:.2f}% de la muestra")
     col3.metric("Promedio de Probabilidad", f"{df_resultados['Probabilidad_Renuncia'].mean():.2f}")
 
-    # --- 7.2 Filtros y Gráfico ---
+    # --- 6.2 Filtros y Gráfico (Corresponde a image_62fa75.png) ---
     st.subheader("Visualización y Análisis")
     
     col_chart, col_filter = st.columns([2, 1])
@@ -262,7 +256,7 @@ def display_results_and_demo(df_resultados: pd.DataFrame):
 
     st.subheader(f"Tabla de Resultados Filtrados ({len(df_filtered)} registros)")
     
-    # --- 7.3 Tabla de Resultados ---
+    # --- 6.3 Tabla de Resultados (Corresponde a image_62fa75.png) ---
     st.dataframe(
         df_filtered[['JobRole', 'Department', 'MonthlyIncome', 'Probabilidad_Renuncia', 'Prediction_Renuncia', 'Recomendacion']].sort_values(
             'Probabilidad_Renuncia', ascending=False
@@ -271,24 +265,21 @@ def display_results_and_demo(df_resultados: pd.DataFrame):
         column_config={
             "Probabilidad_Renuncia": st.column_config.ProgressColumn(
                 "Probabilidad de Renuncia",
-                help="Probabilidad de que el empleado renuncie (Clase 1)",
                 format="%.2f",
                 min_value=0,
                 max_value=1,
             ),
             "Prediction_Renuncia": st.column_config.TextColumn(
                 "Predicción (1=Renuncia)",
-                help="Clasificación binaria: 1 si Probabilidad > 0.5",
             ),
             "Recomendacion": st.column_config.TextColumn(
                 "Recomendación Específica",
-                help="Medidas sugeridas basadas en factores blandos de la encuesta",
                 width="large",
             )
         }
     )
 
-    # --- 7.4 Botones de Acción ---
+    # --- 6.4 Botones de Acción (Corresponde a image_62fa54.png) ---
     st.markdown("---")
     col_dl, col_demo = st.columns(2)
 
@@ -301,11 +292,89 @@ def display_results_and_demo(df_resultados: pd.DataFrame):
         use_container_width=True
     )
 
-    col_demo.button("🔍 Ver Dashboard Interactivo (Demo)", key="btn_demo_dashboard", use_container_width=True, help="Simula la navegación a un dashboard de BI.")
+    col_demo.button("🔍 Ver Dashboard Interactivo (Demo)", key="btn_demo_dashboard", use_container_width=True)
 
 
 # ============================================================================== 
-# 8. FUNCIÓN DE RENDERIZADO PARA IMPORTACIÓN EN APP.PY (render_predictor_page)
+# 7. FUNCIÓN DASHBOARD (Top 10 y Resumen - Lógica solicitada)
+# ==============================================================================
+
+def render_rotacion_dashboard():
+    """
+    Renderiza la página del Dashboard mostrando métricas clave y el Top 10
+    de empleados con mayor probabilidad de renuncia.
+    """
+    
+    st.markdown("<h1 style='text-align:center;'>📈 Dashboard de Riesgo de Rotación</h1>", unsafe_allow_html=True)
+    st.markdown("---")
+    
+    if "df_resultados" not in st.session_state or st.session_state.df_resultados.empty:
+        st.info("💡 Ejecuta una predicción (desde archivo o Supabase) para cargar los resultados en el dashboard.")
+        return
+
+    df = st.session_state.df_resultados
+    
+    # --- 7.1 Métricas Clave y Alertas ---
+    total_registros = len(df)
+    
+    col1, col2, col3 = st.columns(3)
+    
+    total_altos = (df["Probabilidad_Renuncia"] > 0.5).sum()
+    
+    with col2:
+        if total_altos > 0:
+            st.error(f"🔴 {total_altos} empleados ({total_altos/len(df):.1%}) con probabilidad > 50%.")
+        else:
+            st.success("🟢 Ningún empleado supera el 50% de probabilidad de renuncia.")
+
+    col1.metric("Total de Registros", f"{total_registros} empleados")
+    col3.metric("Promedio de Probabilidad", f"{df['Probabilidad_Renuncia'].mean():.2f}")
+    
+    st.markdown("---")
+    
+    # --- 7.2 Top 10 de Empleados ---
+    st.subheader("👥 Top 10 empleados con mayor probabilidad de renuncia")
+    df_top10 = df.sort_values('Probabilidad_Renuncia', ascending=False).head(10)
+
+    def color_prob(val):
+        if val >= 0.5:
+            return 'background-color:#FFCDD2; color:black; font-weight:bold;'
+        elif 0.4 <= val < 0.5:
+            return 'background-color:#FFF59D; color:black;'
+        else:
+            return 'background-color:#C8E6C9; color:black;'
+
+    # Encabezados
+    col_h1, col_h2, col_h3, col_h4, col_h5, col_h6 = st.columns([1.2, 1.5, 1.8, 1.5, 1, 1])
+    with col_h1: st.write("**ID**")
+    with col_h2: st.write("**Departamento**")
+    with col_h3: st.write("**Rol**")
+    with col_h4: st.write("**Salario (S/.)**")
+    with col_h5: st.write("**Riesgo**")
+    with col_h6: st.write("**Acción**")
+    st.markdown("---")
+
+    # Filas
+    for i, row in df_top10.iterrows():
+        col1, col2, col3, col4, col5, col6 = st.columns([1.2, 1.5, 1.8, 1.5, 1, 1])
+        
+        with col1: st.write(f"**{row.get('EmployeeNumber', i+1)}**")
+        with col2: st.write(row.get('Department', '-'))
+        with col3: st.write(row.get('JobRole', '-'))
+        with col4: st.write(f"S/. {row.get('MonthlyIncome', 0):,.0f}")
+        with col5:
+            st.markdown(f"<div style='{color_prob(row['Probabilidad_Renuncia'])}; text-align:center; border-radius:8px; padding:4px;'>{row['Probabilidad_Renuncia']:.1%}</div>", unsafe_allow_html=True)
+        with col6:
+            with st.popover("🔍 Ver"):
+                st.markdown("### 🧭 Recomendaciones")
+                recs_str = str(row.get("Recomendacion", "Sin datos | No aplica"))
+                recs = [r.strip() for r in recs_str.split(" | ") if r.strip()]
+                for rec in recs:
+                    st.write(f"- {rec}")
+
+
+# ============================================================================== 
+# 8. FUNCIÓN DE RENDERIZADO PARA LA PREDICCIÓN (render_predictor_page)
 # ==============================================================================
 
 def render_predictor_page():
@@ -319,7 +388,6 @@ def render_predictor_page():
     # --- Carga de Modelo (Prerrequisito) ---
     model, categorical_mapping, scaler = load_model_artefacts()
     if not model:
-        st.error("🛑 La aplicación no puede iniciar debido a errores en la carga del modelo.")
         return
     
     # --- Inicialización del Cliente Supabase ---
@@ -368,7 +436,8 @@ def render_predictor_page():
                         st.session_state.df_resultados = pd.DataFrame() 
                         st.error("❌ La predicción falló. Verifique el formato de las columnas de entrada.")
         else:
-            st.info("Sube un archivo para habilitar el botón de predicción.")
+            # Mensaje que se ve en image_64570f.png
+            st.info("Debes subir un archivo antes de ejecutar la predicción.")
 
     # --------------------------------------------------------------------------
     # TAB 2 — SUPABASE
@@ -400,8 +469,9 @@ def render_predictor_page():
 
     st.markdown("---")
 
-    # Mostrar resultados
-    display_results_and_demo(st.session_state.df_resultados)
+    # Mostrar resultados detallados (opcional, si quieres que aparezca debajo de las pestañas)
+    # display_results_and_demo(st.session_state.df_resultados)
+
 
 # ============================================================================== 
 # 9. PUNTO DE ENTRADA (Para ejecución directa)
