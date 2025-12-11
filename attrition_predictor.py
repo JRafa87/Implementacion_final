@@ -11,7 +11,6 @@ try:
     from supabase import create_client, Client
     SUPABASE_INSTALLED = True
 except ImportError:
-    # Si la importación falla, definimos placeholders para que el modo 'file' pueda ejecutarse.
     class Client:
         pass 
     SUPABASE_INSTALLED = False
@@ -20,7 +19,10 @@ except ImportError:
 # 1. CONSTANTES Y CONFIGURACIÓN
 # ==============================================================================
 
-# Columnas que deben entrar al modelo, en el orden correcto (33 variables)
+# Columna utilizada en la BD para identificar empleados activos
+DATE_COLUMN = 'FechaSalida' 
+
+# Columnas que deben entrar al modelo, en el orden correcto (37 variables)
 MODEL_COLUMNS = [
     'Age','BusinessTravel','DailyRate','Department','DistanceFromHome',
     'Education','EducationField','EnvironmentSatisfaction','Gender','HourlyRate',
@@ -49,6 +51,7 @@ CATEGORICAL_COLS_TO_MAP = [
 def load_model_artefacts():
     """Carga el modelo pre-entrenado, el mapeo de categóricas y el escalador."""
     try:
+        # Asegúrate que las rutas sean correctas
         model = joblib.load('models/xgboost_model.pkl')
         categorical_mapping = joblib.load('models/categorical_mapping.pkl')
         scaler = joblib.load('models/scaler.pkl')
@@ -63,7 +66,7 @@ def load_model_artefacts():
 
 
 # ==============================================================================
-# 3. PREPROCESAMIENTO
+# 3. PREPROCESAMIENTO y RECOMENDACIONES (sin cambios en la lógica)
 # ==============================================================================
 
 def preprocess_data(df, model_columns, categorical_mapping, scaler):
@@ -106,13 +109,8 @@ def preprocess_data(df, model_columns, categorical_mapping, scaler):
         st.error(f"⚠️ Error al escalar datos: {e}. El DataFrame podría no ser apto.")
         return None
 
-    # Devolver SOLO las columnas del modelo en el orden correcto
     return df_processed[model_columns]
 
-
-# ==============================================================================
-# 4. GENERACIÓN DE RECOMENDACIONES Y PREDICCIÓN
-# ==============================================================================
 
 def generar_recomendacion_personalizada(row):
     """Genera recomendaciones basadas en umbrales lógicos de las columnas de encuesta/RRHH."""
@@ -170,33 +168,36 @@ def run_prediction_pipeline(df_raw, model, categorical_mapping, scaler):
 
 
 # ==============================================================================
-# 5. FUNCIONALIDAD SUPABASE (Usando la tabla 'consolidado')
+# 4. FUNCIONALIDAD SUPABASE (Con Filtro de Empleados Activos)
 # ==============================================================================
 
 @st.cache_data(ttl=600)
 def fetch_data_from_supabase(supabase_client: Client):
     """
-    Consulta directamente la tabla 'consolidado' que contiene todos los datos.
+    Consulta la tabla 'consolidado' para obtener SÓLO a los empleados ACTIVOS.
+    Un empleado es activo si la columna DATE_COLUMN ('FechaSalida') es NULL/None.
     """
     if not SUPABASE_INSTALLED or supabase_client is None:
         st.error("❌ El cliente de Supabase no es válido o la librería no está instalada.")
         return None
         
-    st.info(f"Consultando Supabase. Obteniendo datos de la tabla 'consolidado' ({len(MODEL_COLUMNS)} variables esperadas)...")
+    st.info(f"Consultando Supabase. Obteniendo datos de **empleados activos** de 'consolidado'...")
     try:
-        data = supabase_client.table('consolidado').select('*').execute().data
+        # APLICANDO EL FILTRO CLAVE: .is_(DATE_COLUMN, None)
+        response = (supabase_client.table('consolidado')
+                    .select('*')
+                    .is_(DATE_COLUMN, None)
+                    .execute())
+        data = response.data
         
         if not data:
-            st.warning("⚠️ La tabla 'consolidado' está vacía o la consulta no devolvió resultados.")
+            st.warning("⚠️ La tabla 'consolidado' no tiene empleados activos o la consulta no devolvió resultados.")
             return None
             
         df = pd.DataFrame(data)
-        st.success(f"✅ {len(df)} registros obtenidos de 'consolidado'.")
+        st.success(f"✅ {len(df)} registros de empleados activos obtenidos de 'consolidado'.")
         
-        missing_cols = [col for col in MODEL_COLUMNS if col not in df.columns]
-        if missing_cols:
-            st.warning(f"⚠️ Atención: Faltan {len(missing_cols)} variables críticas del modelo en la tabla 'consolidado'. El preprocesamiento intentará imputarlas.")
-        
+        # Mapeo de columna clave (asumiendo que puede ser 'id')
         if 'EmployeeNumber' not in df.columns and 'id' in df.columns:
              df = df.rename(columns={'id': 'EmployeeNumber'})
              
@@ -207,7 +208,7 @@ def fetch_data_from_supabase(supabase_client: Client):
         return None
 
 # ==============================================================================
-# 6. FUNCIÓN PÚBLICA DEL MÓDULO
+# 5. FUNCIÓN PÚBLICA DEL MÓDULO (Orquestador)
 # ==============================================================================
 
 def predict_employee_data(df: pd.DataFrame = None, source: str = 'file', supabase_client: Optional[Client] = None):
@@ -221,15 +222,12 @@ def predict_employee_data(df: pd.DataFrame = None, source: str = 'file', supabas
     df_raw = None
     
     if source == 'supabase':
-        if not SUPABASE_INSTALLED:
-            st.error("Se seleccionó 'supabase', pero la librería 'supabase-py' no está instalada.")
+        if supabase_client is None:
+            st.error("Se seleccionó 'supabase', pero el cliente de Supabase no fue proporcionado o es nulo (Credenciales fallidas).")
             return pd.DataFrame()
             
-        if supabase_client is None:
-             st.error("Se seleccionó 'supabase', pero el cliente de Supabase no fue proporcionado o es nulo (Credenciales fallidas).")
-             return pd.DataFrame()
-             
-        df_raw = fetch_data_from_supabase(supabase_client)
+        # Obtener SOLO empleados activos
+        df_raw = fetch_data_from_supabase(supabase_client) 
         
         if df_raw is None or df_raw.empty:
             st.error("No hay datos válidos para la predicción desde la base de datos.")
@@ -248,8 +246,10 @@ def predict_employee_data(df: pd.DataFrame = None, source: str = 'file', supabas
 
 
 # ==============================================================================
-# 7. FUNCIONES DE EXPORTACIÓN Y DEMO
+# 6. DEMOSTRACIÓN DE STREAMLIT (Con Conexión Única)
 # ==============================================================================
+
+# Se mantienen las funciones export_results_to_excel y display_results_and_demo
 
 @st.cache_data
 def export_results_to_excel(df):
@@ -316,7 +316,7 @@ def display_results_and_demo(df):
 
     st.dataframe(
         df_display.style.applymap(style_probability, subset=['Probabilidad (%)'])
-                       .format({'Salario Mensual': format_currency}),
+                         .format({'Salario Mensual': format_currency}),
         use_container_width=True,
         height=400
     )
@@ -348,10 +348,6 @@ def display_results_and_demo(df):
         st.warning("No hay datos válidos de 'Department' para generar el análisis gráfico.")
 
 
-# ==============================================================================
-# 8. DEMOSTRACIÓN DE STREAMLIT (Con Inicialización de Cliente)
-# ==============================================================================
-
 if __name__ == '__main__':
     st.set_page_config(page_title="Módulo de Predicción de Renuncia", layout="wide")
     st.markdown("<h1 style='text-align:center; color:#1f77b4;'>📦 Módulo de Predicción de Renuncia (Demo)</h1>", unsafe_allow_html=True)
@@ -359,7 +355,7 @@ if __name__ == '__main__':
     
     SUPABASE_CLIENT = None
     
-    # --- TU BLOQUE DE CONEXIÓN A SUPABASE ---
+    # --- CONEXIÓN CENTRALIZADA A SUPABASE ---
     if SUPABASE_INSTALLED:
         @st.cache_resource
         def get_supabase() -> Optional[Client]:
@@ -375,6 +371,7 @@ if __name__ == '__main__':
                 st.error(f"❌ Error al inicializar Supabase: {e}")
                 return None
 
+        # Asignar el cliente cacheado al inicio
         SUPABASE_CLIENT = get_supabase()
     else:
         st.error("❌ ERROR CRÍTICO: La librería 'supabase-py' no está instalada. La opción de Supabase está inactiva.")
@@ -386,6 +383,7 @@ if __name__ == '__main__':
     tab1, tab2 = st.tabs(["📂 Predicción desde archivo", "☁️ Predicción desde Supabase"])
 
     with tab1:
+        # ... (Lógica de carga de archivo sin cambios) ...
         df_input = None
         uploaded_file = st.file_uploader("Sube tu archivo CSV o Excel", type=["csv", "xlsx"])
         if uploaded_file:
@@ -402,12 +400,12 @@ if __name__ == '__main__':
 
 
     with tab2:
-        st.markdown("Presiona para obtener los datos más recientes directamente de la tabla **`consolidado`**.")
+        st.markdown("Presiona para obtener los datos más recientes directamente de la tabla **`consolidado`** (solo empleados activos).")
         
         if SUPABASE_CLIENT is not None:
             if st.button("🔄 Ejecutar Predicción desde Supabase", use_container_width=True, key='predict_supabase'):
                 with st.spinner('Conectando a Supabase y procesando datos...'):
-                    # Pasa el cliente autenticado
+                    # Pasa el cliente autenticado y cacheado
                     st.session_state.df_resultados = predict_employee_data(source='supabase', supabase_client=SUPABASE_CLIENT)
         else:
             st.warning("⚠️ La opción de Supabase está deshabilitada. Revisa los errores de conexión de la BD arriba.")
