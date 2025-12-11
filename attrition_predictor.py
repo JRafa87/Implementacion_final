@@ -19,17 +19,18 @@ except ImportError:
 # 1. CONSTANTES Y CONFIGURACIÓN
 # ==============================================================================
 
+# **LISTA DE COLUMNAS REQUERIDAS POR EL MODELO (33 COLUMNAS)**
+# **CORREGIDA PARA COINCIDIR CON EL SCALER**
 MODEL_COLUMNS = [
-    'Age','BusinessTravel','DailyRate','Department','DistanceFromHome',
-    'Education','EducationField','EnvironmentSatisfaction','Gender','HourlyRate',
-    'JobInvolvement','JobLevel','JobRole','JobSatisfaction','MaritalStatus',
-    'MonthlyIncome','MonthlyRate','NumCompaniesWorked','OverTime','PercentSalaryHike',
-    'PerformanceRating','RelationshipSatisfaction','StockOptionLevel','TotalWorkingYears',
-    'TrainingTimesLastYear','WorkLifeBalance','YearsAtCompany','YearsInCurrentRole',
-    'YearsSinceLastPromotion','YearsWithCurrManager',
-    'IntencionPermanencia','CargaLaboralPercibida','SatisfaccionSalarial',
-    'ConfianzaEmpresa','NumeroTardanzas','NumeroFaltas', 
-    'tipo_contrato' 
+    'Age', 'BusinessTravel', 'Department', 'DistanceFromHome', 'Education',
+    'EducationField', 'EnvironmentSatisfaction', 'Gender', 'JobInvolvement', 
+    'JobLevel', 'JobRole', 'JobSatisfaction', 'MaritalStatus', 'MonthlyIncome', 
+    'NumCompaniesWorked', 'OverTime', 'PercentSalaryHike', 'PerformanceRating', 
+    'RelationshipSatisfaction', 'TotalWorkingYears', 'TrainingTimesLastYear',
+    'WorkLifeBalance', 'YearsAtCompany', 'YearsInCurrentRole', 
+    'YearsSinceLastPromotion', 'YearsWithCurrManager', 'IntencionPermanencia', 
+    'CargaLaboralPercibida', 'SatisfaccionSalarial', 'ConfianzaEmpresa', 
+    'NumeroTardanzas', 'NumeroFaltas', 'tipo_contrato' 
 ]
 
 CATEGORICAL_COLS_TO_MAP = [
@@ -63,17 +64,22 @@ def load_model_artefacts():
 def preprocess_data(df, model_columns, categorical_mapping, scaler):
     df_processed = df.copy()
 
+    # 1. Asegurar la presencia de todas las columnas requeridas (aunque vengan vacías)
     for col in model_columns:
         if col not in df_processed.columns:
             df_processed[col] = np.nan
 
+    # 2. Imputación de columnas numéricas existentes
     numeric_cols = df_processed.select_dtypes(include=np.number).columns.tolist()
     for col in numeric_cols:
-        if not df_processed[col].isnull().all():
-            df_processed[col] = df_processed[col].fillna(df_processed[col].mean())
-        else:
-            df_processed[col] = df_processed[col].fillna(0)
+        # Solo imputar si la columna es relevante para el modelo o contiene datos
+        if col in model_columns:
+            if not df_processed[col].isnull().all():
+                df_processed[col] = df_processed[col].fillna(df_processed[col].mean())
+            else:
+                df_processed[col] = df_processed[col].fillna(0) 
 
+    # 3. Mapeo de columnas categóricas
     for col in CATEGORICAL_COLS_TO_MAP:
         if col in df_processed.columns:
             df_processed[col] = df_processed[col].astype(str).str.strip().str.upper()
@@ -85,23 +91,29 @@ def preprocess_data(df, model_columns, categorical_mapping, scaler):
             df_processed[col] = df_processed[col].fillna(-1)
             df_processed[col] = pd.to_numeric(df_processed[col], errors='coerce').fillna(-1) 
 
+    # ----------------------------------------------------------------------
+    # 4. CREAR EL DATAFRAME FINAL PARA EL ESCALADO (SOLUCIÓN DEL ERROR)
+    # ----------------------------------------------------------------------
+    
+    # Crear el DataFrame solo con las columnas del modelo para asegurar el orden
     df_for_scaling = pd.DataFrame(index=df.index)
     
     for col in model_columns:
         if col in df_processed.columns:
+            # Transferir la columna asegurando tipo numérico
             df_for_scaling[col] = pd.to_numeric(df_processed[col], errors='coerce')
         else:
+            # Esto maneja el caso extremo si la columna faltó
             df_for_scaling[col] = 0.0
 
+    # Asegurar el ORDEN EXACTO de las columnas que entran al scaler
+    df_for_scaling = df_for_scaling[model_columns] 
+
+    # Rellenar cualquier NaN que quede después de la conversión a numérico
     df_for_scaling = df_for_scaling.fillna(df_for_scaling.mean(numeric_only=True))
 
     try:
-        if scaler is None:
-            st.error("⚠️ No hay scaler disponible.")
-            return None
-            
-        if df_for_scaling.empty:
-            st.error("⚠️ El DataFrame de entrada está vacío después del preprocesamiento inicial.")
+        if scaler is None or df_for_scaling.empty:
             return None
             
         scaled_data = scaler.transform(df_for_scaling)
@@ -110,7 +122,8 @@ def preprocess_data(df, model_columns, categorical_mapping, scaler):
         return df_scaled
 
     except Exception as e:
-        st.error(f"⚠️ Error al escalar datos. Asegúrate de que las columnas coincidan con el scaler: {e}")
+        # Este error ahora debería ser raro, ya que el orden está forzado
+        st.error(f"⚠️ Error al escalar datos. Error de último recurso: {e}")
         return None
 
 
@@ -160,7 +173,7 @@ def run_prediction_pipeline(df_raw, model, categorical_mapping, scaler):
 
 
 # ============================================================================== 
-# 5. SUPABASE
+# 5. SUPABASE (CORRECCIÓN DE CACHÉ)
 # ==============================================================================
 
 @st.cache_resource
@@ -174,7 +187,8 @@ def init_supabase_client():
     except Exception:
         return None
 
-@st.cache_data(ttl=600)
+# **CORRECCIÓN:** Se elimina @st.cache_data para evitar UnhashableParamError 
+# al pasar el objeto SUPABASE_CLIENT.
 def fetch_data_from_supabase(supabase_client: Client):
     if supabase_client is None:
         return None
@@ -325,11 +339,10 @@ def render_predictor_page():
     tab1, tab2 = st.tabs(["📂 Predicción desde archivo", "☁️ Predicción desde Supabase"])
 
     # --------------------------------------------------------------------------
-    # TAB 1 — ARCHIVO (El botón funciona porque df_raw existe al hacer clic)
+    # TAB 1 — ARCHIVO
     # --------------------------------------------------------------------------
     with tab1:
         st.subheader("📁 Cargar archivo")
-        # Cambié la clave del uploader para aislarlo de otros elementos en app.py
         uploaded_file = st.file_uploader("Sube un archivo CSV o Excel", type=["csv", "xlsx"], key="file_upload_module_key")
         
         df_raw = None
