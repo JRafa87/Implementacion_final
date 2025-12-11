@@ -191,91 +191,89 @@ def fetch_data_from_supabase(supabase_client: Client):
 
 
 # ============================================================================== 
-# 6. VISUALIZACIÓN DETALLADA (Gráfico, Tabla Filtrada y Descarga CSV)
+# 6. VISUALIZACIÓN FINAL (Alerta y Top 10)
 # ==============================================================================
 
 def display_results_and_demo(df_resultados: pd.DataFrame):
-    """Muestra los resultados de la predicción, filtros y opciones de descarga."""
+    """
+    Muestra únicamente las métricas de alerta y la tabla del Top 10
+    de empleados con mayor probabilidad de renuncia.
+    """
     if df_resultados.empty:
         st.info("💡 Esperando la ejecución de una predicción (archivo o Supabase) para mostrar resultados.")
         return
 
-    st.markdown("<h2 style='text-align:center;'>📊 Resultados Detallados de la Predicción</h2>", unsafe_allow_html=True)
+    df = df_resultados.copy()
+    
+    st.markdown("<h2 style='text-align:center;'>📈 Dashboard de Riesgo de Rotación</h2>", unsafe_allow_html=True)
     st.markdown("---")
-
-    # --- Métricas Clave ---
-    total_registros = len(df_resultados)
-    renuncia_predicha = df_resultados['Prediction_Renuncia'].sum()
-    tasa_predicha = (renuncia_predicha / total_registros) * 100 if total_registros > 0 else 0
-
+    
+    # --- 6.1 Métricas Clave y Alertas ---
+    total_registros = len(df)
+    
     col1, col2, col3 = st.columns(3)
-    col1.metric("Total de Registros", f"{total_registros} empleados")
-    col2.metric("Renuncia Predicha", f"{renuncia_predicha} empleados", delta=f"{tasa_predicha:.2f}% de la muestra")
-    col3.metric("Promedio de Probabilidad", f"{df_resultados['Probabilidad_Renuncia'].mean():.2f}")
-
-    # --- Filtros y Gráfico ---
-    st.subheader("Visualización y Análisis")
     
-    col_chart, col_filter = st.columns([2, 1])
-
-    with col_filter:
-        threshold = st.slider("Umbral de Probabilidad de Renuncia", min_value=0.0, max_value=1.0, value=0.5, step=0.05)
-        
-        roles = df_resultados['JobRole'].unique().tolist() if 'JobRole' in df_resultados.columns else []
-        selected_roles = st.multiselect("Filtrar por Rol de Trabajo", options=roles, default=roles)
-
-        df_filtered = df_resultados[df_resultados['Probabilidad_Renuncia'] >= threshold]
-        if 'JobRole' in df_filtered.columns:
-             df_filtered = df_filtered[df_filtered['JobRole'].isin(selected_roles)]
-
-
-    with col_chart:
-        if 'Department' in df_filtered.columns:
-            df_chart = df_filtered.groupby('Department')['Prediction_Renuncia'].sum().reset_index()
-            df_chart.columns = ['Department', 'Renuncias_Predichas']
-            
-            fig = px.bar(
-                df_chart,
-                x='Department',
-                y='Renuncias_Predichas',
-                title='Renuncias Predichas por Departamento',
-                color_discrete_sequence=px.colors.qualitative.Plotly,
-                height=300
-            )
-            st.plotly_chart(fig, use_container_width=True)
+    # Alerta de Riesgo 
+    total_altos = (df["Probabilidad_Renuncia"] > 0.5).sum()
+    
+    with col2:
+        if total_altos > 0:
+            st.error(f"🔴 {total_altos} empleados ({total_altos/len(df):.1%}) con probabilidad > 50%.")
         else:
-            st.warning("Columna 'Department' no encontrada en los datos de resultado.")
+            st.success("🟢 Ningún empleado supera el 50% de probabilidad de renuncia.")
 
-    st.subheader(f"Tabla de Resultados Filtrados ({len(df_filtered)} registros)")
+    col1.metric("Total de Registros", f"{total_registros} empleados")
+    col3.metric("Promedio de Probabilidad", f"{df['Probabilidad_Renuncia'].mean():.2f}")
     
-    # --- Tabla de Resultados ---
-    st.dataframe(
-        df_filtered[['JobRole', 'Department', 'MonthlyIncome', 'Probabilidad_Renuncia', 'Prediction_Renuncia', 'Recomendacion']].sort_values(
-            'Probabilidad_Renuncia', ascending=False
-        ),
-        use_container_width=True,
-        column_config={
-            "Probabilidad_Renuncia": st.column_config.ProgressColumn(
-                "Probabilidad de Renuncia",
-                format="%.2f",
-                min_value=0,
-                max_value=1,
-            ),
-            "Prediction_Renuncia": st.column_config.TextColumn(
-                "Predicción (1=Renuncia)",
-            ),
-            "Recomendacion": st.column_config.TextColumn(
-                "Recomendación Específica",
-                width="large",
-            )
-        }
-    )
-
-    # --- Botón de Descarga CSV ---
     st.markdown("---")
-    csv_download = df_filtered.to_csv(index=False).encode('utf-8')
+    
+    # --- 6.2 Top 10 de Empleados ---
+    st.subheader("👥 Top 10 empleados con mayor probabilidad de renuncia")
+    df_top10 = df.sort_values('Probabilidad_Renuncia', ascending=False).head(10)
+
+    def color_prob(val):
+        """Devuelve el estilo HTML para colorear la probabilidad."""
+        if val >= 0.5:
+            return 'background-color:#FFCDD2; color:black; font-weight:bold;'
+        elif 0.4 <= val < 0.5:
+            return 'background-color:#FFF59D; color:black;'
+        else:
+            return 'background-color:#C8E6C9; color:black;'
+
+    # Encabezados de columna
+    col_h1, col_h2, col_h3, col_h4, col_h5, col_h6 = st.columns([1.2, 1.5, 1.8, 1.5, 1, 1])
+    with col_h1: st.write("**ID**")
+    with col_h2: st.write("**Departamento**")
+    with col_h3: st.write("**Rol**")
+    with col_h4: st.write("**Salario (S/.)**")
+    with col_h5: st.write("**Riesgo**")
+    with col_h6: st.write("**Acción**")
+    st.markdown("---") # Línea de separación
+
+    # Filas de la tabla (Top 10)
+    for i, row in df_top10.iterrows():
+        col1, col2, col3, col4, col5, col6 = st.columns([1.2, 1.5, 1.8, 1.5, 1, 1])
+        
+        with col1: st.write(f"**{row.get('EmployeeNumber', i+1)}**")
+        with col2: st.write(row.get('Department', '-'))
+        with col3: st.write(row.get('JobRole', '-'))
+        with col4: st.write(f"S/. {row.get('MonthlyIncome', 0):,.2f}")
+        with col5:
+            st.markdown(f"<div style='{color_prob(row['Probabilidad_Renuncia'])}; text-align:center; border-radius:8px; padding:4px;'>{row['Probabilidad_Renuncia']:.1%}</div>", unsafe_allow_html=True)
+        with col6:
+            with st.popover("🔍 Ver"):
+                st.markdown("### 🧭 Recomendaciones")
+                recs_str = str(row.get("Recomendacion", "Sin datos | No aplica"))
+                recs = [r.strip() for r in recs_str.split(" | ") if r.strip()]
+                for rec in recs:
+                    st.write(f"- {rec}")
+    
+    st.markdown("---")
+
+    # --- 6.3 Botón de Descarga CSV ---
+    csv_download = df.to_csv(index=False).encode('utf-8')
     st.download_button(
-        label="📥 Descargar Resultados Filtrados (CSV)",
+        label="📥 Descargar Resultados Completos (CSV)",
         data=csv_download,
         file_name=f'Predicciones_Renuncia_{datetime.now().strftime("%Y%m%d")}.csv',
         mime='text/csv',
@@ -379,7 +377,7 @@ def render_predictor_page():
 
     st.markdown("---")
 
-    # Mostrar la única sección de resultados que queda (Tabla filtrada, Gráfico, CSV)
+    # Mostrar la única sección de resultados (Alerta, Top 10 y CSV)
     display_results_and_demo(st.session_state.df_resultados)
 
 # ============================================================================== 
