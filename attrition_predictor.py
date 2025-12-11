@@ -47,10 +47,12 @@ def load_model_artefacts():
         model = joblib.load('models/xgboost_model.pkl')
         categorical_mapping = joblib.load('models/categorical_mapping.pkl')
         scaler = joblib.load('models/scaler.pkl')
-        # NOTA: st.success se mueve fuera de cache_resource si bloquea, pero aquí se mantiene por simplicidad
+        # NOTA: st.success se deja aquí, pero la clave es que NO HAY st.error dentro del cache
         st.success("✅ Modelo y artefactos cargados correctamente.")
         return model, categorical_mapping, scaler
     except FileNotFoundError as e:
+        # Se podría usar st.error, pero si bloquea, mejor devolver None y manejar afuera
+        # Para este script, como es crítico, lo dejamos para que falle visiblemente si no hay archivos
         st.error(f"❌ Archivo no encontrado. Error: {e}")
         return None, None, None
     except Exception as e:
@@ -188,12 +190,12 @@ def run_prediction_pipeline(df_raw, model, categorical_mapping, scaler):
 
 @st.cache_resource
 def init_supabase_client():
-    """Inicializa y cachea el cliente Supabase, sin comandos de UI."""
+    """Inicializa y cachea el cliente Supabase, sin comandos de UI (st.error/st.warning)."""
     try:
         url = st.secrets.get("SUPABASE_URL")
         key = st.secrets.get("SUPABASE_KEY")
         
-        # Si faltan las claves, devuelve None para manejar el error en el main
+        # Si faltan las claves, devuelve None
         if not url or not key:
             return None
             
@@ -209,6 +211,7 @@ def fetch_data_from_supabase(supabase_client: Client):
         return None
         
     try:
+        # Asumiendo que 'consolidado' es el nombre de la tabla
         result = supabase_client.table('consolidado').select('*').execute()
         data = getattr(result, 'data', None)
         if not data:
@@ -218,34 +221,31 @@ def fetch_data_from_supabase(supabase_client: Client):
         return df
 
     except Exception as e:
-        st.error(f"Error al obtener datos de Supabase: {e}")
+        # Se permite st.error aquí ya que esto no es st.cache_resource
+        st.error(f"Error al obtener datos de Supabase: {e}") 
         return None
 
 # ============================================================================== 
-# 6. FUNCIÓN PRINCIPAL
+# 6. FUNCIÓN PRINCIPAL WRAPPER (Se mantiene, pero no se usa en el main)
 # ==============================================================================
 
 def predict_employee_data(df: pd.DataFrame = None, source: str = 'file', supabase_client: Optional[Client] = None):
+    # Esta función se mantiene para propósitos de modularidad, 
+    # pero el flujo de carga ahora se maneja en el main para mejor control de Streamlit.
     model, categorical_mapping, scaler = load_model_artefacts()
     if not model:
         return pd.DataFrame()
 
-    if source == 'file' and df is None:
-        st.error("⚠️ Debes subir un archivo antes de ejecutar la predicción.")
-        return pd.DataFrame()
-
     if source == 'supabase':
-        if supabase_client is None:
-            st.error("⚠️ Cliente Supabase no válido para la predicción.")
-            return pd.DataFrame()
         df_raw = fetch_data_from_supabase(supabase_client)
-        if df_raw is None:
-            st.error("⚠️ No se pudieron cargar datos de Supabase.")
-            return pd.DataFrame()
     else:
         df_raw = df.copy()
 
+    if df_raw is None or df_raw.empty:
+        return pd.DataFrame()
+        
     return run_prediction_pipeline(df_raw, model, categorical_mapping, scaler)
+
 
 # ============================================================================== 
 # 7. VISUALIZACIÓN DE RESULTADOS
@@ -279,6 +279,7 @@ def display_results_and_demo(df_resultados: pd.DataFrame):
         threshold = st.slider("Umbral de Probabilidad de Renuncia", min_value=0.0, max_value=1.0, value=0.5, step=0.05)
         
         roles = df_resultados['JobRole'].unique().tolist() if 'JobRole' in df_resultados.columns else []
+        # Limita la selección a roles presentes para evitar errores de filtro
         selected_roles = st.multiselect("Filtrar por Rol de Trabajo", options=roles, default=roles)
 
         df_filtered = df_resultados[df_resultados['Probabilidad_Renuncia'] >= threshold]
@@ -335,6 +336,7 @@ def display_results_and_demo(df_resultados: pd.DataFrame):
     st.markdown("---")
     col_dl, col_demo = st.columns(2)
 
+    # Convertir a CSV para descarga
     csv_download = df_filtered.to_csv(index=False).encode('utf-8')
     col_dl.download_button(
         label="📥 Descargar Resultados Filtrados (CSV)",
@@ -348,7 +350,7 @@ def display_results_and_demo(df_resultados: pd.DataFrame):
 
 
 # ============================================================================== 
-# 8. STREAMLIT
+# 8. STREAMLIT (Lógica principal - Flujo corregido)
 # ==============================================================================
 
 if __name__ == '__main__':
@@ -356,67 +358,67 @@ if __name__ == '__main__':
     st.markdown("<h1 style='text-align:center;'>📦 Módulo de Predicción de Renuncia</h1>", unsafe_allow_html=True)
     st.markdown("---")
     
-    # --- Inicialización del Cliente Supabase (Manejo de UI Separado) ---
+    # --- Carga de Modelo (Prerrequisito) ---
+    model, categorical_mapping, scaler = load_model_artefacts()
+    if not model:
+        # Si el modelo falla, detenemos toda la ejecución.
+        st.error("🛑 La aplicación no puede iniciar debido a errores en la carga del modelo.")
+        st.stop()
+    
+    # --- Inicialización del Cliente Supabase ---
     SUPABASE_CLIENT = None
     supabase_ready = False
-    
     if SUPABASE_INSTALLED:
-        SUPABASE_CLIENT = init_supabase_client()
+        SUPABASE_CLIENT = init_supabase_client() # init_supabase_client NO usa st.error()
         
         if SUPABASE_CLIENT is None:
-            # Si el cliente falló, mostramos el error aquí, sin bloquear el renderizado de tabs
-            st.warning("⚠️ No se pudo inicializar Supabase. La pestaña de BD estará deshabilitada o fallará si se intenta usar.")
+            st.warning("⚠️ No se pudo inicializar Supabase. La pestaña de BD puede estar deshabilitada.")
         else:
             supabase_ready = True
 
     # --- Inicialización de Session State ---
     if 'df_resultados' not in st.session_state:
         st.session_state.df_resultados = pd.DataFrame()
-    if 'df_entrada' not in st.session_state: # Agregado para persistir el DataFrame de Archivo
-        st.session_state.df_entrada = pd.DataFrame()
 
     tab1, tab2 = st.tabs(["📂 Predicción desde archivo", "☁️ Predicción desde Supabase"])
 
     # --------------------------------------------------------------------------
-    # TAB 1 — ARCHIVO (Corregido para usar st.session_state y persistir la carga)
+    # TAB 1 — ARCHIVO (Corregido: El botón se renderiza solo si el archivo se carga con éxito)
     # --------------------------------------------------------------------------
     with tab1:
         st.subheader("📁 Cargar archivo")
         uploaded_file = st.file_uploader("Sube un archivo CSV o Excel", type=["csv", "xlsx"])
-
-        # Lógica para leer el archivo y guardarlo en el estado
+        
+        df_raw = None # DataFrame local para el flujo
+        
         if uploaded_file is not None:
             try:
-                # Resetear la posición del puntero del archivo
                 uploaded_file.seek(0)
-                
-                if uploaded_file.name.endswith('.csv'):
-                    new_df_input = pd.read_csv(uploaded_file)
-                else:
-                    new_df_input = pd.read_excel(uploaded_file)
-                
-                st.session_state.df_entrada = new_df_input 
-                
-                st.success(f"Archivo cargado correctamente ({len(st.session_state.df_entrada)} registros).")
-                st.dataframe(st.session_state.df_entrada.head(), use_container_width=True)
+                df_raw = pd.read_csv(uploaded_file) if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
+                st.success(f"Archivo cargado correctamente ({len(df_raw)} registros).")
+                st.dataframe(df_raw.head(), use_container_width=True)
                 
             except Exception as e:
                 st.error(f"Error al leer archivo: {e}")
-                st.session_state.df_entrada = pd.DataFrame()
-
-        # Botón de ejecución, verifica el estado guardado
-        if st.button("🚀 Ejecutar Predicción desde Archivo", key="btn_file_predict", use_container_width=True):
-            if st.session_state.df_entrada.empty:
-                st.error("⚠️ Debes subir un archivo válido antes de ejecutar.")
-            else:
+                df_raw = None
+        
+        # El botón solo se activa si la variable df_raw tiene contenido válido
+        if df_raw is not None:
+            if st.button("🚀 Ejecutar Predicción desde Archivo", key="btn_file_predict", use_container_width=True):
                 with st.spinner("Procesando la predicción..."):
-                    st.session_state.df_resultados = predict_employee_data(df=st.session_state.df_entrada, source='file')
-                    if not st.session_state.df_resultados.empty:
+                    
+                    df_predicho = run_prediction_pipeline(df_raw, model, categorical_mapping, scaler)
+                    
+                    if df_predicho is not None and not df_predicho.empty:
+                        st.session_state.df_resultados = df_predicho
                         st.success("Predicción completada.")
                     else:
-                         st.error("❌ La predicción falló. Revisa los mensajes de error en el preprocesamiento o el modelo.")
+                        st.session_state.df_resultados = pd.DataFrame() 
+                        st.error("❌ La predicción falló. Verifique el formato de las columnas de entrada.")
+        else:
+            st.info("Sube un archivo para habilitar el botón de predicción.")
 
-    #--------------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     # TAB 2 — SUPABASE
     # --------------------------------------------------------------------------
     with tab2:
@@ -427,18 +429,26 @@ if __name__ == '__main__':
         
         if st.button("🔄 Ejecutar Predicción desde Supabase", key="btn_supabase_predict", use_container_width=True, disabled=not supabase_ready):
             if SUPABASE_CLIENT is None:
-                st.error("⚠️ Cliente Supabase no válido. Revisa tu configuración.")
+                st.error("⚠️ Cliente Supabase no válido para la predicción.")
             else:
                 with st.spinner("Conectando y procesando..."):
-                    st.session_state.df_resultados = predict_employee_data(source='supabase', supabase_client=SUPABASE_CLIENT)
-                    if not st.session_state.df_resultados.empty:
-                        st.success("Predicción completada desde Supabase.")
+                    df_raw = fetch_data_from_supabase(SUPABASE_CLIENT)
+                    
+                    if df_raw is not None and not df_raw.empty:
+                        df_predicho = run_prediction_pipeline(df_raw, model, categorical_mapping, scaler)
+                        
+                        if df_predicho is not None and not df_predicho.empty:
+                            st.session_state.df_resultados = df_predicho
+                            st.success("Predicción completada desde Supabase.")
+                        else:
+                            st.session_state.df_resultados = pd.DataFrame()
+                            st.error("❌ Fallo en el pipeline de predicción con datos de Supabase.")
                     else:
-                        st.error("❌ La predicción falló al cargar datos de Supabase. Revisa la tabla 'consolidado'.")
+                        st.session_state.df_resultados = pd.DataFrame()
+                        st.error("❌ No se pudieron cargar datos de Supabase.")
 
     st.markdown("---")
 
-    # Mostrar resultados
+    # Mostrar resultados (Sección Final)
     display_results_and_demo(st.session_state.df_resultados)
-
 
