@@ -358,3 +358,56 @@ if __name__ == '__main__':
     
     # --- INICIALIZACIÓN DEL CLIENTE DE SUPABASE (Tu código) ---
     @st.cache_resource
+    def init_supabase_client() -> Optional[Client]:
+        """Inicializa y cachea el cliente de Supabase."""
+        try:
+            url = st.secrets.get("SUPABASE_URL")
+            key = st.secrets.get("SUPABASE_KEY")
+            if not url or not key:
+                st.error("❌ ERROR: Faltan 'SUPABASE_URL' o 'SUPABASE_KEY' en tu archivo `.streamlit/secrets.toml`. No se puede conectar a la BD.")
+                return None
+            
+            # Nota: create_client fue importado al inicio del script
+            return create_client(url, key)
+        except Exception as e:
+            st.error(f"❌ Error al inicializar Supabase: {e}")
+            return None
+
+    SUPABASE_CLIENT = init_supabase_client()
+    # -----------------------------------------------------------
+
+    if 'df_resultados' not in st.session_state:
+        st.session_state.df_resultados = pd.DataFrame()
+
+    tab1, tab2 = st.tabs(["📂 Predicción desde archivo", "☁️ Predicción desde Supabase"])
+
+    with tab1:
+        df_input = None
+        uploaded_file = st.file_uploader("Sube tu archivo CSV o Excel", type=["csv", "xlsx"])
+        if uploaded_file:
+            try:
+                df_input = pd.read_csv(uploaded_file) if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
+                st.info(f"Archivo cargado: {len(df_input)} registros.")
+            except Exception as e:
+                st.error(f"Error al leer archivo: {e}")
+                df_input = None
+            
+        if st.button("🚀 Ejecutar Predicción desde Archivo", use_container_width=True, key='predict_file'):
+            with st.spinner('Procesando datos y generando predicciones...'):
+                st.session_state.df_resultados = predict_employee_data(df=df_input, source='file')
+
+
+    with tab2:
+        st.markdown("Presiona para obtener los datos más recientes directamente de la tabla **`consolidado`**.")
+        
+        if SUPABASE_CLIENT is not None:
+            if st.button("🔄 Ejecutar Predicción desde Supabase", use_container_width=True, key='predict_supabase'):
+                with st.spinner('Conectando a Supabase y procesando datos...'):
+                    # Pasa el cliente autenticado
+                    st.session_state.df_resultados = predict_employee_data(source='supabase', supabase_client=SUPABASE_CLIENT)
+        else:
+            st.warning("⚠️ La opción de Supabase está deshabilitada. Revisa los errores de conexión de la BD arriba.")
+
+    st.markdown("---")
+    
+    display_results_and_demo(st.session_state.df_resultados)
