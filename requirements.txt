@@ -13,4 +13,3 @@ scikit-learn
 joblib
 openpyxl
 xlsxwriter
-supabase-py
