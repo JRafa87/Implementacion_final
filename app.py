@@ -46,7 +46,7 @@ try:
     client_id = st.secrets["client_id"]
     client_secret = st.secrets["client_secret"]
     redirect_url = (
-        st.secrets["redirect_url_test"] if testing_mode else st.secrets["redirect_url"]
+        st.secrets["redirect_url_test"] if testing_mode else st.secrets["REDIRECT_URL"]
     )
     google_client = GoogleOAuth2(client_id=client_id, client_secret=client_secret)
 except KeyError:
