@@ -72,17 +72,17 @@ def _decode_google_token(token: str):
     """Decodifica el token JWT de Google sin verificar firma."""
     return jwt.decode(jwt=token, options={"verify_signature": False})
 
-async def _get_authorization_url(client: GoogleOAuth2, redirect_url: str) -> str:
+async def _get_authorization_url(client: GoogleOAuth2, REDIRECT_URL: str) -> str:
     """Genera la URL para iniciar el flujo OAuth de Google."""
     return await client.get_authorization_url(
-        redirect_url,
+        REDIRECT_URL,
         scope=["email","profile"],
         extras_params={"access_type": "offline"},
     )
 
-async def _get_access_token(client: GoogleOAuth2, redirect_url: str, code: str) -> OAuth2Token:
+async def _get_access_token(client: GoogleOAuth2, REDIRECT_URL: str, code: str) -> OAuth2Token:
     """Obtiene el token de acceso usando el código de la URL."""
-    return await client.get_access_token(code, redirect_url)
+    return await client.get_access_token(code, REDIRECT_URL)
 
 def _ensure_async_loop():
     """Asegura que haya un loop de asyncio en ejecución o crea uno nuevo."""
@@ -110,10 +110,10 @@ def get_google_user_email() -> Optional[str]:
         
         if loop.is_running():
             token = asyncio.run_coroutine_threadsafe(
-                _get_access_token(google_client, redirect_url, code), loop
+                _get_access_token(google_client, REDIRECT_URL, code), loop
             ).result()
         else:
-            token = loop.run_until_complete(_get_access_token(google_client, redirect_url, code))
+            token = loop.run_until_complete(_get_access_token(google_client, REDIRECT_URL, code))
 
         st.experimental_set_query_params()
         st.session_state["google_email"] = _decode_google_token(token["id_token"])["email"]
