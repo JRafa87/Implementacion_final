@@ -72,7 +72,7 @@ def _decode_google_token(token: str):
     """Decodifica el token JWT de Google sin verificar firma."""
     return jwt.decode(jwt=token, options={"verify_signature": False})
 
-async def _get_authorization_url(client: GoogleOAuth2, REDIRECT_URL: str) -> str:
+async def _get_authorization_url(client: GoogleOAuth2, redirect_uri: str) -> str:
     """Genera la URL para iniciar el flujo OAuth de Google."""
     return await client.get_authorization_url(
         REDIRECT_URL,
