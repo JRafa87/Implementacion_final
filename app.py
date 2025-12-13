@@ -76,7 +76,7 @@ async def _get_authorization_url(client: GoogleOAuth2, redirect_url: str) -> str
     """Genera la URL para iniciar el flujo OAuth de Google."""
     return await client.get_authorization_url(
         redirect_url,
-        scope=["email"],
+        scope=["email","profile"],
         extras_params={"access_type": "offline"},
     )
 
