@@ -18,27 +18,6 @@ from attrition_predictor import render_predictor_page
 from encuestas_historial import historial_encuestas_module
 
 
-import re
-import dns.resolver
-
-def is_valid_email_format(email: str) -> bool:
-    regex = r"^[\w\.-]+@[\w\.-]+\.\w+$"
-    return re.match(regex, email) is not None
-
-def domain_exists(email: str) -> bool:
-    try:
-        domain = email.split("@")[1]
-        dns.resolver.resolve(domain, "MX")
-        return True
-    except Exception:
-        try:
-            dns.resolver.resolve(domain, "A")
-            return True
-        except Exception:
-            return False
-
-
-
 # ============================================================
 # 0. CONFIGURACIÓN E INICIALIZACIÓN
 # ============================================================
