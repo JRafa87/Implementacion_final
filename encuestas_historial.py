@@ -5,7 +5,7 @@ from supabase import create_client, Client
 from datetime import datetime
 
 # =================================================================
-# 1. CONFIGURACIÓN Y CONEXIÓN A SUPABASE (Usando st.secrets)
+# 1. CONFIGURACIÓN Y CONEXIÓN A SUPABASE
 # =================================================================
 
 @st.cache_resource
@@ -22,12 +22,8 @@ supabase = get_supabase()
 
 @st.cache_data(ttl=600)  # Almacenar en caché los datos por 10 minutos
 def get_survey_data():
-    """
-    Consulta los datos de la tabla 'encuestas' usando el cliente de Supabase.
-    """
+    """Consulta los datos de la tabla 'encuestas' usando el cliente de Supabase."""
     try:
-        # Consulta: Traer todas las columnas de la tabla 'encuestas'
-        # Usamos .select('*') y ordenamos por EmployeeNumber y Fecha
         response = supabase.table('encuestas').select('*').order('EmployeeNumber').order('Fecha').execute()
         
         data = response.data
@@ -35,10 +31,7 @@ def get_survey_data():
             return pd.DataFrame()
             
         df = pd.DataFrame(data)
-        
-        # Asegurar el tipo de dato correcto para la fecha
         df['Fecha'] = pd.to_datetime(df['Fecha'])
-        
         return df
 
     except Exception as e:
@@ -58,7 +51,7 @@ def get_risk_analysis(employee_data: pd.DataFrame):
     latest = employee_data.iloc[-1]
     signals = []
 
-    # Reglas de Alertas (Usamos las escalas 1-4 o 1-5 que definiste)
+    # Reglas de Alertas
     if latest['IntencionPermanencia'] <= 2:
         signals.append("Riesgo de Salida (IP <= 2)")
     if latest['ConfianzaEmpresa'] <= 2:
@@ -93,8 +86,6 @@ def create_radar_chart(latest_data: pd.Series):
     ])
 
     fig.update_layout(
-        # La mayoría de las métricas están en escala 1-4, la Satisfacción Salarial y Carga Laboral están en 1-5,
-        # Usaremos 1-5 en el rango máximo del radar para incluir a todas las variables
         polar=dict(radialaxis=dict(visible=True, range=[1, 5])), 
         showlegend=False,
         margin=dict(l=30, r=30, t=30, b=30),
@@ -104,10 +95,10 @@ def create_radar_chart(latest_data: pd.Series):
     return fig
 
 # =================================================================
-# 3. MÓDULO PRINCIPAL DE STREAMLIT
+# 3. MÓDULO PRINCIPAL DE STREAMLIT (CORREGIDO)
 # =================================================================
 
-def historial_encuestas_module(df_maestro):
+def historial_encuestas_module(df_maestro): # Usando df_maestro consistentemente
     """Renderiza el módulo 'Historial de Encuestas'."""
     st.title("👤 Módulo: Historial de Encuestas por Empleado")
     
@@ -120,6 +111,10 @@ def historial_encuestas_module(df_maestro):
 
     employee_data = df_maestro[df_maestro['EmployeeNumber'] == selected_employee].copy()
     
+    if employee_data.empty:
+        st.warning("El empleado no tiene registros de encuesta.")
+        return
+
     latest_survey = employee_data.iloc[-1]
     risk_data = get_risk_analysis(employee_data)
     
@@ -128,7 +123,6 @@ def historial_encuestas_module(df_maestro):
     col_risk, col_signals = st.columns([1, 3])
     
     with col_risk:
-        # Tarjeta de Riesgo (HTML para el color de fondo)
         st.markdown(f"""
             <div style="background-color:{risk_data['color']}; color:white; padding: 15px; border-radius: 10px; text-align: center;">
                 <h4>RIESGO: {risk_data['riesgo']}</h4>
@@ -168,7 +162,7 @@ def historial_encuestas_module(df_maestro):
                            line=dict(color="Red", width=2, dash="dash"))
                            
         fig_line.update_layout(
-            yaxis=dict(range=[0.5, 4.5], tickmode='linear', dtick=1), # IP es escala 1-4
+            yaxis=dict(range=[0.5, 4.5], tickmode='linear', dtick=1), 
             title='Evolución de Intención de Permanencia (1=Bajo, 4=Alto)',
             margin=dict(l=30, r=30, t=30, b=30),
             height=400
@@ -183,7 +177,6 @@ def historial_encuestas_module(df_maestro):
     
     def highlight_risk(s):
         """Resalta en rojo los valores críticos."""
-        # Rojo para satisfacción <= 2 y Carga Laboral >= 4
         is_low_sat = (s <= 2) & s.index.isin(['IntencionPermanencia', 'JobSatisfaction', 'SatisfaccionSalarial', 'ConfianzaEmpresa'])
         is_high_carga = (s >= 4) & (s.index == 'CargaLaboralPercibida')
         
@@ -200,7 +193,7 @@ def historial_encuestas_module(df_maestro):
     )
 
 # =================================================================
-# 4. EJECUCIÓN DEL SCRIPT
+# 4. PUNTO DE EJECUCIÓN (Llamada directa al módulo)
 # =================================================================
 
 if __name__ == '__main__':
@@ -210,8 +203,7 @@ if __name__ == '__main__':
     df_maestro = get_survey_data()
     
     if not df_maestro.empty:
-        # 2. Renderizar el módulo
+        # 2. Renderizar el módulo directamente
         historial_encuestas_module(df_maestro)
     else:
-        # El mensaje de error ya se muestra en get_survey_data
-        st.warning("Verifica la configuración de Streamlit secrets y la conexión a Supabase.")
+        st.error("No se pudo cargar el DataFrame maestro de Supabase. Verifica tus secrets.")
