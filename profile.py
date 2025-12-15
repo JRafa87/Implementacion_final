@@ -1,10 +1,10 @@
 import streamlit as st
 import datetime
+from typing import Optional
 import base64
 import time
 import re
 import pytz
-from typing import Optional
 
 # ==========================================================
 # CONFIGURACIÓN
@@ -75,22 +75,17 @@ def hydrate_session(profile: dict):
 # UTILIDADES
 # ==========================================================
 
-def format_date_peru(iso_str):
-    if not iso_str:
-        return "N/A"
-
-    dt = datetime.datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
-    return dt.astimezone(TIMEZONE_PERU).strftime("%Y-%m-%d")
-
-
-def format_datetime_peru(iso_str, use_now_if_none=False):
+def format_datetime_peru(iso_str, use_now_if_none=False, date_only=False):
     if not iso_str:
         if use_now_if_none:
-            return datetime.datetime.now(TIMEZONE_PERU).strftime("%Y-%m-%d %H:%M hrs (PE)")
+            now = datetime.datetime.now(TIMEZONE_PERU)
+            return now.strftime("%Y-%m-%d") if date_only else now.strftime("%Y-%m-%d %H:%M hrs (PE)")
         return "N/A"
 
     dt = datetime.datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
-    return dt.astimezone(TIMEZONE_PERU).strftime("%Y-%m-%d %H:%M hrs (PE)")
+    dt = dt.astimezone(TIMEZONE_PERU)
+
+    return dt.strftime("%Y-%m-%d") if date_only else dt.strftime("%Y-%m-%d %H:%M hrs (PE)")
 
 
 def handle_avatar_upload():
@@ -118,7 +113,8 @@ def update_profile(
 
     if avatar:
         payload["avatar_url"] = (
-            "data:image/png;base64," + base64.b64encode(avatar).decode()
+            "data:image/png;base64,"
+            + base64.b64encode(avatar).decode()
         )
 
     supabase.table("profiles").update(payload).eq("id", user_id).execute()
@@ -134,13 +130,18 @@ def update_profile(
 
 def render_profile_page(supabase_client, request_password_reset):
 
+    # Guardamos Supabase en session_state (clave para cache)
     st.session_state["supabase"] = supabase_client
+
     user_id = st.session_state.get("user_id")
 
     if not user_id:
         st.warning("⚠️ Usuario no autenticado")
         return
 
+    # ===============================
+    # CARGA DEL PERFIL
+    # ===============================
     if not st.session_state["profile_loaded"]:
         profile = load_user_profile_data(user_id)
         hydrate_session(profile)
@@ -170,67 +171,74 @@ def render_profile_page(supabase_client, request_password_reset):
         )
 
     # ======================================================
-    # FORMULARIO
+    # DATOS + VALIDACIONES (FUERA DEL FORM)
     # ======================================================
     with col_data:
         st.header("Datos Personales y de Cuenta")
 
+        name = st.text_input("👤 Nombre completo", st.session_state["full_name"])
+        phone = st.text_input("📞 Teléfono", st.session_state["phone_number"], max_chars=9)
+        address = st.text_area("🏠 Dirección", st.session_state["address"])
+
+        dob = st.date_input(
+            "🗓️ Fecha de nacimiento",
+            value=datetime.date(2000, 1, 1),
+            min_value=datetime.date(1900, 1, 1),
+            max_value=datetime.date.today()
+        )
+
+        # ===============================
+        # VALIDACIONES EN TIEMPO REAL
+        # ===============================
+        name_error = False
+        phone_error = False
+
+        if name and not re.match(r"^[A-Za-záéíóúÁÉÍÓÚñÑ\s]+$", name):
+            st.error("❌ El nombre solo puede contener letras")
+            name_error = True
+
+        if phone and not re.match(r"^9\d{8}$", phone):
+            st.error("❌ Teléfono inválido (9 dígitos, inicia en 9)")
+            phone_error = True
+
+        submit_disabled = name_error or phone_error
+
+        # ===============================
+        # DATOS SOLO LECTURA
+        # ===============================
+        st.markdown("### Datos de Cuenta (Solo lectura)")
+
+        st.text_input(
+            "📅 Fecha de Creación",
+            value=format_datetime_peru(st.session_state["created_at"], date_only=True),
+            disabled=True
+        )
+
+        st.text_input(
+            "⏰ Última sesión",
+            value=format_datetime_peru(
+                st.session_state.get("last_sign_in_at"),
+                use_now_if_none=True
+            ),
+            disabled=True
+        )
+
+        st.text_input(
+            "🏷️ Rol",
+            value=st.session_state["user_role"].capitalize(),
+            disabled=True
+        )
+
+        st.text_input(
+            "📧 Correo",
+            value=st.session_state["user_email"],
+            disabled=True
+        )
+
+        # ===============================
+        # FORM SOLO PARA GUARDAR
+        # ===============================
         with st.form("profile_form"):
-
-            name = st.text_input("Nombre completo", st.session_state["full_name"])
-            phone = st.text_input("Teléfono", st.session_state["phone_number"], max_chars=9)
-            address = st.text_area("Dirección", st.session_state["address"])
-
-            dob = st.date_input(
-                "Fecha de nacimiento",
-                value=datetime.date(2000, 1, 1)
-            )
-
-            # ===============================
-            # VALIDACIONES (LOCALES)
-            # ===============================
-            name_error = False
-            phone_error = False
-
-            if name and not re.match(r"^[A-Za-záéíóúÁÉÍÓÚñÑ\s]+$", name):
-                st.error("❌ El nombre solo puede contener letras")
-                name_error = True
-
-            if phone and not re.match(r"^9\d{8}$", phone):
-                st.error("❌ Teléfono inválido (9 dígitos, inicia en 9)")
-                phone_error = True
-
-            submit_disabled = name_error or phone_error
-
-            st.markdown("### Datos de Cuenta (Solo lectura)")
-
-            st.text_input(
-                "Fecha de Creación",
-                value=format_date_peru(st.session_state["created_at"]),
-                disabled=True
-            )
-
-            st.text_input(
-                "Última sesión",
-                value=format_datetime_peru(
-                    st.session_state.get("last_sign_in_at"),
-                    use_now_if_none=True
-                ),
-                disabled=True
-            )
-
-            st.text_input(
-                "Rol",
-                value=st.session_state["user_role"].capitalize(),
-                disabled=True
-            )
-
-            st.text_input(
-                "Correo",
-                value=st.session_state["user_email"],
-                disabled=True
-            )
-
             if st.form_submit_button("💾 Guardar cambios", disabled=submit_disabled):
                 update_profile(
                     name,
@@ -240,10 +248,13 @@ def render_profile_page(supabase_client, request_password_reset):
                     st.session_state.get("temp_avatar_bytes")
                 )
 
+    # ======================================================
+    # CAMBIO DE CONTRASEÑA
+    # ======================================================
     st.markdown("---")
-
     if st.button("🔒 Cambiar contraseña", use_container_width=True):
         request_password_reset(st.session_state["user_email"])
+
 
 
 
