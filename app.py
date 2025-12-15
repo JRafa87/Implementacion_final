@@ -514,7 +514,7 @@ if session_is_active:
         "Predicción desde Archivo": render_predictor_page,
         "Predicción Manual":render_manual_prediction_tab,
         "Reconocimiento": render_recognition_page,
-        "Historial de Encuesta": historial_encuestas_module
+        "Historial de Encuesta": lambda: historial_encuestas_module(df_maestro)
     }
     
     # Ejecutar la función de renderizado para la página actual
