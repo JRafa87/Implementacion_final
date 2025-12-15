@@ -161,6 +161,9 @@ def historial_encuestas_module():
             mode="lines+markers"
         ))
         fig.add_hline(y=2, line_dash="dash", line_color="red")
+        fig.update_xaxes(
+        tickformat="%d/%m/%Y"
+    )
         fig.update_layout(height=400)
         st.plotly_chart(fig, use_container_width=True)
 
