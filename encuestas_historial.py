@@ -119,6 +119,8 @@ def historial_encuestas_module():
 
     data_emp = df_maestro[df_maestro["EmployeeNumber"] == empleado]
 
+    data_emp["Fecha_str"] = data_emp["Fecha"].dt.strftime("%d/%m/%Y")
+
     riesgo = get_risk_analysis(data_emp)
     ultima = data_emp.iloc[-1]
 
@@ -156,7 +158,7 @@ def historial_encuestas_module():
     with col_line:
         fig = go.Figure()
         fig.add_trace(go.Scatter(
-            x=data_emp["Fecha"],
+            x=data_emp["Fecha_str"],
             y=data_emp["IntencionPermanencia"],
             mode="lines+markers"
         ))
