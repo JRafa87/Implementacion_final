@@ -61,7 +61,8 @@ PAGES = [
     "Gestión de Empleados", 
     "Predicción desde Archivo", 
     "Predicción Manual",
-    "Reconocimiento" 
+    "Reconocimiento" ,
+    "Historial de Encuesta" 
 ]
 
 # ============================================================
@@ -442,7 +443,8 @@ def render_sidebar():
                 "Gestión de Empleados": "👥",
                 "Predicción desde Archivo": "📁",
                 "Predicción Manual": "✏️",
-                "Reconocimiento": "⭐"
+                "Reconocimiento": "⭐",
+                "Historial de Encuestas": "📜"
             }
             icon = icon_map.get(page, "➡️")
             
@@ -488,6 +490,8 @@ def render_placeholder_page(page_title):
         st.warning("Se mostrará un formulario para ingresar manualmente las características de un empleado y obtener la probabilidad de deserción.")
     elif page_title == "Reconocimiento ⭐":
         st.warning("Esta sección será para gestionar y visualizar reconocimientos o premios a empleados.")
+    elif page_title == "Historial de Encuestas 📜":
+        st.success("Esta es la página que hemos desarrollado. Aquí se permite la **consulta individual por empleado**, mostrando su **trayectoria de riesgo**, el **perfil de satisfacción (Radar)** y la **tabla histórica de respuestas**.")
 
 # ============================================================
 # 6. CONTROL DE FLUJO PRINCIPAL
@@ -508,7 +512,8 @@ if session_is_active:
         "Gestión de Empleados":lambda: render_employee_management_page() , # Función CRUD dedicada
         "Predicción desde Archivo": render_predictor_page,
         "Predicción Manual":render_manual_prediction_tab,
-        "Reconocimiento": render_recognition_page
+        "Reconocimiento": render_recognition_page,
+        "Historial de Encuesta": historial_encuestas_module
     }
     
     # Ejecutar la función de renderizado para la página actual
