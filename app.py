@@ -15,6 +15,7 @@ from dashboard_rotacion import render_rotacion_dashboard
 from survey_control_logic import render_survey_control_panel
 from prediccion_manual_module import render_manual_prediction_tab
 from attrition_predictor import render_predictor_page
+from encuestas_historial import historial_encuestas_module
 
 # ============================================================
 # 0. CONFIGURACIÓN E INICIALIZACIÓN
