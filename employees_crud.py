@@ -1,161 +1,106 @@
-import streamlit as st
-import pandas as pd
-from supabase import create_client, Client
-from typing import Optional
+with st.form("add_employee_form", clear_on_submit=True):
 
-# =====================================================
-# CONEXIÓN SUPABASE
-# =====================================================
-@st.cache_resource
-def get_supabase() -> Client:
-    url = st.secrets.get("SUPABASE_URL")
-    key = st.secrets.get("SUPABASE_KEY")
-    if not url or not key:
-        st.error("Faltan credenciales Supabase")
-        st.stop()
-    return create_client(url, key)
+    st.subheader("Datos Generales")
 
-supabase = get_supabase()
+    col1, col2 = st.columns(2)
 
-# =====================================================
-# COLUMNAS
-# =====================================================
-ALL_FIELDS = [
-    "employeenumber", "age", "businesstravel", "department",
-    "distancefromhome", "education", "educationfield", "gender",
-    "joblevel", "jobrole", "maritalstatus", "monthlyincome",
-    "numcompaniesworked", "overtime", "performancerating",
-    "totalworkingyears", "yearsatcompany", "yearsincurrentrole",
-    "yearssincelastpromotion", "yearswithcurrmanager",
-    "tipocontrato", "numerotardanzas", "numerofaltas",
-    "trainingtimeslastyear", "fechaingreso", "fechasalida",
-    "percentsalaryhike"
-]
-
-COLUMN_MAPPING = {k: k.capitalize() for k in ALL_FIELDS}
-COLUMN_MAPPING["percentsalaryhike"] = "PercentSalaryHike"
-COLUMN_MAPPING["tipocontrato"] = "Tipocontrato"
-
-# =====================================================
-# HELPERS
-# =====================================================
-def get_next_employee_number() -> int:
-    r = supabase.table("empleados").select("EmployeeNumber").order(
-        "EmployeeNumber", desc=True).limit(1).execute()
-    return (r.data[0]["EmployeeNumber"] + 1) if r.data else 1
-
-def add_employee(data: dict):
-    pg = {COLUMN_MAPPING[k]: v for k, v in data.items()}
-    supabase.table("empleados").insert(pg).execute()
-    st.success("Empleado registrado correctamente")
-
-def fetch_employee_by_id(emp_id: int) -> Optional[dict]:
-    r = supabase.table("empleados").select("*").eq(
-        "EmployeeNumber", emp_id).single().execute()
-    return {k.lower(): v for k, v in r.data.items()} if r.data else None
-
-def update_employee(emp_id: int, data: dict):
-    pg = {COLUMN_MAPPING[k]: v for k, v in data.items()}
-    supabase.table("empleados").update(pg).eq(
-        "EmployeeNumber", emp_id).execute()
-    st.success("Empleado actualizado")
-
-# =====================================================
-# UI – NUEVO EMPLEADO
-# =====================================================
-def render_add_employee():
-    st.subheader("➕ Nuevo Empleado")
-
-    emp_id = get_next_employee_number()
-
-    with st.form("add_emp"):
-        st.number_input("EmployeeNumber", value=emp_id, disabled=True)
-
-        col1, col2 = st.columns(2)
-
-        with col1:
-            age = st.number_input("Age", 18, 100, 30)
-            gender = st.selectbox("Gender", ["Male", "Female"])
-            marital = st.selectbox("MaritalStatus", ["Single", "Married", "Divorced"])
-            dept = st.text_input("Department")
-            job = st.text_input("JobRole")
-            joblevel = st.number_input("JobLevel", 1, 5, 1)
-            education = st.number_input("Education", 1, 5, 3)
-            educationfield = st.text_input("EducationField")
-
-        with col2:
-            income = st.number_input("MonthlyIncome", 0)
-            hike = st.number_input("PercentSalaryHike", 0, 100, 10)
-            travel = st.selectbox("BusinessTravel", ["Rarely", "Frequently", "Non-Travel"])
-            overtime = st.selectbox("OverTime", ["Yes", "No"])
-            perf = st.number_input("PerformanceRating", 1, 5, 3)
-            distance = st.number_input("DistanceFromHome", 0)
-            companies = st.number_input("NumCompaniesWorked", 0)
-            tipocontrato = st.selectbox("Tipo Contrato", ["Indefinido", "Temporal"])
-
-        fecha_ing = st.text_input("FechaIngreso (dd/mm/yyyy)")
-        fecha_sal = st.text_input("FechaSalida (dd/mm/yyyy)", value="")
-
-        if st.form_submit_button("Guardar"):
-            add_employee({
-                "employeenumber": emp_id,
-                "age": age,
-                "gender": gender,
-                "maritalstatus": marital,
-                "department": dept,
-                "jobrole": job,
-                "joblevel": joblevel,
-                "education": education,
-                "educationfield": educationfield,
-                "monthlyincome": income,
-                "percentsalaryhike": hike,
-                "businesstravel": travel,
-                "overtime": overtime,
-                "performancerating": perf,
-                "distancefromhome": distance,
-                "numcompaniesworked": companies,
-                "tipocontrato": tipocontrato,
-                "fechaingreso": fecha_ing,
-                "fechasalida": fecha_sal or None
-            })
-
-# =====================================================
-# UI – EDITAR EMPLEADO
-# =====================================================
-def render_edit_employee(emp_id: int):
-    data = fetch_employee_by_id(emp_id)
-    if not data:
-        st.error("Empleado no encontrado")
-        return
-
-    st.subheader(f"✏️ Editar Empleado {emp_id}")
-
-    with st.form("edit_emp"):
-        income = st.number_input(
-            "MonthlyIncome", value=int(data.get("monthlyincome", 0))
-        )
-        hike = st.number_input(
-            "PercentSalaryHike", value=int(data.get("percentsalaryhike", 0))
+    with col1:
+        new_employee_number = st.number_input(
+            "EmployeeNumber (ID)",
+            value=next_id,
+            disabled=True
         )
 
-        if st.form_submit_button("Guardar cambios"):
-            update_employee(emp_id, {
-                "monthlyincome": income,
-                "percentsalaryhike": hike
-            })
+        new_age = st.number_input("Age", 18, 100, 30)
+        new_gender = st.selectbox("Gender", ["Male", "Female"])
+        new_maritalstatus = st.selectbox("MaritalStatus", ["Single", "Married", "Divorced"])
+        new_department = st.selectbox("Department", ["HR", "Tech", "Finance", "Marketing"])
+        new_jobrole = st.selectbox("JobRole", ["Manager", "Developer", "Analyst", "Support"])
+        new_joblevel = st.number_input("JobLevel", 1, 5, 1)
 
-# =====================================================
-# MAIN
-# =====================================================
-def render_employee_management_page():
-    st.title("👥 Gestión de Empleados")
+    with col2:
+        new_monthlyincome = st.number_input("MonthlyIncome", min_value=0.0)
+        new_percenthike = st.number_input("PercentSalaryHike", 0, 100, 10)
+        new_businesstravel = st.selectbox(
+            "BusinessTravel",
+            ["Rarely", "Frequently", "Non-Travel"]
+        )
+        new_overtime = st.radio("OverTime", ["Yes", "No"])
+        new_performance = st.number_input("PerformanceRating", 1, 5, 3)
+        new_distance = st.number_input("DistanceFromHome", 0, 100, 5)
 
-    render_add_employee()
+    st.subheader("Historial Laboral")
 
-    st.divider()
-    emp_id = st.number_input("Editar EmployeeNumber", min_value=1, step=1)
-    if st.button("Cargar empleado"):
-        render_edit_employee(emp_id)
+    col3, col4 = st.columns(2)
+
+    with col3:
+        new_education = st.number_input("Education", 1, 5, 3)
+        new_educationfield = st.text_input("EducationField")
+        new_numcompanies = st.number_input("NumCompaniesWorked", 0)
+        new_totalyears = st.number_input("TotalWorkingYears", 0)
+        new_yearsatcompany = st.number_input("YearsAtCompany", 0)
+
+    with col4:
+        new_yearsincurrentrole = st.number_input("YearsInCurrentRole", 0)
+        new_yearssincelastpromotion = st.number_input("YearsSinceLastPromotion", 0)
+        new_yearswithmanager = st.number_input("YearsWithCurrManager", 0)
+        new_training = st.number_input("TrainingTimesLastYear", 0)
+        new_tipocontrato = st.selectbox("Tipo de Contrato", ["Indefinido", "Temporal"])
+
+    st.subheader("Asistencia y Fechas")
+
+    col5, col6 = st.columns(2)
+
+    with col5:
+        new_tardanzas = st.number_input("NumeroTardanzas", 0)
+        new_faltas = st.number_input("NumeroFaltas", 0)
+
+    with col6:
+        new_fechaingreso = st.text_input("FechaIngreso (dd/mm/yyyy)")
+        new_fechasalida = st.text_input("FechaSalida (dd/mm/yyyy)", value="")
+
+    col_save, col_cancel = st.columns(2)
+
+    with col_save:
+        if st.form_submit_button("💾 Guardar Nuevo Empleado"):
+            employee_data = {
+                "employeenumber": int(new_employee_number),
+                "age": new_age,
+                "gender": new_gender,
+                "maritalstatus": new_maritalstatus,
+                "department": new_department,
+                "jobrole": new_jobrole,
+                "joblevel": new_joblevel,
+                "monthlyincome": new_monthlyincome,
+                "percentsalaryhike": new_percenthike,
+                "businesstravel": new_businesstravel,
+                "overtime": new_overtime,
+                "performancerating": new_performance,
+                "distancefromhome": new_distance,
+                "education": new_education,
+                "educationfield": new_educationfield,
+                "numcompaniesworked": new_numcompanies,
+                "totalworkingyears": new_totalyears,
+                "yearsatcompany": new_yearsatcompany,
+                "yearsincurrentrole": new_yearsincurrentrole,
+                "yearssincelastpromotion": new_yearssincelastpromotion,
+                "yearswithcurrmanager": new_yearswithmanager,
+                "trainingtimeslastyear": new_training,
+                "tipocontrato": new_tipocontrato,
+                "numerotardanzas": new_tardanzas,
+                "numerofaltas": new_faltas,
+                "fechaingreso": new_fechaingreso,
+                "fechasalida": new_fechasalida or None
+            }
+
+            add_employee(employee_data)
+            st.session_state["show_add_form"] = False
+            clear_cache_and_rerun()
+
+    with col_cancel:
+        if st.form_submit_button("❌ Cancelar"):
+            st.session_state["show_add_form"] = False
+            st.rerun()
 
 
 
