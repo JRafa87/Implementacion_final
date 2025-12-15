@@ -5,12 +5,11 @@ import shap
 from supabase import create_client, Client
 from typing import Dict, Any
 import warnings
-import matplotlib.pyplot as plt
 
 warnings.filterwarnings("ignore")
 
 # ==========================================================
-# 🔴 CONFIGURACIÓN GENERAL
+# CONFIGURACIÓN
 # ==========================================================
 
 MODEL_PATH = "models/xgboost_model.pkl"
@@ -19,10 +18,6 @@ MAPPING_PATH = "models/categorical_mapping.pkl"
 
 EMPLOYEE_TABLE = "consolidado"
 KEY_COLUMN = "EmployeeNumber"
-
-# ==========================================================
-# 🔴 VARIABLES DEL MODELO (ORDEN CORRECTO)
-# ==========================================================
 
 MODEL_COLUMNS = [
     "Age","BusinessTravel","Department","DistanceFromHome","Education",
@@ -36,14 +31,10 @@ MODEL_COLUMNS = [
     "ConfianzaEmpresa","NumeroTardanzas","NumeroFaltas","tipo_contrato"
 ]
 
-# ==========================================================
-# 🔒 VARIABLES BLOQUEADAS SI VIENEN DE BD
-# ==========================================================
-
 LOCKED_WHEN_FROM_DB = ["Age", "Gender", "MaritalStatus"]
 
 # ==========================================================
-# 🔴 SUPABASE
+# SUPABASE
 # ==========================================================
 
 @st.cache_resource
@@ -71,7 +62,7 @@ def load_employee_data(emp_id: str) -> Dict[str, Any]:
     return res.data[0] if res.data else {}
 
 # ==========================================================
-# 🔴 MODELO
+# MODELO
 # ==========================================================
 
 @st.cache_resource
@@ -85,40 +76,46 @@ def load_model():
 model, scaler, mapping = load_model()
 
 # ==========================================================
-# 🔴 PREDICCIÓN + SHAP
+# PREDICCIÓN + SHAP
 # ==========================================================
 
-def predict_and_explain(data: Dict[str, Any]):
+def predict_with_shap(data: Dict[str, Any]):
     df = pd.DataFrame([data]).reindex(columns=MODEL_COLUMNS, fill_value=0)
 
-    for col, map_dict in mapping.items():
+    for col, mp in mapping.items():
         if col in df.columns:
-            df[col] = df[col].map(map_dict).fillna(0)
+            df[col] = df[col].map(mp).fillna(0)
 
     df_scaled = scaler.transform(df)
-
     proba = model.predict_proba(df_scaled)[0][1]
 
     explainer = shap.Explainer(model)
     shap_values = explainer(df_scaled)
 
-    shap_df = pd.DataFrame({
-        "Variable": MODEL_COLUMNS,
-        "Impacto": shap_values.values[0]
-    }).assign(ImpactoAbs=lambda x: x["Impacto"].abs()) \
-      .sort_values("ImpactoAbs", ascending=False) \
-      .head(10)
+    shap_df = (
+        pd.DataFrame({
+            "Variable": MODEL_COLUMNS,
+            "Impacto": shap_values.values[0]
+        })
+        .assign(Abs=lambda x: x.Impacto.abs())
+        .sort_values("Abs", ascending=False)
+        .head(8)
+    )
 
     return proba, shap_df
 
 # ==========================================================
-# 🧠 UI PRINCIPAL (MODULO)
+# UI PRINCIPAL
 # ==========================================================
 
 def render_manual_prediction_tab():
 
-    st.title("📉 Predicción de Riesgo de Renuncia")
-    st.caption("BASE desde Supabase + Simulación Manual + Explicabilidad")
+    st.title("📉 Comparador de Riesgo de Renuncia")
+    st.caption("Cada predicción se ejecuta de forma independiente")
+
+    # Inicializar estados
+    st.session_state.setdefault("pred_base", None)
+    st.session_state.setdefault("pred_manual", None)
 
     employee_ids = fetch_employee_ids()
     selected_id = st.selectbox(
@@ -126,15 +123,12 @@ def render_manual_prediction_tab():
         ["--- Seleccionar ---"] + employee_ids
     )
 
-    if selected_id != "--- Seleccionar ---":
-        base_data = load_employee_data(selected_id)
-        st.success(f"Empleado {selected_id} cargado")
-    else:
-        base_data = {}
+    base_data = load_employee_data(selected_id) if selected_id != "--- Seleccionar ---" else {}
+
+    # ===================== FORMULARIO MANUAL =====================
 
     st.markdown("---")
-    st.subheader("🧪 Simulación Manual (33 Variables)")
-    st.caption("🔒 Edad, Género y Estado civil se bloquean si vienen de BD")
+    st.subheader("🧪 Simulación Manual")
 
     manual_input = {}
     col1, col2 = st.columns(2)
@@ -155,45 +149,63 @@ def render_manual_prediction_tab():
             label = f"{col} 🔒" if locked else col
 
             if col in sliders:
-                manual_input[col] = st.slider(
-                    label, 1, 5,
-                    int(base_val) if base_val else 3,
-                    disabled=locked
-                )
-
+                manual_input[col] = st.slider(label, 1, 5, int(base_val) if base_val else 3, disabled=locked)
             elif col in mapping:
                 options = list(mapping[col].keys())
                 default = base_val if base_val in options else options[0]
-                manual_input[col] = st.selectbox(
-                    label, options,
-                    index=options.index(default),
-                    disabled=locked
-                )
+                manual_input[col] = st.selectbox(label, options, options.index(default), disabled=locked)
             else:
-                manual_input[col] = st.number_input(
-                    label,
-                    value=float(base_val) if base_val else 0.0,
-                    disabled=locked
-                )
+                manual_input[col] = st.number_input(label, value=float(base_val) if base_val else 0.0, disabled=locked)
+
         i += 1
 
+    # ===================== BOTONES =====================
+
     st.markdown("---")
-    c1, c2 = st.columns(2)
+    b1, b2 = st.columns(2)
 
-    with c1:
-        st.subheader("📊 Predicción BASE")
-        if st.button("🔮 Ejecutar BASE", use_container_width=True):
-            prob, shap_df = predict_and_explain(base_data)
-            st.metric("Probabilidad de Renuncia", f"{prob:.2%}")
-            st.subheader("🧠 Variables que empujan la renuncia")
-            st.bar_chart(shap_df.set_index("Variable")["Impacto"])
+    with b1:
+        if st.button("🏢 Ejecutar BASE", use_container_width=True):
+            st.session_state["pred_base"] = predict_with_shap(base_data)
 
-    with c2:
-        st.subheader("🧪 Predicción MANUAL")
+    with b2:
         if st.button("🧪 Ejecutar MANUAL", use_container_width=True):
-            prob, shap_df = predict_and_explain(manual_input)
-            st.metric("Probabilidad Simulada", f"{prob:.2%}")
-            st.subheader("🧠 Variables que empujan la renuncia")
-            st.bar_chart(shap_df.set_index("Variable")["Impacto"])
+            st.session_state["pred_manual"] = predict_with_shap(manual_input)
+
+    # ===================== RESULTADOS =====================
+
+    if st.session_state["pred_base"] or st.session_state["pred_manual"]:
+        st.markdown("## 📊 Resultados")
+
+        c1, c2, c3 = st.columns(3)
+
+        if st.session_state["pred_base"]:
+            prob_b, _ = st.session_state["pred_base"]
+            c1.metric("🏢 BASE", f"{prob_b:.2%}")
+
+        if st.session_state["pred_manual"]:
+            prob_m, _ = st.session_state["pred_manual"]
+            c2.metric("🧪 MANUAL", f"{prob_m:.2%}")
+
+        if st.session_state["pred_base"] and st.session_state["pred_manual"]:
+            diff = prob_m - prob_b
+            c3.metric("📉 Diferencia", f"{diff:+.2%}")
+
+        st.markdown("### 🧠 Variables que empujan la renuncia")
+
+        col_a, col_b = st.columns(2)
+
+        if st.session_state["pred_base"]:
+            _, shap_b = st.session_state["pred_base"]
+            with col_a:
+                st.subheader("BASE")
+                st.bar_chart(shap_b.set_index("Variable")["Impacto"])
+
+        if st.session_state["pred_manual"]:
+            _, shap_m = st.session_state["pred_manual"]
+            with col_b:
+                st.subheader("MANUAL")
+                st.bar_chart(shap_m.set_index("Variable")["Impacto"])
+
 
 
