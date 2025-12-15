@@ -15,3 +15,4 @@ openpyxl
 xlsxwriter
 shap
 pytz
+dnspython
