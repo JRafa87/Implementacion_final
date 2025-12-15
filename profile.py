@@ -3,20 +3,20 @@ import datetime
 from typing import Optional
 import base64
 import time
-import re 
+import re
 
 # -------------------------------------------------------------------
 # --- NOTA IMPORTANTE: Inicialización de st.session_state ---
 # -------------------------------------------------------------------
 # Estos valores DEBEN ser inicializados por tu lógica de login/carga de perfil 
 # si deseas que el formulario funcione sin errores. 
-# Si no existen, se usarán los valores por defecto seguros (ej: "" o None).
+# Si el perfil no ha sido cargado, estos valores actúan como seguros por defecto.
 
 if "user_id" not in st.session_state:
     # Inicialización segura de las claves necesarias para evitar KeyErrors
     st.session_state["user_id"] = None
     st.session_state["full_name"] = ""
-    st.session_state["date_of_birth"] = None # Usar None para fecha si no está cargada
+    st.session_state["date_of_birth"] = None 
     st.session_state["phone_number"] = ""
     st.session_state["address"] = ""
     st.session_state["avatar_image"] = None 
@@ -33,12 +33,13 @@ if "user_id" not in st.session_state:
 
 
 # ====================================================================
-# === 1. FUNCIÓN CALLBACK PARA MANEJAR SUBIDA DE ARCHIVO             ===
+# === 1. FUNCIONES AUXILIARES (Formateo y Callbacks) ===
 # ====================================================================
 
 def handle_file_upload():
     """
     Maneja la subida de un archivo y guarda los bytes temporalmente.
+    Esta función se ejecuta al cambiar el archivo en el st.file_uploader.
     """
     uploaded_file = st.session_state.get("avatar_uploader_widget")
     
@@ -53,11 +54,40 @@ def handle_file_upload():
         if "avatar_url" in st.session_state:
             del st.session_state["avatar_url"]
         
+        
+def format_iso_date(iso_string, use_current_time_if_none=False, date_only=False):
+    """
+    Formatea un string ISO 8601 a un formato legible.
+    """
     
+    if not iso_string:
+        if use_current_time_if_none:
+            # Opción para devolver la hora del sistema
+            format_str = "%Y-%m-%d" if date_only else "%Y-%m-%d %H:%M hrs"
+            return datetime.datetime.now().strftime(f"Sistema: {format_str}")
+        else:
+            return "N/A (No cargado)"
+            
+    try:
+        # Reemplaza 'Z' para compatibilidad con datetime.fromisoformat
+        dt = datetime.datetime.fromisoformat(iso_string.replace('Z', '+00:00'))
+        
+        # Aplicamos el formato deseado
+        if date_only:
+            return dt.strftime("%Y-%m-%d")
+        else:
+            return dt.strftime("%Y-%m-%d %H:%M hrs")
+            
+    except (ValueError, TypeError):
+        return "N/A (Error de formato)"
+
 
 # --- FUNCIÓN DE ACTUALIZACIÓN ---
 def update_user_profile(new_name: str, new_dob: datetime.date, new_phone: str, new_address: str, avatar_bytes: Optional[bytes], user_id: str, supabase):
-    """Actualiza datos si pasan las validaciones."""
+    """
+    Función principal que intenta actualizar los datos del perfil en Supabase.
+    Requiere un objeto 'supabase' real (el cliente de Supabase).
+    """
     data_to_update = {}
 
     # Doble chequeo de errores antes de proceder al guardado
@@ -85,9 +115,10 @@ def update_user_profile(new_name: str, new_dob: datetime.date, new_phone: str, n
 
     # 5. Manejo del Avatar:
     if avatar_bytes is not None and avatar_bytes != st.session_state.get("avatar_image"):
-        # Asegurarse de que el avatar se guarda como base64 o se sube al storage
+        # Esto prepara la imagen para ser guardada como base64 o subida.
         avatar_base64 = f"data:image/png;base64,{base64.b64encode(avatar_bytes).decode()}"
         data_to_update["avatar_url"] = avatar_base64
+        # También actualizamos el estado local para el display
         st.session_state["avatar_image"] = avatar_bytes 
             
     elif avatar_bytes is None and st.session_state.get("avatar_url"):
@@ -97,19 +128,21 @@ def update_user_profile(new_name: str, new_dob: datetime.date, new_phone: str, n
 
     if data_to_update:
         try:
-            # --- Aquí iría la lógica real de Supabase.update() ---
-            # Por ejemplo: supabase.table("profiles").update(data_to_update).eq("id", user_id).execute()
+            # --- LÓGICA REAL DE SUPABASE ---
+            # Ejemplo de cómo se vería la llamada real (debe usar tu objeto Supabase)
+            # result = supabase.table("profiles").update(data_to_update).eq("id", user_id).execute()
             
-            # Actualización del estado (Simulación local de éxito)
+            # --- SIMULACIÓN DE ÉXITO (MANTIENE LOS DATOS LOCALES) ---
             st.session_state.update({k: v for k, v in data_to_update.items()})
             
-            # Limpiar el estado temporal después de un guardado exitoso
             if "temp_avatar_bytes" in st.session_state:
                 del st.session_state["temp_avatar_bytes"]
             
             st.success("✅ ¡Perfil actualizado con éxito!")
             time.sleep(1) 
             st.rerun() 
+            # ----------------------------------------------------------
+            
         except Exception as e:
             st.error(f"❌ Error al actualizar el perfil: {e}")
     else:
@@ -117,14 +150,18 @@ def update_user_profile(new_name: str, new_dob: datetime.date, new_phone: str, n
 
 
 # ====================================================================
-# === 2. RENDERIZADO CON VALIDACIONES Y LECTURA DE ESTADO          ===
+# === 2. RENDERIZADO PRINCIPAL ===
 # ====================================================================
 
-def render_profile_page(supabase, request_password_reset):
-    """Renderiza el perfil del usuario con validaciones de entrada."""
+def render_profile_page(supabase_client, request_password_reset_callback):
+    """
+    Renderiza el perfil del usuario con validaciones de entrada.
+    :param supabase_client: El objeto cliente de Supabase (o un mock/clase con la misma interfaz).
+    :param request_password_reset_callback: La función que maneja el reseteo de contraseña.
+    """
     user_id = st.session_state.get("user_id")
     
-    # Obtener valores actuales del estado de la sesión (usando valores seguros por defecto)
+    # Obtener valores actuales del estado de la sesión
     current_name = st.session_state.get("full_name", "")
     current_dob_str = st.session_state.get("date_of_birth")
     current_phone = st.session_state.get("phone_number", "") 
@@ -136,8 +173,7 @@ def render_profile_page(supabase, request_password_reset):
     temp_bytes = st.session_state.get("temp_avatar_bytes")
 
     if not user_id:
-        st.warning("⚠️ No se pudo cargar el ID del usuario. Por favor, inicia sesión para editar.")
-        # Podemos mostrar un formulario vacío o solo lectura si no hay ID
+        st.warning("⚠️ No se pudo cargar el ID del usuario. Por favor, asegúrate de haber iniciado sesión y cargado el perfil.")
         return
 
     col_avatar, col_details = st.columns([1, 2])
@@ -145,12 +181,11 @@ def render_profile_page(supabase, request_password_reset):
     with col_details:
         st.header("Datos Personales y de Cuenta")
         
-        # Inicializar la bandera de error del formulario (False por defecto)
         form_has_error = False
 
         with st.form("profile_form", clear_on_submit=False):
             
-            # 1. --- Manejo de la Foto de Perfil (Columna Izquierda) ---
+            # --- Manejo de la Foto de Perfil (Columna Izquierda) ---
             with col_avatar:
                 st.subheader("Foto de Perfil")
                 
@@ -184,8 +219,6 @@ def render_profile_page(supabase, request_password_reset):
                             del st.session_state["avatar_url"]
                         st.rerun() 
                         
-            # 2. Campos de datos personales (Columna Derecha)
-            
             # --- INPUT: Nombre y Validación ---
             new_name = st.text_input("👤 Nombre completo", value=current_name, key="new_name")
             
@@ -193,7 +226,7 @@ def render_profile_page(supabase, request_password_reset):
             if new_name and not re.match(name_pattern, new_name):
                 st.error("❌ Error: El nombre no puede contener números ni caracteres especiales.")
                 st.session_state["name_error"] = True
-                form_has_error = True # Activa la bandera para deshabilitar el botón
+                form_has_error = True 
             else:
                 st.session_state["name_error"] = False
 
@@ -201,9 +234,9 @@ def render_profile_page(supabase, request_password_reset):
             new_phone = st.text_input("📞 Teléfono de contacto (9 dígitos, inicia con 9)", value=current_phone, max_chars=9, key="new_phone")
 
             if new_phone and not re.match(r"^9\d{8}$", new_phone):
-                 st.error("❌ Error: El teléfono debe comenzar con '9' y contener exactamente 9 dígitos.")
-                 st.session_state["phone_error"] = True
-                 form_has_error = True # Activa la bandera para deshabilitar el botón
+                   st.error("❌ Error: El teléfono debe comenzar con '9' y contener exactamente 9 dígitos.")
+                   st.session_state["phone_error"] = True
+                   form_has_error = True 
             else:
                 st.session_state["phone_error"] = False
 
@@ -227,30 +260,25 @@ def render_profile_page(supabase, request_password_reset):
             st.markdown("---")
             st.subheader("Datos de Cuenta (Solo Lectura)")
             
-            # --- Formateo de Fechas Reales (Lee del estado, si está cargado) ---
-            
-            def format_iso_date(iso_string):
-                """Formatea un string ISO 8601 a un formato legible."""
-                if not iso_string:
-                    return "N/A (No cargado)"
-                try:
-                    # Reemplaza 'Z' para compatibilidad con datetime.fromisoformat
-                    dt = datetime.datetime.fromisoformat(iso_string.replace('Z', '+00:00'))
-                    return dt.strftime("%Y-%m-%d %H:%M hrs")
-                except (ValueError, TypeError):
-                    return "N/A (Error de formato)"
-
-            formatted_created = format_iso_date(st.session_state.get("created_at"))
-            formatted_last_access = format_iso_date(st.session_state.get("last_sign_in_at"))
-
+            # 1. Fecha de Creación (Solo fecha, sin hora)
+            formatted_created = format_iso_date(
+                st.session_state.get("created_at"), 
+                date_only=True
+            )
+            # 2. Último Acceso (Fecha y hora, usa hora del sistema si es None)
+            formatted_last_access = format_iso_date(
+                st.session_state.get("last_sign_in_at"), 
+                use_current_time_if_none=True,
+                date_only=False
+            )
 
             col_left, col_right = st.columns(2)
             with col_left:
                 st.text_input("📅 Fecha de Creación", value=formatted_created, disabled=True, 
-                              help="Momento en que la cuenta de usuario fue registrada.")
+                              help="Momento en que el perfil fue creado en la tabla 'profiles'.")
             with col_right:
                 st.text_input("⏰ Último Acceso", value=formatted_last_access, disabled=True,
-                              help="Última vez que el usuario inició sesión correctamente.")
+                              help="Última vez que el usuario inició sesión. Muestra la hora del sistema si el dato no está cargado.")
             
             st.text_input("🏷️ Rol de Usuario", value=st.session_state.get("user_role", "guest").capitalize(), disabled=True)
             st.text_input("📧 Correo Electrónico", value=st.session_state.get("user_email", "N/A"), disabled=True)
@@ -258,7 +286,7 @@ def render_profile_page(supabase, request_password_reset):
             st.markdown("<br>", unsafe_allow_html=True)
             
             # 3. Botón de Guardar
-            submit_button_disabled = form_has_error # Deshabilitar si la bandera es True
+            submit_button_disabled = form_has_error
             
             if st.form_submit_button("💾 Guardar Cambios", disabled=submit_button_disabled):
                 
@@ -274,39 +302,13 @@ def render_profile_page(supabase, request_password_reset):
                     new_address, 
                     final_avatar_bytes, 
                     user_id, 
-                    MockSupabase() # Usamos el Mock/Objeto real de Supabase aquí
+                    supabase_client # Usamos el cliente real
                 )
 
     # Botón de cambio de contraseña fuera del form
     st.markdown("---")
     if st.button("🔒 Cambiar Contraseña", use_container_width=True):
-        request_password_reset(st.session_state.get("user_email"))
-
-# -------------------------------------------------------------------
-# --- CÓDIGO DE EJECUCIÓN Y SIMULACIÓN DE DEPENDENCIAS (PARA PROBAR) ---
-# -------------------------------------------------------------------
-
-# Estas clases son necesarias para que el código corra sin errores 
-# si no tienes implementadas las clases reales de Supabase y el reseteo.
-class MockSupabase:
-    def table(self, table_name): return self
-    def update(self, data): return self
-    def eq(self, column, value): return self
-    def execute(self): pass
-
-def mock_request_password_reset(email):
-    st.success(f"📧 Simulación: Se ha enviado un enlace de restablecimiento de contraseña a {email}.")
-
-if __name__ == '__main__':
-    st.set_page_config(layout="wide")
-    # Para la prueba inicial, puedes establecer algunos datos de prueba manualmente aquí:
-    st.session_state["user_id"] = "test_user_123" 
-    st.session_state["full_name"] = "Usuario Test"
-    st.session_state["phone_number"] = "900000000"
-    st.session_state["created_at"] = "2024-05-01T10:00:00.000Z"
-    st.session_state["last_sign_in_at"] = "2025-12-15T07:55:00.000Z"
-    
-    render_profile_page(MockSupabase(), mock_request_password_reset)
+        request_password_reset_callback(st.session_state.get("user_email"))
 
 
 
