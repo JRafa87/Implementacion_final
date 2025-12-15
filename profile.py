@@ -4,19 +4,20 @@ import base64
 import time
 import re
 import pytz
+from typing import Optional
 
-# =========================================================
-# CONFIGURACIÓN GENERAL
-# =========================================================
+# ==========================================================
+# CONFIGURACIÓN
+# ==========================================================
 
 TIMEZONE_PERU = pytz.timezone("America/Lima")
 
-# =========================================================
-# SESSION STATE (SEGURO)
-# =========================================================
+# ==========================================================
+# SESSION STATE INIT (OBLIGATORIO)
+# ==========================================================
 
-def init_session_state():
-    defaults = {
+if "profile_loaded" not in st.session_state:
+    st.session_state.update({
         "user_id": None,
         "user_email": "N/A",
         "user_role": "guest",
@@ -24,158 +25,170 @@ def init_session_state():
         "phone_number": "",
         "address": "",
         "date_of_birth": None,
-        "avatar_url": None,
         "avatar_image": None,
-        "temp_avatar_bytes": None,
+        "avatar_url": None,
         "created_at": None,
         "last_sign_in_at": None,
+        "temp_avatar_bytes": None,
         "profile_loaded": False
-    }
-    for k, v in defaults.items():
-        st.session_state.setdefault(k, v)
+    })
 
-init_session_state()
-
-# =========================================================
-# CARGA DE PERFIL (NO CACHEAR CLIENTE)
-# =========================================================
+# ==========================================================
+# CARGA DE PERFIL (CACHE SEGURO)
+# ==========================================================
 
 @st.cache_data(ttl=600)
-def load_profile(user_id, supabase):
+def load_user_profile_data(user_id: str):
     if not user_id:
         return None
-    res = supabase.table("profiles").select("*").eq("id", user_id).single().execute()
-    return res.data
 
-def sync_profile_to_state(profile):
+    supabase = st.session_state["supabase"]
+
+    response = (
+        supabase
+        .table("profiles")
+        .select("*")
+        .eq("id", user_id)
+        .single()
+        .execute()
+    )
+
+    return response.data
+
+
+def hydrate_session(profile: dict):
     if not profile:
         return
-    st.session_state["full_name"] = profile.get("full_name", "")
-    st.session_state["phone_number"] = profile.get("phone_number", "")
-    st.session_state["address"] = profile.get("address", "")
-    st.session_state["date_of_birth"] = profile.get("date_of_birth")
-    st.session_state["avatar_url"] = profile.get("avatar_url")
-    st.session_state["user_role"] = profile.get("role", "supervisor")
-    st.session_state["created_at"] = profile.get("created_at")
-    st.session_state["profile_loaded"] = True
 
-# =========================================================
+    st.session_state.update({
+        "full_name": profile.get("full_name", ""),
+        "phone_number": profile.get("phone_number", ""),
+        "address": profile.get("address", ""),
+        "date_of_birth": profile.get("date_of_birth"),
+        "avatar_url": profile.get("avatar_url"),
+        "user_role": profile.get("role", "supervisor"),
+        "created_at": profile.get("created_at"),
+        "profile_loaded": True
+    })
+
+# ==========================================================
 # UTILIDADES
-# =========================================================
+# ==========================================================
 
-def format_datetime_peru(iso):
-    if not iso:
+def format_date_peru(iso_str):
+    if not iso_str:
         return "N/A"
-    dt = datetime.datetime.fromisoformat(iso.replace("Z", "+00:00"))
+
+    dt = datetime.datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
+    return dt.astimezone(TIMEZONE_PERU).strftime("%Y-%m-%d")
+
+
+def format_datetime_peru(iso_str, use_now_if_none=False):
+    if not iso_str:
+        if use_now_if_none:
+            return datetime.datetime.now(TIMEZONE_PERU).strftime("%Y-%m-%d %H:%M hrs (PE)")
+        return "N/A"
+
+    dt = datetime.datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
     return dt.astimezone(TIMEZONE_PERU).strftime("%Y-%m-%d %H:%M hrs (PE)")
 
-def format_date_peru(iso):
-    if not iso:
-        return "N/A"
-    dt = datetime.datetime.fromisoformat(iso.replace("Z", "+00:00"))
-    return dt.astimezone(TIMEZONE_PERU).strftime("%Y-%m-%d")
 
 def handle_avatar_upload():
     file = st.session_state.get("avatar_uploader")
     if file:
         st.session_state["temp_avatar_bytes"] = file.read()
 
-# =========================================================
-# ACTUALIZAR PERFIL
-# =========================================================
 
-def update_profile(supabase, user_id, name, phone, address, dob, avatar_bytes):
-    data = {}
+def update_profile(
+    name: str,
+    dob: datetime.date,
+    phone: str,
+    address: str,
+    avatar: Optional[bytes]
+):
+    supabase = st.session_state["supabase"]
+    user_id = st.session_state["user_id"]
 
-    if name != st.session_state["full_name"]:
-        data["full_name"] = name
+    payload = {
+        "full_name": name,
+        "phone_number": phone,
+        "address": address,
+        "date_of_birth": dob.strftime("%Y-%m-%d") if dob else None
+    }
 
-    if phone != st.session_state["phone_number"]:
-        data["phone_number"] = phone
+    if avatar:
+        payload["avatar_url"] = (
+            "data:image/png;base64," + base64.b64encode(avatar).decode()
+        )
 
-    if address != st.session_state["address"]:
-        data["address"] = address
+    supabase.table("profiles").update(payload).eq("id", user_id).execute()
 
-    dob_str = dob.strftime("%Y-%m-%d") if dob else None
-    if dob_str != st.session_state["date_of_birth"]:
-        data["date_of_birth"] = dob_str
-
-    if avatar_bytes:
-        data["avatar_url"] = f"data:image/png;base64,{base64.b64encode(avatar_bytes).decode()}"
-
-    if not data:
-        st.info("ℹ️ No hay cambios para guardar")
-        return
-
-    supabase.table("profiles").update(data).eq("id", user_id).execute()
-    load_profile.clear()
-    st.success("✅ Perfil actualizado")
+    load_user_profile_data.clear()
+    st.success("✅ Perfil actualizado correctamente")
     time.sleep(1)
     st.rerun()
 
-# =========================================================
+# ==========================================================
 # RENDER PRINCIPAL
-# =========================================================
+# ==========================================================
 
-def render_profile_page(supabase, request_password_reset):
+def render_profile_page(supabase_client, request_password_reset):
 
+    st.session_state["supabase"] = supabase_client
     user_id = st.session_state.get("user_id")
 
     if not user_id:
-        st.warning("⚠️ Debes iniciar sesión")
+        st.warning("⚠️ Usuario no autenticado")
         return
 
     if not st.session_state["profile_loaded"]:
-        profile = load_profile(user_id, supabase)
-        sync_profile_to_state(profile)
+        profile = load_user_profile_data(user_id)
+        hydrate_session(profile)
         st.rerun()
 
-    # =========================
-    # UI
-    # =========================
+    col_img, col_data = st.columns([1, 2])
 
-    st.header("👤 Mi Perfil")
+    # ======================================================
+    # AVATAR
+    # ======================================================
+    with col_img:
+        st.subheader("Foto de Perfil")
 
-    col_avatar, col_form = st.columns([1, 2])
-
-    with col_avatar:
         avatar = (
             st.session_state.get("temp_avatar_bytes")
-            or st.session_state.get("avatar_image")
             or st.session_state.get("avatar_url")
-            or "https://placehold.co/200x200?text=User"
+            or "https://placehold.co/200x200?text=U"
         )
+
         st.image(avatar, width=150)
+
         st.file_uploader(
-            "Cambiar foto",
+            "Subir / Cambiar foto",
             type=["png", "jpg", "jpeg"],
             key="avatar_uploader",
             on_change=handle_avatar_upload
         )
 
-    with col_form:
+    # ======================================================
+    # FORMULARIO
+    # ======================================================
+    with col_data:
+        st.header("Datos Personales y de Cuenta")
+
         with st.form("profile_form"):
+
             name = st.text_input("Nombre completo", st.session_state["full_name"])
             phone = st.text_input("Teléfono", st.session_state["phone_number"], max_chars=9)
             address = st.text_area("Dirección", st.session_state["address"])
 
-            dob_val = None
-            if st.session_state["date_of_birth"]:
-                dob_val = datetime.datetime.strptime(
-                    st.session_state["date_of_birth"], "%Y-%m-%d"
-                ).date()
-
             dob = st.date_input(
                 "Fecha de nacimiento",
-                value=dob_val or datetime.date(2000, 1, 1),
-                min_value=datetime.date(1900, 1, 1),
-                max_value=datetime.date.today()
+                value=datetime.date(2000, 1, 1)
             )
 
-            # =========================
-            # VALIDACIONES (AUTO LIMPIABLES)
-            # =========================
-
+            # ===============================
+            # VALIDACIONES (LOCALES)
+            # ===============================
             name_error = False
             phone_error = False
 
@@ -189,42 +202,49 @@ def render_profile_page(supabase, request_password_reset):
 
             submit_disabled = name_error or phone_error
 
+            st.markdown("### Datos de Cuenta (Solo lectura)")
+
+            st.text_input(
+                "Fecha de Creación",
+                value=format_date_peru(st.session_state["created_at"]),
+                disabled=True
+            )
+
+            st.text_input(
+                "Última sesión",
+                value=format_datetime_peru(
+                    st.session_state.get("last_sign_in_at"),
+                    use_now_if_none=True
+                ),
+                disabled=True
+            )
+
+            st.text_input(
+                "Rol",
+                value=st.session_state["user_role"].capitalize(),
+                disabled=True
+            )
+
+            st.text_input(
+                "Correo",
+                value=st.session_state["user_email"],
+                disabled=True
+            )
+
             if st.form_submit_button("💾 Guardar cambios", disabled=submit_disabled):
                 update_profile(
-                    supabase,
-                    user_id,
                     name,
+                    dob,
                     phone,
                     address,
-                    dob,
                     st.session_state.get("temp_avatar_bytes")
                 )
 
-    # =========================
-    # DATOS DE CUENTA
-    # =========================
-
     st.markdown("---")
-    st.subheader("🔐 Datos de Cuenta")
 
-    col1, col2 = st.columns(2)
-    col1.text_input(
-        "Fecha de creación",
-        value=format_date_peru(st.session_state["created_at"]),
-        disabled=True
-    )
-    col2.text_input(
-        "Última sesión",
-        value=format_datetime_peru(st.session_state["last_sign_in_at"]),
-        disabled=True
-    )
-
-    st.text_input("Rol", st.session_state["user_role"].capitalize(), disabled=True)
-    st.text_input("Correo", st.session_state["user_email"], disabled=True)
-
-    st.markdown("---")
     if st.button("🔒 Cambiar contraseña", use_container_width=True):
         request_password_reset(st.session_state["user_email"])
+
 
 
 
