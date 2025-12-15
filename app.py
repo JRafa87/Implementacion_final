@@ -343,29 +343,11 @@ def render_signup_form():
         st.text_input("Nombre completo", key="signup_name")
         st.text_input("Correo", key="signup_email")
         st.text_input("Contraseña (mín. 6 caracteres)", type="password", key="signup_password")
-
         if st.form_submit_button("Registrarse"):
-            email = st.session_state.signup_email
-            name = st.session_state.signup_name
-            password = st.session_state.signup_password
-
-            if not name or not email or not password:
+            if st.session_state.signup_name and st.session_state.signup_email and st.session_state.signup_password:
+                sign_up(st.session_state.signup_email, st.session_state.signup_password, st.session_state.signup_name)
+            else:
                 st.error("Completa todos los campos.")
-                return
-
-            if not is_valid_email_format(email):
-                st.error("❌ El correo no tiene un formato válido (ej: usuario@empresa.com).")
-                return
-
-            if not domain_exists(email):
-                st.error("❌ El dominio del correo no existe o no acepta correos.")
-                return
-
-            if len(password) < 6:
-                st.error("❌ La contraseña debe tener al menos 6 caracteres.")
-                return
-
-            sign_up(email, password, name)
 
 
 def render_password_reset_form():
