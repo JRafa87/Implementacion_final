@@ -107,18 +107,18 @@ def create_radar_chart(latest_data: pd.Series):
 # 3. MÓDULO PRINCIPAL DE STREAMLIT
 # =================================================================
 
-def historial_encuestas_module(df_data):
+def historial_encuestas_module(df_maestro):
     """Renderiza el módulo 'Historial de Encuestas'."""
     st.title("👤 Módulo: Historial de Encuestas por Empleado")
     
     # --- 3.1 Filtro de Empleado ---
-    unique_employees = sorted(df_data['EmployeeNumber'].unique())
+    unique_employees = sorted(df_maestro['EmployeeNumber'].unique())
     selected_employee = st.selectbox(
         "🔍 Selecciona el Número de Empleado:",
         options=unique_employees,
     )
 
-    employee_data = df_data[df_data['EmployeeNumber'] == selected_employee].copy()
+    employee_data = df_maestro[df_maestro['EmployeeNumber'] == selected_employee].copy()
     
     latest_survey = employee_data.iloc[-1]
     risk_data = get_risk_analysis(employee_data)
