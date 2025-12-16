@@ -112,6 +112,7 @@ def update_profile(
     }
 
     if avatar:
+        # Nota: Idealmente, usar Supabase Storage en lugar de Base64 grande
         payload["avatar_url"] = (
             "data:image/png;base64,"
             + base64.b64encode(avatar).decode()
@@ -133,6 +134,8 @@ def render_profile_page(supabase_client, request_password_reset):
     # Guardamos Supabase en session_state (clave para cache)
     st.session_state["supabase"] = supabase_client
 
+    # 🚨 SOLUCIÓN KEYERROR: Inicializar user_id si no existe
+    # Esto es crítico si la sesión no está completamente hidratada
     user_id = st.session_state.get("user_id")
 
     if not user_id:
@@ -142,7 +145,9 @@ def render_profile_page(supabase_client, request_password_reset):
     # ===============================
     # CARGA DEL PERFIL
     # ===============================
-    if not st.session_state["profile_loaded"]:
+    # 🚨 SOLUCIÓN KEYERROR: Usar .get() con valor por defecto
+    # Esto evita el KeyError si la clave no se carga a tiempo en el móvil.
+    if not st.session_state.get("profile_loaded", False):
         profile = load_user_profile_data(user_id)
         hydrate_session(profile)
         st.rerun()
@@ -155,13 +160,15 @@ def render_profile_page(supabase_client, request_password_reset):
     with col_img:
         st.subheader("Foto de Perfil")
 
-        avatar = (
-            st.session_state.get("temp_avatar_bytes")
-            or st.session_state.get("avatar_url")
-            or "https://placehold.co/200x200?text=U"
+        # 🖼️ SOLUCIÓN AVATAR: Usar bytes directamente si están disponibles, 
+        # lo que es más eficiente para el renderizado móvil que el Base64.
+        avatar_display = (
+            st.session_state.get("temp_avatar_bytes") # Bytes (si se acaba de subir)
+            or st.session_state.get("avatar_url")      # URL (Base64 o pública)
+            or "https://placehold.co/200x200?text=U"  # Placeholder
         )
 
-        st.image(avatar, width=150)
+        st.image(avatar_display, width=150)
 
         st.file_uploader(
             "Subir / Cambiar foto",
@@ -180,9 +187,21 @@ def render_profile_page(supabase_client, request_password_reset):
         phone = st.text_input("📞 Teléfono", st.session_state["phone_number"], max_chars=9)
         address = st.text_area("🏠 Dirección", st.session_state["address"])
 
+        # Manejo más seguro para date_of_birth, asumiendo una fecha por defecto si es None
+        initial_dob = st.session_state.get("date_of_birth")
+        if initial_dob:
+            # Si se almacena como string 'YYYY-MM-DD', conviértelo a date
+            if isinstance(initial_dob, str):
+                try:
+                    initial_dob = datetime.date.fromisoformat(initial_dob)
+                except ValueError:
+                    initial_dob = datetime.date(2000, 1, 1) # Fallback
+        else:
+             initial_dob = datetime.date(2000, 1, 1) # Default si es None
+
         dob = st.date_input(
             "🗓️ Fecha de nacimiento",
-            value=datetime.date(2000, 1, 1),
+            value=initial_dob,
             min_value=datetime.date(1900, 1, 1),
             max_value=datetime.date.today()
         )
