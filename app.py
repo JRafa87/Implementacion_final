@@ -1,4 +1,4 @@
-import streamlit as st
+     import streamlit as st
 from typing import Optional
 import jwt
 from supabase import create_client, Client
@@ -8,6 +8,7 @@ import asyncio
 import httpx
 import datetime
 import pandas as pd
+# Importaciones de módulos locales (deben existir en tu proyecto)
 from profile import render_profile_page
 from employees_crud import render_employee_management_page
 from app_reconocimiento import render_recognition_page
@@ -27,9 +28,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
-
-# Modo testing (para usar localhost o la URL de despliegue)
-#testing_mode = st.secrets.get("testing_mode", False)
 
 @st.cache_resource
 def get_supabase() -> Client:
@@ -51,7 +49,10 @@ try:
     google_client = GoogleOAuth2(client_id, client_secret)
 except KeyError:
     google_client = None
-    st.warning("Google OAuth no configurado")
+    # st.warning("Google OAuth no configurado") # Comentado para evitar spam de warnings
+    redirect_url = None
+
+REDIRECT_URL = redirect_url # Usar la variable local o None
 
 # Definición de todas las páginas disponibles
 PAGES = [
@@ -68,15 +69,6 @@ PAGES = [
 # 1. FUNCIONES AUXILIARES DE GOOGLE OAUTH
 # ============================================================
 
-try:
-    google_client = GoogleOAuth2(
-        st.secrets["client_id"],
-        st.secrets["client_secret"]
-    )
-    REDIRECT_URL = st.secrets["REDIRECT_URL"]
-except KeyError:
-    google_client = None
-
 def _decode_google_token(token: str):
     return jwt.decode(token, options={"verify_signature": False})
 
@@ -89,6 +81,7 @@ def _ensure_loop():
         return loop
 
 async def _auth_url():
+    if not google_client or not REDIRECT_URL: return "#" # Fallback de seguridad
     url = await google_client.get_authorization_url(
         REDIRECT_URL,
         scope=["email", "profile"]
@@ -96,10 +89,12 @@ async def _auth_url():
     return url
 
 async def _access_token(code: str):
+    if not google_client or not REDIRECT_URL: return None
     return await google_client.get_access_token(code, REDIRECT_URL)
 
 def get_google_user() -> Optional[dict]:
     if "google_user" in st.session_state:
+        # Ya autenticado en la sesión actual
         return st.session_state["google_user"]
 
     if not google_client:
@@ -112,20 +107,37 @@ def get_google_user() -> Optional[dict]:
     try:
         loop = _ensure_loop()
         token = loop.run_until_complete(_access_token(code))
+        
+        # Si la URL tenía parámetros de autenticación, limpiarlos
+        st.experimental_set_query_params() 
+
+        # Si no hay token o id_token (error de Google)
+        if not token or "id_token" not in token:
+            return None
+            
         decoded = _decode_google_token(token["id_token"])
 
-        st.experimental_set_query_params()
 
+        # Almacenar el usuario de Google para el paso de sincronización
         st.session_state["google_user"] = {
             "email": decoded.get("email"),
             "name": decoded.get("name"),
-            "avatar": decoded.get("picture")
+            "avatar": decoded.get("picture"),
+            "sub": decoded.get("sub") # El ID de Google, útil para Supabase
         }
         return st.session_state["google_user"]
-    except Exception:
+    except Exception as e:
+        # st.error(f"Error en Google OAuth: {e}")
+        st.experimental_set_query_params() 
         return None
 
+# Mantenemos esta función de sincronización, pero la simplificaremos al final
+# para que se use el mismo cargador de perfil que Supabase, usando el ID de Supabase.
 def sync_google_profile(user):
+    """
+    Sincroniza el perfil de Google con la tabla 'profiles' de Supabase.
+    Si el usuario existe, lo actualiza. Si no, lo crea con rol 'guest'.
+    """
     email = user["email"]
     name = user["name"]
     avatar = user["avatar"]
@@ -137,14 +149,17 @@ def sync_google_profile(user):
         .limit(1)
         .execute()
     )
-
+    
+    # 1. Si el perfil existe, lo actualiza
     if profile.data:
+        # Actualiza solo nombre y avatar (si cambian)
         supabase.table("profiles").update({
             "full_name": name,
             "avatar_url": avatar
         }).eq("email", email).execute()
 
         p = profile.data[0]
+        # Establece la sesión con el ID y ROL de Supabase
         st.session_state.update({
             "authenticated": True,
             "user_email": email,
@@ -153,14 +168,16 @@ def sync_google_profile(user):
             "full_name": name,
             "avatar_url": avatar
         })
+    # 2. Si el perfil no existe, lo crea
     else:
         new = supabase.table("profiles").insert({
             "email": email,
             "full_name": name,
             "avatar_url": avatar,
-            "role": "guest"
+            "role": "guest" # Rol por defecto para nuevos
         }).execute()
-
+        
+        # Establece la sesión con el ID y ROL de Supabase
         st.session_state.update({
             "authenticated": True,
             "user_email": email,
@@ -168,124 +185,128 @@ def sync_google_profile(user):
             "user_role": "guest",
             "full_name": name,
             "avatar_url": avatar
-        })        
+        })
+    
+    # Asegurar que se cargue la página inicial después de una autenticación exitosa
+    if "current_page" not in st.session_state:
+        st.session_state["current_page"] = "Mi Perfil"
+    
+    # Usar un rerun para asegurar que la UI cambie inmediatamente después de la sincronización
+    st.rerun() 
+    # NOTA: Este rerun es crítico para la transición de la página de login a la app principal.
 
 # ============================================================
-# 2. FUNCIONES DE SUPABASE / ROLES (Autorización y Perfil)
+# 2. FUNCIONES DE SUPABASE / ROLES (Autorización y Perfil) - UNIFICADO
 # ============================================================
 
-def _fetch_user_profile(user_id: str):
-    """Obtiene el perfil completo (nombre, fecha de nacimiento y URL del avatar) del usuario."""
+def _fetch_and_set_user_profile(user_id: str, email: str):
+    """
+    CORRECCIÓN: Obtiene el perfil completo y establece TODO el estado de sesión
+    basado en el ID de Supabase.
+    """
     # Inicialización de fallback local
-    st.session_state["user_role"] = "guest"
-    st.session_state["full_name"] = "Usuario"
-    st.session_state["date_of_birth"] = None
-    st.session_state["avatar_url"] = None 
-    st.session_state["user_id"] = None
+    default_state = {
+        "user_role": "guest",
+        "full_name": email.split('@')[0],
+        "date_of_birth": None,
+        "avatar_url": None,
+        "user_id": user_id,
+        "authenticated": True,
+        "user_email": email,
+    }
 
     try:
         response = supabase.table("profiles").select("*").eq("id", user_id).limit(1).execute()
         
         if response.data:
             profile = response.data[0]
-            st.session_state["user_role"] = profile.get("role", "guest")
-            st.session_state["full_name"] = profile.get("full_name", "Usuario") 
-            st.session_state["user_id"] = user_id
-            st.session_state["avatar_url"] = profile.get("avatar_url", None)
             
-            # Manejar la fecha de nacimiento: convertir la cadena de Supabase a objeto date
+            # 1. Manejar la fecha de nacimiento: convertir la cadena de Supabase a objeto date
             dob_str = profile.get("date_of_birth")
-            if dob_str:
-                st.session_state["date_of_birth"] = datetime.datetime.strptime(dob_str, '%Y-%m-%d').date()
-            else:
-                 st.session_state["date_of_birth"] = None
-            
-            # Fallback si el nombre está vacío
-            if not st.session_state["full_name"] or st.session_state["full_name"] == "Usuario":
-                 st.session_state["full_name"] = st.session_state.get("user_email", "Usuario").split('@')[0]
+            date_of_birth = datetime.datetime.strptime(dob_str, '%Y-%m-%d').date() if dob_str else None
+
+            # 2. Fallback si el nombre está vacío
+            full_name = profile.get("full_name")
+            if not full_name or full_name == "Usuario":
+                full_name = email.split('@')[0]
+                
+            # Actualizar el estado con datos de la DB
+            st.session_state.update({
+                "authenticated": True,
+                "user_email": email,
+                "user_id": user_id,
+                "user_role": profile.get("role", "guest"),
+                "full_name": full_name, 
+                "avatar_url": profile.get("avatar_url"),
+                "date_of_birth": date_of_birth,
+            })
+            return True # Perfil cargado
         else:
-            st.session_state["full_name"] = st.session_state.get("user_email", "Usuario").split('@')[0]
-            st.session_state["user_id"] = user_id
+            # Si el usuario existe en auth pero no en 'profiles' (raro/error), usar defaults
+            st.session_state.update(default_state)
+            return True
             
     except Exception as e:
-        st.session_state["user_id"] = None
+        # Fallback de seguridad si falla la DB o el parseo de fecha
+        # st.warning(f"Error al cargar perfil de DB: {e}")
+        st.session_state.update(default_state)
+        return True # Asumir que está logueado, pero con rol 'guest'
+
 
 # ============================================================
-# 3. FUNCIONES PRINCIPALES DE AUTENTICACIÓN HÍBRIDA
+# 3. FUNCIONES PRINCIPALES DE AUTENTICACIÓN HÍBRIDA (CORREGIDO)
 # ============================================================
-
-def set_page(page_name):
-    """
-    Callback para establecer la nueva página. 
-    Se elimina st.experimental_rerun() para evitar conflictos de ciclo de vida.
-    Streamlit detectará el cambio en st.session_state y hará el rerun automáticamente.
-    """
-    st.session_state.current_page = page_name
-    # st.experimental_rerun() <-- LÍNEA ELIMINADA para estabilidad
 
 def check_session() -> bool:
+    """
+    Verifica la sesión activa en el siguiente orden:
+    1. Google OAuth (código en URL)
+    2. Tokens de Supabase (access/refresh en URL)
+    3. Sesión activa de Supabase (cookies/storage)
+    """
+    # Siempre asegurar la página inicial para evitar errores de navegación al inicio
     if "current_page" not in st.session_state:
         st.session_state["current_page"] = "Mi Perfil"
 
+    # 1. Intento de Google OAuth
     google_user = get_google_user()
     if google_user:
-        sync_google_profile(google_user)
-        return True
+        # La función sync_google_profile maneja la BD, setea el estado y fuerza el st.rerun().
+        # Si llega aquí, significa que hay un código en la URL y se está procesando.
+        # Es CRÍTICO que sync_google_profile haga un rerun para saltar a la app.
+        sync_google_profile(google_user) 
+        return True # Aunque sync_google_profile hace un rerun, retornamos True para no continuar.
 
-    try:
-        user = supabase.auth.get_user().user
-        if user:
-            st.session_state["authenticated"] = True
-            st.session_state["user_email"] = user.email
-            return True
-    except:
-        pass
-
-    return False
-
-    # Inicializar el resto del estado de sesión si falta el flag de autenticación.
-    if "authenticated" not in st.session_state:
-        st.session_state.update({
-            "authenticated": False,
-            "user_role": "guest",
-            "user_id": None,
-            "user_email": None,
-            "full_name": "Usuario",
-            "date_of_birth": None,
-            "avatar_url": None,
-            # 'current_page' ya no se inicializa aquí
-        })
-
-    # 1. Manejo de tokens de Supabase desde la URL (Verificación/Reset)
+    # 2. Manejo de tokens de Supabase desde la URL (Verificación/Reset)
     query_params = st.query_params
     access_token = query_params.get("access_token")
     refresh_token = query_params.get("refresh_token")
     
     if access_token and refresh_token:
         try:
+            # Establece la sesión en el cliente de Supabase
             supabase.auth.set_session(access_token=access_token, refresh_token=refresh_token)
-            st.experimental_set_query_params()
-            st.rerun()
+            st.experimental_set_query_params() # Limpia la URL
+            st.rerun() # Fuerza la recarga con la sesión activa
             return True
         except Exception:
-            pass
-
-
+            # Fallo en la sesión URL
+            st.experimental_set_query_params()
+            pass 
 
     # 3. Intento de Supabase (Email/Contraseña o Sesión existente)
     try:
         user_response = supabase.auth.get_user()
         user = getattr(user_response, "user", None)
+        
         if user:
-            st.session_state["authenticated"] = True
-            st.session_state["user_email"] = user.email
-            if st.session_state.get("user_id") != user.id:
-                _fetch_user_profile(user_id=user.id)
-            return True
-    except Exception:
-        pass
+            # Si hay sesión de Supabase, cargar el perfil y el rol de DB
+            return _fetch_and_set_user_profile(user_id=user.id, email=user.email)
 
-    # 4. No autenticado (Fall-back de seguridad, garantiza que todos los valores son Nones)
+    except Exception:
+        pass # No hay sesión Supabase activa
+
+    # 4. No autenticado (Fallback de seguridad, si todos los métodos fallaron)
     st.session_state.update({
         "authenticated": False,
         "user_role": "guest",
@@ -294,13 +315,14 @@ def check_session() -> bool:
         "full_name": "Usuario",
         "date_of_birth": None,
         "avatar_url": None,
-        # 'current_page' no se toca aquí para mantener el estado de navegación si no hay logout
+        # 'current_page' ya está seteado o lo dejamos como está
     })
     return False
 
 def sign_in_manual(email, password):
     """Inicia sesión con Email/Contraseña."""
     try:
+        # La función sign_in_with_password establece la sesión en el cliente
         supabase.auth.sign_in_with_password({"email": email, "password": password})
         st.success("Inicio de sesión exitoso. Recargando...")
         st.rerun()
@@ -313,31 +335,36 @@ def sign_up(email, password, name):
     """
     try:
         # 1. Registrar usuario
-        user_info = supabase.auth.sign_up({
+        user_response = supabase.auth.sign_up({
             "email": email,
             "password": password,
         })
+        user = getattr(user_response, "user", None)
         
-        # 2. Crear entrada en la tabla 'profiles' para el nombre y rol
-        user_id = user_info.user.id
-        supabase.table("profiles").insert({
-            "id": user_id, 
-            "email": email,
-            "full_name": name, 
-            "role": "supervisor",
-            "date_of_birth": None,
-            "avatar_url": None
-        }).execute()
+        if user:
+            # 2. Crear entrada en la tabla 'profiles' para el nombre y rol
+            user_id = user.id
+            supabase.table("profiles").insert({
+                "id": user_id, 
+                "email": email,
+                "full_name": name, 
+                "role": "supervisor", # Rol inicial por defecto
+                "date_of_birth": None,
+                "avatar_url": None
+            }).execute()
 
-        st.success("Registro exitoso. Revisa tu correo electrónico para verificar tu cuenta.")
-        st.info("⚠️ Si no recibes el correo, verifica la configuración SMTP en el panel de Supabase.")
+            st.success("Registro exitoso. Revisa tu correo electrónico para verificar tu cuenta. Recargando...")
+            st.info("⚠️ Si no recibes el correo, verifica la configuración SMTP en el panel de Supabase.")
+            # st.rerun() # No es necesario el rerun aquí, la verificación es asíncrona.
+        else:
+            # Manejar el caso donde SupabaseAuthError no lanza excepción pero user es None
+             st.error("Error al registrar: No se pudo crear el usuario en el servicio de autenticación.")
+
     except Exception as e:
         st.error(f"Error al registrar: {e}")
 
 def request_password_reset(email):
-    """
-    Solicita un enlace para restablecer la contraseña.
-    """
+    """Solicita un enlace para restablecer la contraseña."""
     try:
         supabase.auth.reset_password_for_email(email)
         st.success("Correo de recuperación enviado.")
@@ -352,11 +379,14 @@ def handle_logout():
     except Exception:
         pass
     st.session_state.clear()
-    st.rerun()        
-
+    st.rerun() 
+    
 # ============================================================
 # 5. FUNCIONES DE UI (Interfaz de Usuario) - Renderizado
 # ============================================================
+
+# Las funciones render_login_form, render_signup_form, render_password_reset_form 
+# y render_auth_page se mantienen sin cambios, ya que su lógica de UI es correcta.
 
 def render_login_form():
     with st.form("login_form", clear_on_submit=False):
@@ -394,14 +424,13 @@ def render_auth_page():
         st.markdown("---")
 
         # --- Botón de Google Rediseñado ---
-        if google_client is not None:
+        authorization_url = "#"
+        if google_client is not None and REDIRECT_URL:
             try:
                 loop = _ensure_loop()
                 authorization_url = loop.run_until_complete(_auth_url())
 
-        
             except Exception as e:
-                authorization_url = "#"
                 st.error(f"Error al inicializar Google OAuth. Revisa secrets.toml. ({e})")
             
             # Estilo minimalista para el botón de Google (usando HTML/CSS simple)
@@ -446,11 +475,15 @@ def render_auth_page():
             st.subheader("Restablecer")
             render_password_reset_form()
 
+def set_page(page_name):
+    """Callback para establecer la nueva página."""
+    st.session_state.current_page = page_name
+
 def render_sidebar():
     """Renderiza la barra lateral con información de la sesión y navegación."""
     
-    # Acceder a current_page de forma segura con .get() y un valor por defecto.
     current_page = st.session_state.get("current_page", "Mi Perfil") 
+    user_role = st.session_state.get('user_role', 'guest')
     
     with st.sidebar:
         # Mini perfil en la barra lateral
@@ -476,33 +509,38 @@ def render_sidebar():
             """, unsafe_allow_html=True)
 
         with col2:
-            # Mostrar el nombre del usuario autenticado
             st.title(f"👋 {st.session_state.get('full_name', 'Usuario').split(' ')[0]}")
-            st.caption(f"Rol: **{st.session_state.get('user_role', 'guest').capitalize()}**")
+            st.caption(f"Rol: **{user_role.capitalize()}**")
 
         st.markdown("---")
         
         # Menú de Navegación
         st.markdown("### Navegación")
         
-        # Botones de navegación (FIX: Usando on_click para estabilidad)
+        # Filtrar o asignar iconos
+        icon_map = {
+            "Mi Perfil": "👤",
+            "Dashboard": "📊",
+            "Gestión de Empleados": "👥",
+            "Predicción desde Archivo": "📁",
+            "Predicción Manual": "✏️",
+            "Reconocimiento": "⭐",
+            "Historial de Encuesta": "📜"
+        }
+        
+        # Lógica de Permisos (Ejemplo: Solo Admins/Supervisores ven Gestión)
+        # Puedes adaptar esta lógica según tus roles:
+        PAGES_FILTRADAS = []
         for page in PAGES:
-            # Asignar iconos
-            icon_map = {
-                "Mi Perfil": "👤",
-                "Dashboard": "📊",
-                "Gestión de Empleados": "👥",
-                "Predicción desde Archivo": "📁",
-                "Predicción Manual": "✏️",
-                "Reconocimiento": "⭐",
-                "Historial de Encuestas": "📜"
-            }
+            # Ejemplo de restricción
+            if page == "Gestión de Empleados" and user_role not in ["admin", "supervisor"]:
+                 continue
+            PAGES_FILTRADAS.append(page)
+
+        for page in PAGES_FILTRADAS:
             icon = icon_map.get(page, "➡️")
-            
-            # Resaltar el botón de la página actual, usando la variable segura current_page
             button_style = "primary" if current_page == page else "secondary"
             
-            # Uso de on_click para manejar la navegación de forma segura
             st.button(
                 f"{icon} {page}", 
                 key=f"nav_{page}", 
@@ -520,14 +558,14 @@ def render_sidebar():
             handle_logout()
 
         # -----------------------------------------------------------------
-        # <--- AÑADIR ESTE BLOQUE DE CONTROL DE ENCUESTAS (ADMIN) --->
+        # <--- BLOQUE DE CONTROL DE ENCUESTAS (ADMIN/SUPERVISOR) --->
         # -----------------------------------------------------------------
         
-        # Asumiendo que 'supervisor' o 'admin' tienen permisos para controlar la encuesta.
-        #if user_role in ["admin", "supervisor"]: 
-            # El panel ya usa st.sidebar internamente, solo lo llamamos.
-            # Pasamos el cliente 'supabase' que es necesario.
-        render_survey_control_panel(supabase)
+        if user_role in ["admin", "supervisor"]: 
+             st.markdown("---")
+             st.markdown("### ⚙️ Control de Encuestas")
+             # El panel ya usa st.sidebar internamente.
+             render_survey_control_panel(supabase)
 
 
 def render_placeholder_page(page_title):
@@ -535,14 +573,7 @@ def render_placeholder_page(page_title):
     st.title(page_title)
     st.info(f"Esta es la página de **{page_title}**. El contenido detallado se desarrollará en el siguiente paso.")
     st.markdown("---")
-    if page_title == "Predicción desde Archivo 📁":
-        st.warning("Se incluirá una sección para subir un archivo CSV y obtener predicciones de deserción masiva.")
-    elif page_title == "Predicción Manual ✏️":
-        st.warning("Se mostrará un formulario para ingresar manualmente las características de un empleado y obtener la probabilidad de deserción.")
-    elif page_title == "Reconocimiento ⭐":
-        st.warning("Esta sección será para gestionar y visualizar reconocimientos o premios a empleados.")
-    elif page_title == "Historial de Encuestas 📜":
-        st.success("Esta es la página que hemos desarrollado. Aquí se permite la **consulta individual por empleado**, mostrando su **trayectoria de riesgo**, el **perfil de satisfacción (Radar)** y la **tabla histórica de respuestas**.")
+
 
 # ============================================================
 # 6. CONTROL DE FLUJO PRINCIPAL
@@ -551,26 +582,43 @@ def render_placeholder_page(page_title):
 # 1. Se ejecuta al inicio para determinar el estado de la sesión
 session_is_active = check_session()
 
-
-
 # 2. Control de Acceso
 if session_is_active:
+    # 2.1 Asegurar que la sesión se haya cargado correctamente antes de renderizar
+    if "user_id" not in st.session_state or st.session_state["user_id"] is None:
+        # Esto puede ocurrir si check_session falla justo después de Google
+        # Forzamos la carga del perfil por si acaso (aunque check_session debería hacerlo)
+        if st.session_state.get("user_email"):
+             # Forzar la obtención de la info completa, asumiendo que el ID vendrá del get_user()
+             pass # El flujo de check_session ya debería haber llamado a _fetch_and_set_user_profile o sync_google_profile
+
     render_sidebar()
+    
     # 3. Renderizar la página actual
     page_map = {
         "Mi Perfil": lambda: render_profile_page(supabase, request_password_reset),
         "Dashboard": render_rotacion_dashboard,
-        "Gestión de Empleados":lambda: render_employee_management_page() , # Función CRUD dedicada
+        "Gestión de Empleados":lambda: render_employee_management_page(), 
         "Predicción desde Archivo": render_predictor_page,
         "Predicción Manual":render_manual_prediction_tab,
         "Reconocimiento": render_recognition_page,
         "Historial de Encuesta": historial_encuestas_module
     }
     
+    current_page = st.session_state.get("current_page", "Mi Perfil")
+    
     # Ejecutar la función de renderizado para la página actual
-    page_map.get(st.session_state.get("current_page", "Mi Perfil"), render_profile_page)()
+    # Usar get() para tener un fallback en caso de error
+    render_func = page_map.get(current_page)
+    
+    if render_func:
+        render_func()
+    else:
+        st.error(f"Página '{current_page}' no encontrada. Volviendo a Mi Perfil.")
+        set_page("Mi Perfil")
+        st.rerun()
 
 else:
     # Si NO está autenticado
-    render_auth_page()                    
+    render_auth_page()               
 
