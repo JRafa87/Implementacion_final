@@ -395,10 +395,10 @@ def render_auth_page():
         # --- Botón de Google Rediseñado ---
         if google_client is not None:
             try:
-                loop = _ensure_async_loop()
-                authorization_url = loop.run_until_complete(
-                    _get_authorization_url(client=google_client, redirect_url=redirect_url)
-                )
+                loop = _ensure_loop()
+                authorization_url, _ = loop.run_until_complete(_auth_url())
+
+        
             except Exception as e:
                 authorization_url = "#"
                 st.error(f"Error al inicializar Google OAuth. Revisa secrets.toml. ({e})")
