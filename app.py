@@ -29,7 +29,7 @@ st.set_page_config(
 )
 
 # Modo testing (para usar localhost o la URL de despliegue)
-testing_mode = st.secrets.get("testing_mode", False)
+#testing_mode = st.secrets.get("testing_mode", False)
 
 @st.cache_resource
 def get_supabase() -> Client:
@@ -47,14 +47,11 @@ supabase = get_supabase()
 try:
     client_id = st.secrets["client_id"]
     client_secret = st.secrets["client_secret"]
-    redirect_url = (
-        st.secrets["redirect_url_test"] if testing_mode else st.secrets["REDIRECT_URL"]
-    )
-    google_client = GoogleOAuth2(client_id=client_id, client_secret=client_secret)
+    redirect_url = st.secrets["REDIRECT_URL"]
+    google_client = GoogleOAuth2(client_id, client_secret)
 except KeyError:
-    # Este bloque maneja si las secrets de Google no están configuradas
-    st.warning("Advertencia: Faltan secretos de Google (client_id, etc.). Google OAuth no funcionará.")
     google_client = None
+    st.warning("Google OAuth no configurado")
 
 # Definición de todas las páginas disponibles
 PAGES = [
@@ -71,24 +68,19 @@ PAGES = [
 # 1. FUNCIONES AUXILIARES DE GOOGLE OAUTH
 # ============================================================
 
-def _decode_google_token(token: str):
-    """Decodifica el token JWT de Google sin verificar firma."""
-    return jwt.decode(jwt=token, options={"verify_signature": False})
-
-async def _get_authorization_url(client: GoogleOAuth2, redirect_url: str) -> str:
-    """Genera la URL para iniciar el flujo OAuth de Google."""
-    return await client.get_authorization_url(
-        redirect_url,
-        scope=["email","profile"],
-        extras_params={"access_type": "offline"},
+try:
+    google_client = GoogleOAuth2(
+        st.secrets["client_id"],
+        st.secrets["client_secret"]
     )
+    REDIRECT_URL = st.secrets["REDIRECT_URL"]
+except KeyError:
+    google_client = None
 
-async def _get_access_token(client: GoogleOAuth2, REDIRECT_URL: str, code: str) -> OAuth2Token:
-    """Obtiene el token de acceso usando el código de la URL."""
-    return await client.get_access_token(code, REDIRECT_URL)
+def _decode_google_token(token: str):
+    return jwt.decode(token, options={"verify_signature": False})
 
-def _ensure_async_loop():
-    """Asegura que haya un loop de asyncio en ejecución o crea uno nuevo."""
+def _ensure_loop():
     try:
         return asyncio.get_event_loop()
     except RuntimeError:
@@ -96,34 +88,86 @@ def _ensure_async_loop():
         asyncio.set_event_loop(loop)
         return loop
 
-def get_google_user_email() -> Optional[str]:
-    """Maneja la respuesta de Google y obtiene el email del usuario."""
-    if "google_email" in st.session_state:
-        return st.session_state.google_email
+async def _auth_url():
+    return await google_client.get_authorization_url(
+        REDIRECT_URL,
+        scope=["email", "profile"]
+    )
 
-    if google_client is None:
+async def _access_token(code: str):
+    return await google_client.get_access_token(code, REDIRECT_URL)
+
+def get_google_user() -> Optional[dict]:
+    if "google_user" in st.session_state:
+        return st.session_state["google_user"]
+
+    if not google_client:
+        return None
+
+    code = st.query_params.get("code")
+    if not code:
         return None
 
     try:
-        code = st.query_params.get("code")
-        if not code:
-            return None
-
-        loop = _ensure_async_loop()
-        
-        if loop.is_running():
-            token = asyncio.run_coroutine_threadsafe(
-                _get_access_token(google_client, REDIRECT_URL, code), loop
-            ).result()
-        else:
-            token = loop.run_until_complete(_get_access_token(google_client, REDIRECT_URL, code))
+        loop = _ensure_loop()
+        token = loop.run_until_complete(_access_token(code))
+        decoded = _decode_google_token(token["id_token"])
 
         st.experimental_set_query_params()
-        st.session_state["google_email"] = _decode_google_token(token["id_token"])["email"]
-        return st.session_state["google_email"]
 
+        st.session_state["google_user"] = {
+            "email": decoded.get("email"),
+            "name": decoded.get("name"),
+            "avatar": decoded.get("picture")
+        }
+        return st.session_state["google_user"]
     except Exception:
         return None
+
+def sync_google_profile(user):
+    email = user["email"]
+    name = user["name"]
+    avatar = user["avatar"]
+
+    profile = (
+        supabase.table("profiles")
+        .select("*")
+        .eq("email", email)
+        .limit(1)
+        .execute()
+    )
+
+    if profile.data:
+        supabase.table("profiles").update({
+            "full_name": name,
+            "avatar_url": avatar
+        }).eq("email", email).execute()
+
+        p = profile.data[0]
+        st.session_state.update({
+            "authenticated": True,
+            "user_email": email,
+            "user_id": p["id"],
+            "user_role": p.get("role", "guest"),
+            "full_name": name,
+            "avatar_url": avatar
+        })
+    else:
+        new = supabase.table("profiles").insert({
+            "email": email,
+            "full_name": name,
+            "avatar_url": avatar,
+            "role": "guest"
+        }).execute()
+
+        st.session_state.update({
+            "authenticated": True,
+            "user_email": email,
+            "user_id": new.data[0]["id"],
+            "user_role": "guest",
+            "full_name": name,
+            "avatar_url": avatar
+        })        
 
 # ============================================================
 # 2. FUNCIONES DE SUPABASE / ROLES (Autorización y Perfil)
@@ -178,12 +222,25 @@ def set_page(page_name):
     st.session_state.current_page = page_name
     # st.experimental_rerun() <-- LÍNEA ELIMINADA para estabilidad
 
-def check_session_state_hybrid() -> bool:
-    """Verifica sesión activa e inicializa el perfil si es necesario."""
-    
-    # 0. CRÍTICO: Garantizar que la variable de navegación (current_page) siempre exista.
+def check_session() -> bool:
     if "current_page" not in st.session_state:
         st.session_state["current_page"] = "Mi Perfil"
+
+    google_user = get_google_user()
+    if google_user:
+        sync_google_profile(google_user)
+        return True
+
+    try:
+        user = supabase.auth.get_user().user
+        if user:
+            st.session_state["authenticated"] = True
+            st.session_state["user_email"] = user.email
+            return True
+    except:
+        pass
+
+    return False
 
     # Inicializar el resto del estado de sesión si falta el flag de autenticación.
     if "authenticated" not in st.session_state:
@@ -212,17 +269,7 @@ def check_session_state_hybrid() -> bool:
         except Exception:
             pass
 
-    # 2. Intento de Google OAuth
-    email_google = get_google_user_email()
-    if email_google:
-        user_response = supabase.auth.get_user()
-        user_id = user_response.user.id if user_response and user_response.user else None
-        
-        st.session_state["authenticated"] = True
-        st.session_state["user_email"] = email_google
-        if user_id and st.session_state.get("user_id") != user_id:
-             _fetch_user_profile(user_id=user_id)
-        return True
+
 
     # 3. Intento de Supabase (Email/Contraseña o Sesión existente)
     try:
