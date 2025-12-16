@@ -548,7 +548,7 @@ def render_placeholder_page(page_title):
 # ============================================================
 
 # 1. Se ejecuta al inicio para determinar el estado de la sesión
-session_is_active = check_session_state_hybrid()
+session_is_active = check_session()
 
 
 
