@@ -89,10 +89,11 @@ def _ensure_loop():
         return loop
 
 async def _auth_url():
-    return await google_client.get_authorization_url(
+    url = await google_client.get_authorization_url(
         REDIRECT_URL,
         scope=["email", "profile"]
     )
+    return url
 
 async def _access_token(code: str):
     return await google_client.get_access_token(code, REDIRECT_URL)
@@ -396,7 +397,7 @@ def render_auth_page():
         if google_client is not None:
             try:
                 loop = _ensure_loop()
-                authorization_url, _ = loop.run_until_complete(_auth_url())
+                authorization_url = loop.run_until_complete(_auth_url())
 
         
             except Exception as e:
