@@ -1,4 +1,4 @@
-     import streamlit as st
+import streamlit as st
 from typing import Optional
 import jwt
 from supabase import create_client, Client
