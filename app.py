@@ -61,7 +61,6 @@ def _fetch_and_set_user_profile(user_id: str, email: str):
     default_state = {
         "user_role": "guest",
         "full_name": email.split('@')[0],
-        "date_of_birth": None,
         "user_id": user_id,
         "authenticated": True,
         "user_email": email,
@@ -82,8 +81,7 @@ def _fetch_and_set_user_profile(user_id: str, email: str):
                 
             st.session_state.update({
                 "user_role": profile.get("role", "guest"),
-                "full_name": full_name, 
-                "date_of_birth": date_of_birth,
+                "full_name": full_name,
             })
             return True
         else:
@@ -136,7 +134,6 @@ def check_session() -> bool:
         "user_id": None,
         "user_email": None,
         "full_name": "Usuario",
-        "date_of_birth": None,
     })
     return False
 
@@ -164,8 +161,7 @@ def sign_up(email, password, name):
                 "id": user_id, 
                 "email": email,
                 "full_name": name, 
-                "role": "supervisor", 
-                "date_of_birth": None,
+                "role": "supervisor",
             }).execute()
 
             st.success("Registro exitoso. Revisa tu correo electrónico para verificar tu cuenta. Recargando...")
