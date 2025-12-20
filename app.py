@@ -15,7 +15,7 @@ from encuestas_historial import historial_encuestas_module
 import re
 import time
 
-DIRECT_URL_1 = "https://desercion-predictor.streamlit.app/?type=recovery"
+DIRECT_URL= "https://desercion-predictor.streamlit.app"
 
 # ============================================================
 # 0. CONFIGURACIÓN E INICIALIZACIÓN
@@ -40,52 +40,68 @@ def get_supabase() -> Client:
 supabase = get_supabase()
 
 
-# Coloca esto bien arriba en tu archivo principal
+# 2. CAPTURA DE SESIÓN Y PARÁMETROS
+# Intentamos detectar si Supabase ya validó al usuario desde el correo
 params = st.query_params
+session = None
+try:
+    # get_session() es la clave para evitar el "Auth session missing"
+    session = supabase.auth.get_session()
+except:
+    pass
 
-# Dentro de tu detector 'if params.get("type") == "recovery":'
-with st.form("form_update_password"):
-    st.markdown("### 🔐 Restablecer Contraseña")
-    st.caption("Requisitos: Mínimo 8 caracteres, 1 mayúscula y 1 número.")
+# 3. DETECTOR DE RECUPERACIÓN (Solo entra aquí si hay sesión de Supabase o parámetro)
+# El parámetro 'type=recovery' es opcional si get_session() funciona, pero lo dejamos por seguridad.
+if session or params.get("type") == "recovery":
+    st.markdown("## 🔐 Restablecer Contraseña")
+    st.info("Ingresa tu nueva contraseña cumpliendo con los requisitos de seguridad.")
     
-    nueva_p = st.text_input("Nueva Contraseña", type="password")
-    confirma_p = st.text_input("Confirma Nueva Contraseña", type="password")
+    with st.form("form_update_password"):
+        nueva_p = st.text_input("Nueva Contraseña", type="password", help="Mínimo 8 caracteres, 1 mayúscula y 1 número")
+        confirma_p = st.text_input("Confirma Nueva Contraseña", type="password")
+        
+        submit = st.form_submit_button("Actualizar y volver al Login")
+        
+        if submit:
+            # --- VALIDACIONES ESTRICTAS ---
+            # 1. Coincidencia
+            if nueva_p != confirma_p:
+                st.error("❌ Las contraseñas no coinciden.")
+            
+            # 2. Longitud
+            elif len(nueva_p) < 8:
+                st.error("❌ La contraseña debe tener al menos 8 caracteres.")
+            
+            # 3. Mayúscula y Número (Regex)
+            elif not re.search(r"[A-Z]", nueva_p) or not re.search(r"\d", nueva_p):
+                st.error("❌ La contraseña debe incluir al menos una letra MAYÚSCULA y un NÚMERO.")
+            
+            else:
+                try:
+                    # PROCESO DE ACTUALIZACIÓN
+                    # Re-confirmamos sesión antes de actuar
+                    supabase.auth.get_session()
+                    
+                    # Cambiamos la clave en Supabase Auth
+                    supabase.auth.update_user({"password": nueva_p})
+                    
+                    st.balloons()
+                    st.success("✅ ¡Contraseña actualizada con éxito!")
+                    time.sleep(2)
+                    
+                    # --- TU REQUISITO: REDIRECCIÓN LIMPIA AL LOGIN ---
+                    st.query_params.clear()    # Borra parámetros de la URL
+                    st.session_state.clear()   # Limpia memoria de Streamlit
+                    supabase.auth.sign_out()   # Cierra sesión para obligar a loguearse
+                    st.rerun()                 # Recarga la app desde cero
+                    
+                except Exception as e:
+                    if "session missing" in str(e).lower():
+                        st.error("❌ Error: Sesión de seguridad perdida. Por favor, abre el enlace de tu correo nuevamente.")
+                    else:
+                        st.error(f"Error técnico: {e}")
     
-    if st.form_submit_button("Actualizar y volver al Login"):
-        # 1. VALIDACIÓN DE COINCIDENCIA
-        if nueva_p != confirma_p:
-            st.error("❌ Las contraseñas no coinciden.")
-            
-        # 2. VALIDACIÓN DE LONGITUD
-        elif len(nueva_p) < 8:
-            st.error("❌ La contraseña es demasiado corta (mínimo 8 caracteres).")
-            
-        # 3. VALIDACIÓN DE CARACTERES (Mayúscula y Número)
-        elif not re.search(r"[A-Z]", nueva_p) or not re.search(r"\d", nueva_p):
-            st.error("❌ La contraseña debe incluir al menos una MAYÚSCULA y un NÚMERO.")
-            
-        else:
-            # SI PASA TODO, PROCEDEMOS
-            try:
-                # Aseguramos la sesión del token
-                supabase.auth.get_session()
-                
-                # Actualizamos en Supabase
-                supabase.auth.update_user({"password": nueva_p})
-                
-                st.balloons()
-                st.success("✅ ¡Clave actualizada con éxito!")
-                time.sleep(2)
-                
-                # REQUISITO: Limpiar y redirigir al LOGIN
-                st.query_params.clear()
-                st.session_state.clear()
-                supabase.auth.sign_out() # Asegura que el estado sea 'Login'
-                st.rerun() 
-            except Exception as e:
-                st.error(f"Error técnico: {e}")
-    
-    # IMPORTANTE: st.stop() evita que se cargue el resto de la app (el home)
+    # IMPORTANTE: Detiene la ejecución para que no se vea el resto de la app (Home/Login)
     st.stop()
 
 
@@ -242,7 +258,7 @@ def request_password_reset(email):
             # Si existe, enviamos el correo usando la DIRECT_URL
             supabase.auth.reset_password_for_email(
                 email_limpio, 
-                {"redirect_to": DIRECT_URL_1}
+                {"redirect_to": DIRECT_URL}
             )
             st.success(f"📧 Enlace enviado a {email_limpio}")
             st.info("Revisa tu bandeja de entrada y la carpeta de spam.")
