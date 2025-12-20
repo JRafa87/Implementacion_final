@@ -211,31 +211,33 @@ def sign_up(email, password, name):
         st.error(f"Error al registrar: {e}")
 
 def request_password_reset(email):
-    """Solicita un enlace para restablecer la contraseña validando primero el correo."""
+    """Solicita el enlace de recuperación limpiando el texto del correo."""
     if not email:
         st.warning("⚠️ Por favor, ingresa un correo electrónico.")
         return
 
-    try:
-        # 1. VALIDACIÓN: Consultar si el correo existe en la tabla 'profiles'
-        # Usamos .maybe_single() o .execute() para verificar si hay datos
-        user_check = supabase.table("profiles").select("email").eq("email", email).execute()
-        
-        if not user_check.data:
-            st.error("❌ El correo ingresado no está registrado en nuestra base de datos.")
-            return
+    # Limpiamos el correo: quitamos espacios y pasamos a minúsculas
+    email_limpio = email.strip().lower()
 
-        # 2. PROCESO: Si existe, solicitamos el enlace a Supabase
-        supabase.auth.reset_password_for_email(
-            email, 
-            {"redirect_to": REDIRECT_URL}
-        )
+    try:
+        # Buscamos en la tabla 'profiles'
+        user_check = supabase.table("profiles").select("email").eq("email", email_limpio).execute()
         
-        st.success(f"📧 ¡Enlace enviado! Hemos mandado las instrucciones a **{email}**.")
-        st.info("Nota: Revisa tu carpeta de correos no deseados (spam) si no lo ves en unos minutos.")
+        if user_check.data:
+            # Si existe, enviamos el correo usando la DIRECT_URL
+            supabase.auth.reset_password_for_email(
+                email_limpio, 
+                {"redirect_to": DIRECT_URL}
+            )
+            st.success(f"📧 Enlace enviado a {email_limpio}")
+            st.info("Revisa tu bandeja de entrada y la carpeta de spam.")
+        else:
+            # Si llega aquí, es que el correo no coincide exactamente con la tabla
+            st.error(f"❌ El correo '{email_limpio}' no figura en nuestra base de datos.")
+            st.info("Asegúrate de que no haya espacios extra al escribirlo.")
 
     except Exception as e:
-        st.error(f"Hubo un error al procesar la solicitud: {e}")
+        st.error(f"Error de conexión: {e}")
 
 def process_direct_password_update(email, old_p, new_p, rep_p):
     """Actualiza la contraseña validando la antigua y redirige al login."""
