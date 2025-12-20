@@ -157,12 +157,12 @@ def sign_up(email, password, name):
         
         if user:
             user_id = user.id
-            supabase.table("profiles").insert({
-                "id": user_id, 
-                "email": email,
-                "full_name": name, 
-                "role": "supervisor",
-            }).execute()
+            #supabase.table("profiles").insert({
+                #"id": user_id, 
+                #"email": email,
+                #"full_name": name, 
+                #"role": "supervisor",
+            #}).execute()
 
             st.success("Registro exitoso. Revisa tu correo electrónico para verificar tu cuenta. Recargando...")
             st.info("⚠️ Si no recibes el correo, verifica la configuración SMTP en el panel de Supabase.")
