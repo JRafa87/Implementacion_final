@@ -295,7 +295,7 @@ def render_password_reset_form():
         elif st.session_state.recovery_step == 2:
             st.info(f"Ingresa el código enviado a: {st.session_state.temp_email}")
             with st.form("otp_verify_form"):
-                otp_code = st.text_input("Código de 6 dígitos", maxlength=6)
+                otp_code = st.text_input("Código de 6 dígitos", max_chars=6)
                 new_pass = st.text_input("Nueva contraseña", type="password")
                 conf_pass = st.text_input("Confirma nueva contraseña", type="password")
                 
