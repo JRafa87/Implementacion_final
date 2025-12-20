@@ -223,7 +223,7 @@ def render_rotacion_dashboard():
     st.subheader("🚧 El estancamiento laboral como factor de salida")
 
     ultima_promocion = (
-        data_filtered_renuncias['YearsSinceLastPromotion']
+        data_filtered['YearsSinceLastPromotion']
         .value_counts()
         .rename_axis('Años sin promoción')
         .reset_index(name='Renuncias')
