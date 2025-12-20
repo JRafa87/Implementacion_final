@@ -71,9 +71,9 @@ def _fetch_and_set_user_profile(user_id: str, email: str):
         response = supabase.table("profiles").select("*").eq("id", user_id).limit(1).execute()
         
         if response.data:
-            profile = response.data[0]
-            dob_str = profile.get("date_of_birth")
-            date_of_birth = datetime.datetime.strptime(dob_str, '%Y-%m-%d').date() if dob_str else None
+            #profile = response.data[0]
+            #dob_str = profile.get("date_of_birth")
+            #date_of_birth = datetime.datetime.strptime(dob_str, '%Y-%m-%d').date() if dob_str else None
 
             full_name = profile.get("full_name")
             if not full_name or full_name == "Usuario":
