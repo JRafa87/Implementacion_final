@@ -15,7 +15,7 @@ from encuestas_historial import historial_encuestas_module
 import re
 import time
 
-DIRECT_URL = "https://desercion-predictor.streamlit.app"
+DIRECT_URL_1 = "https://desercion-predictor.streamlit.app/?type=recovery"
 
 # ============================================================
 # 0. CONFIGURACIÓN E INICIALIZACIÓN
@@ -226,7 +226,7 @@ def request_password_reset(email):
             # Si existe, enviamos el correo usando la DIRECT_URL
             supabase.auth.reset_password_for_email(
                 email_limpio, 
-                {"redirect_to": DIRECT_URL}
+                {"redirect_to": DIRECT_URL_1}
             )
             st.success(f"📧 Enlace enviado a {email_limpio}")
             st.info("Revisa tu bandeja de entrada y la carpeta de spam.")
