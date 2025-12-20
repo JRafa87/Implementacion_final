@@ -31,7 +31,7 @@ MODEL_COLUMNS = [
     "ConfianzaEmpresa","NumeroTardanzas","NumeroFaltas","tipo_contrato"
 ]
 
-LOCKED_WHEN_FROM_DB = ["Age", "Gender", "MaritalStatus"]
+LOCKED_WHEN_FROM_DB = ["Age", "Gender", "MaritalStatus","JobRole","EducationField","Department"]
 
 # ==========================================================
 # SUPABASE
