@@ -62,7 +62,6 @@ def _fetch_and_set_user_profile(user_id: str, email: str):
         "user_role": "guest",
         "full_name": email.split('@')[0],
         "date_of_birth": None,
-        "avatar_url": None,
         "user_id": user_id,
         "authenticated": True,
         "user_email": email,
@@ -84,7 +83,6 @@ def _fetch_and_set_user_profile(user_id: str, email: str):
             st.session_state.update({
                 "user_role": profile.get("role", "guest"),
                 "full_name": full_name, 
-                "avatar_url": profile.get("avatar_url"),
                 "date_of_birth": date_of_birth,
             })
             return True
