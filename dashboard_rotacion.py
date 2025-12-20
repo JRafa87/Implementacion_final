@@ -170,46 +170,55 @@ def render_rotacion_dashboard():
 
     st.markdown("---")
 
+
+         # ==============================================================================
+    # BLOQUE 4 – 🧭 FACTOR DE GESTIÓN
     # ==============================================================================
-    # BLOQUE 4 – FACTOR DE GESTIÓN
-    # ==============================================================================
+    st.markdown("---")
+    st.markdown("## 🧭 Factor de gestión y desarrollo profesional")
+
+    st.markdown(
+        "Este bloque muestra cómo la **falta de crecimiento interno** "
+        "incrementa la probabilidad de renuncia."
+    )
+
     st.subheader("🚧 El estancamiento laboral como factor de salida")
 
-ultima_promocion = (
-    data_filtered_renuncias['YearsSinceLastPromotion']
-    .value_counts()
-    .rename_axis('Años sin promoción')
-    .reset_index(name='Renuncias')
-)
+    ultima_promocion = (
+        data_filtered_renuncias['YearsSinceLastPromotion']
+        .value_counts()
+        .rename_axis('Años sin promoción')
+        .reset_index(name='Renuncias')
+    )
 
-# Convertir a numérico
-ultima_promocion['Años sin promoción'] = pd.to_numeric(
-    ultima_promocion['Años sin promoción'],
-    errors='coerce'
-)
+    ultima_promocion['Años sin promoción'] = pd.to_numeric(
+        ultima_promocion['Años sin promoción'],
+        errors='coerce'
+    )
 
-# Ordenar correctamente
-ultima_promocion = ultima_promocion.sort_values('Años sin promoción')
+    ultima_promocion = ultima_promocion.sort_values('Años sin promoción')
 
-fig_promo = px.bar(
-    ultima_promocion,
-    x='Años sin promoción',
-    y='Renuncias',
-    title="📉 A mayor tiempo sin promoción, mayor probabilidad de renuncia",
-    labels={
-        'Años sin promoción': 'Años sin promoción',
-        'Renuncias': 'Número de renuncias'
-    },
-    color='Renuncias',
-    color_continuous_scale=px.colors.sequential.Oranges
-)
+    fig_promo = px.bar(
+        ultima_promocion,
+        x='Años sin promoción',
+        y='Renuncias',
+        title="📉 A mayor tiempo sin promoción, mayor probabilidad de renuncia",
+        labels={
+            'Años sin promoción': 'Años sin promoción',
+            'Renuncias': 'Número de renuncias'
+        },
+        color='Renuncias',
+        color_continuous_scale=px.colors.sequential.Oranges
+    )
 
-fig_promo.update_layout(
-    xaxis=dict(tickmode='linear'),
-    title_font_size=16
-)
+    fig_promo.update_layout(
+        xaxis=dict(tickmode='linear'),
+        title_font_size=18
+    )
 
-st.plotly_chart(fig_promo, use_container_width=True)
+    st.plotly_chart(fig_promo, use_container_width=True)
+    
+
 
 
     # ==============================================================================
