@@ -66,6 +66,7 @@ def render_rotacion_dashboard():
     st.caption("Dashboard descriptivo – análisis histórico basado en datos de Supabase")
     st.markdown("---")
 
+    data_filtered = data.copy()
     data = load_data()
     data_renuncias = data[data['EstadoEmpleado'] == 'Renunció']
 
@@ -171,7 +172,7 @@ def render_rotacion_dashboard():
     st.markdown("---")
 
 
-         # ==============================================================================
+    # ==============================================================================
     # BLOQUE 4 – 🧭 FACTOR DE GESTIÓN
     # ==============================================================================
     st.markdown("---")
