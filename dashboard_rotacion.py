@@ -175,24 +175,42 @@ def render_rotacion_dashboard():
     # ==============================================================================
     st.subheader("🚧 El estancamiento laboral como factor de salida")
 
-    promo = (
-        data_renuncias['YearsSinceLastPromotion']
-        .value_counts()
-        .reset_index()
-        .rename(columns={'index': 'Años sin promoción', 'YearsSinceLastPromotion': 'Renuncias'})
-        .sort_values('Años sin promoción')
-    )
+ultima_promocion = (
+    data_filtered_renuncias['YearsSinceLastPromotion']
+    .value_counts()
+    .rename_axis('Años sin promoción')
+    .reset_index(name='Renuncias')
+)
 
-    fig_promo = px.bar(
-        promo,
-        x='Años sin promoción',
-        y='Renuncias',
-        title="Años sin promoción al momento de renunciar",
-        color_discrete_sequence=['#F39C12']
-    )
-    st.plotly_chart(fig_promo, use_container_width=True)
+# Convertir a numérico
+ultima_promocion['Años sin promoción'] = pd.to_numeric(
+    ultima_promocion['Años sin promoción'],
+    errors='coerce'
+)
 
-    st.markdown("---")
+# Ordenar correctamente
+ultima_promocion = ultima_promocion.sort_values('Años sin promoción')
+
+fig_promo = px.bar(
+    ultima_promocion,
+    x='Años sin promoción',
+    y='Renuncias',
+    title="📉 A mayor tiempo sin promoción, mayor probabilidad de renuncia",
+    labels={
+        'Años sin promoción': 'Años sin promoción',
+        'Renuncias': 'Número de renuncias'
+    },
+    color='Renuncias',
+    color_continuous_scale=px.colors.sequential.Oranges
+)
+
+fig_promo.update_layout(
+    xaxis=dict(tickmode='linear'),
+    title_font_size=16
+)
+
+st.plotly_chart(fig_promo, use_container_width=True)
+
 
     # ==============================================================================
     # BLOQUE 5 – LECTURA EJECUTIVA
