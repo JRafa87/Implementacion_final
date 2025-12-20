@@ -15,6 +15,8 @@ from encuestas_historial import historial_encuestas_module
 import re
 import time
 
+DIRECT_URL = "https://desercion-predictor.streamlit.app"
+
 # ============================================================
 # 0. CONFIGURACIÓN E INICIALIZACIÓN
 # ============================================================
