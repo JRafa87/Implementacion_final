@@ -266,6 +266,7 @@ def render_signup_form():
 def render_password_reset_form():
     st.markdown("### 🛠️ Gestión de Credenciales")
     
+    # Selector de método
     metodo = st.radio(
         "Selecciona una opción:", 
         ["Olvidé mi contraseña (Código OTP)", "Cambio directo (Conozco mi clave actual)"], 
@@ -281,62 +282,65 @@ def render_password_reset_form():
         if st.session_state.recovery_step == 1:
             with st.form("otp_request_form"):
                 email = st.text_input("Ingresa tu correo institucional")
-                if st.form_submit_button("Enviar Código de 6 Dígitos"):
-                    try:
-                        supabase.auth.reset_password_for_email(email.strip().lower())
-                        st.session_state.temp_email = email.strip().lower()
-                        st.session_state.recovery_step = 2
-                        st.success("📧 Código enviado. Revisa tu correo.")
-                        time.sleep(1)
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Error: {e}")
+                if st.form_submit_button("Enviar Código de Verificación"):
+                    if email:
+                        try:
+                            supabase.auth.reset_password_for_email(email.strip().lower())
+                            st.session_state.temp_email = email.strip().lower()
+                            st.session_state.recovery_step = 2
+                            st.success("📧 Código enviado. Revisa tu correo.")
+                            time.sleep(1)
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Error: {e}")
+                    else:
+                        st.warning("Por favor, ingresa un correo.")
 
         elif st.session_state.recovery_step == 2:
-        # Todo lo que sigue debe estar indentado (4 espacios a la derecha)
-        st.info(f"Ingresa el código enviado a: {st.session_state.temp_email}")
-        
-        with st.form("otp_verify_form"):
-            # Aceptamos hasta 10 caracteres por si envía 6 u 8
-            otp_code = st.text_input("Código de verificación", max_chars=10)
-            new_pass = st.text_input("Nueva contraseña", type="password")
-            conf_pass = st.text_input("Confirma nueva contraseña", type="password")
+            # TODO ESTE BLOQUE AHORA TIENE LA INDENTACIÓN CORRECTA
+            st.info(f"Ingresa el código enviado a: {st.session_state.temp_email}")
             
-            submit_res = st.form_submit_button("Validar y Cambiar Contraseña")
-            
-            if submit_res:
-                # 1. Validaciones de la nueva contraseña
-                if len(new_pass) >= 8 and re.search(r"[A-Z]", new_pass) and re.search(r"\d", new_pass):
-                    if new_pass == conf_pass:
-                        try:
-                            # 2. Verificación del código
-                            supabase.auth.verify_otp({
-                                "email": st.session_state.temp_email, 
-                                "token": otp_code.strip(), 
-                                "type": "recovery"
-                            })
-                            
-                            # 3. Actualización en Supabase
-                            supabase.auth.update_user({"password": new_pass})
-                            
-                            st.success("✅ ¡Contraseña actualizada con éxito!")
-                            time.sleep(2)
-                            
-                            # 4. REDIRECCIÓN AL LOGIN [2025-12-20]
-                            st.session_state.clear()
-                            supabase.auth.sign_out()
-                            st.rerun()
-                        except Exception:
-                            st.error("❌ Código incorrecto o expirado.")
+            with st.form("otp_verify_form"):
+                # max_chars=10 para ser flexible con códigos de 6 u 8 dígitos
+                otp_code = st.text_input("Código de verificación", max_chars=10)
+                new_pass = st.text_input("Nueva contraseña", type="password")
+                conf_pass = st.text_input("Confirma nueva contraseña", type="password")
+                
+                submit_res = st.form_submit_button("Validar y Cambiar Contraseña")
+                
+                if submit_res:
+                    # 1. Validaciones de seguridad (8+ caracteres, Mayúscula, Número)
+                    if len(new_pass) >= 8 and re.search(r"[A-Z]", new_pass) and re.search(r"\d", new_pass):
+                        if new_pass == conf_pass:
+                            try:
+                                # 2. Verificación del código OTP
+                                supabase.auth.verify_otp({
+                                    "email": st.session_state.temp_email, 
+                                    "token": otp_code.strip(), 
+                                    "type": "recovery"
+                                })
+                                
+                                # 3. Actualización de la contraseña en Supabase
+                                supabase.auth.update_user({"password": new_pass})
+                                
+                                st.success("✅ ¡Contraseña actualizada con éxito!")
+                                time.sleep(2)
+                                
+                                # 4. REDIRECCIÓN AL LOGIN [2025-12-20]
+                                st.session_state.clear()
+                                supabase.auth.sign_out()
+                                st.rerun()
+                            except Exception:
+                                st.error("❌ Código incorrecto o expirado.")
+                        else:
+                            st.error("❌ Las contraseñas no coinciden.")
                     else:
-                        st.error("❌ Las contraseñas no coinciden.")
-                else:
-                    st.error("❌ La clave debe tener 8+ caracteres, 1 Mayúscula y 1 Número.")
+                        st.error("❌ La clave debe tener 8+ caracteres, 1 Mayúscula y 1 Número.")
 
-        # Botón para retroceder (debe estar al mismo nivel que el st.info)
-        if st.button("⬅️ Volver a pedir código"):
-            st.session_state.recovery_step = 1
-            st.rerun()
+            # Botón para retroceder dentro del paso 2
+            if st.button("⬅️ Volver a pedir código"):
+                st.session_state.recovery_step = 1
+                st.rerun()
 
     # --- OPCIÓN 2: CAMBIO DIRECTO (Se queda en la app) ---
     else:
@@ -350,6 +354,7 @@ def render_password_reset_form():
                 rep_p = st.text_input("Confirmar nueva contraseña", type="password")
             
             if st.form_submit_button("Actualizar Contraseña Ahora"):
+                # Esta función debe estar definida en tu código para procesar el cambio
                 process_direct_password_update(email_d, old_p, new_p, rep_p)
 
 def render_auth_page():
