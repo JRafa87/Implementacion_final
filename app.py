@@ -62,37 +62,44 @@ PAGES = [
 
 def _fetch_and_set_user_profile(user_id: str, email: str):
     """Obtiene el perfil completo de la tabla 'profiles' y establece el estado de sesión."""
-    default_state = {
-        "user_role": "guest",
-        "full_name": email.split('@')[0],
-        "user_id": user_id,
-        "authenticated": True,
-        "user_email": email,
-    }
-    st.session_state.update(default_state)
+    
+    # 1. Definimos un estado inicial seguro
+    st.session_state["authenticated"] = True
+    st.session_state["user_id"] = user_id
+    st.session_state["user_email"] = email
+    
+    # Valores por defecto por si no hay perfil en la DB
+    st.session_state["user_role"] = "guest"
+    st.session_state["full_name"] = email.split('@')[0]
 
     try:
+        # 2. Consultamos la base de datos
         response = supabase.table("profiles").select("*").eq("id", user_id).limit(1).execute()
         
-        if response.data:
-            #profile = response.data[0]
-            #dob_str = profile.get("date_of_birth")
-            #date_of_birth = datetime.datetime.strptime(dob_str, '%Y-%m-%d').date() if dob_str else None
-
-            full_name = profile.get("full_name")
-            if not full_name or full_name == "Usuario":
-                full_name = email.split('@')[0]
+        if response.data and len(response.data) > 0:
+            profile = response.data[0] # <--- Ahora SÍ extraemos los datos
+            
+            # 3. Extraemos el rol y el nombre
+            role_db = profile.get("role", "guest")
+            name_db = profile.get("full_name")
+            
+            # Si el nombre en la DB es nulo o genérico, usamos el email
+            if not name_db or name_db == "Usuario":
+                name_db = email.split('@')[0]
                 
+            # 4. Actualizamos el estado de sesión con datos REALES de la DB
             st.session_state.update({
-                "user_role": profile.get("role", "guest"),
-                "full_name": full_name,
+                "user_role": role_db,
+                "full_name": name_db,
             })
             return True
         else:
-             return True
+            # El usuario existe en Auth pero no tiene fila en la tabla 'profiles'
+            return True
             
-    except Exception:
-        return True
+    except Exception as e:
+        st.error(f"Error crítico al cargar perfil: {e}")
+        return False
 
 
 # ============================================================
@@ -323,10 +330,15 @@ def render_password_reset_form():
                                 # 3. Actualización de la contraseña en Supabase
                                 supabase.auth.update_user({"password": new_pass})
                                 
+                                # 2. Feedback visual
+                                st.balloons()
+                                st.success("✅ ¡Contraseña actualizada con éxito!")
+                                st.info("Tus datos y permisos se mantuvieron. Por seguridad, ingresa con tu nueva clave.")
+                                
                                 st.success("✅ ¡Contraseña actualizada con éxito!")
                                 time.sleep(2)
                                 
-                                # 4. REDIRECCIÓN AL LOGIN [2025-12-20]
+                                # 4. REDIRECCIÓN AL LOGIN
                                 st.session_state.clear()
                                 supabase.auth.sign_out()
                                 st.rerun()
