@@ -293,34 +293,42 @@ def render_password_reset_form():
                         st.error(f"Error: {e}")
 
         elif st.session_state.recovery_step == 2:
-            st.info(f"Ingresa el código enviado a: {st.session_state.temp_email}")
-            with st.form("otp_verify_form"):
-                otp_code = st.text_input("Código de 6 dígitos", max_chars=6)
-                new_pass = st.text_input("Nueva contraseña", type="password")
-                conf_pass = st.text_input("Confirma nueva contraseña", type="password")
-                
-                if st.form_submit_button("Validar y Cambiar Contraseña"):
-                    # Validaciones de seguridad
-                    if len(new_pass) >= 8 and re.search(r"[A-Z]", new_pass) and re.search(r"\d", new_pass):
-                        if new_pass == conf_pass:
-                            try:
-                                # Verifica código (abre sesión) y actualiza
-                                supabase.auth.verify_otp({"email": st.session_state.temp_email, "token": otp_code, "type": "recovery"})
-                                supabase.auth.update_user({"password": new_pass})
-                                
-                                st.success("✅ ¡Hecho! Redirigiendo al Login...")
-                                time.sleep(2)
-                                
-                                # REQUISITO: Volver al Login [cite: 2025-12-20]
-                                st.session_state.clear()
-                                supabase.auth.sign_out()
-                                st.rerun()
-                            except:
-                                st.error("❌ Código incorrecto o expirado.")
-                        else:
-                            st.error("❌ Las contraseñas no coinciden.")
-                    else:
-                        st.error("❌ Mínimo 8 caracteres, 1 mayúscula y 1 número.")
+    st.info(f"Ingresa el código enviado a: {st.session_state.temp_email}")
+    with st.form("otp_verify_form"):
+        # Aumentamos a 10 para ser flexibles con 6, 8 o futuros cambios
+        otp_code = st.text_input("Código de verificación", max_chars=10, help="Copia el código tal cual llegó a tu correo")
+        new_pass = st.text_input("Nueva contraseña", type="password")
+        conf_pass = st.text_input("Confirma nueva contraseña", type="password")
+        
+        if st.form_submit_button("Validar y Cambiar Contraseña"):
+            # 1. Validaciones de la nueva contraseña (Mínimo 8, Mayúscula y Número)
+            if len(new_pass) >= 8 and re.search(r"[A-Z]", new_pass) and re.search(r"\d", new_pass):
+                if new_pass == conf_pass:
+                    try:
+                        # 2. Verificación flexible: Supabase comparará el texto exacto
+                        # No importa si otp_code tiene 6 u 8 caracteres
+                        supabase.auth.verify_otp({
+                            "email": st.session_state.temp_email, 
+                            "token": otp_code.strip(), # .strip() quita espacios accidentales
+                            "type": "recovery"
+                        })
+                        
+                        # 3. Actualización de contraseña
+                        supabase.auth.update_user({"password": new_pass})
+                        
+                        st.success("✅ ¡Contraseña actualizada con éxito!")
+                        time.sleep(2)
+                        
+                        # 4. REDIRECCIÓN AL LOGIN [2025-12-20]
+                        st.session_state.clear()
+                        supabase.auth.sign_out()
+                        st.rerun()
+                    except Exception as e:
+                        st.error("❌ Código incorrecto o expirado. Revisa bien tu correo.")
+                else:
+                    st.error("❌ Las contraseñas no coinciden.")
+            else:
+                st.error("❌ La clave debe tener 8+ caracteres, 1 Mayúscula y 1 Número.")
 
     # --- OPCIÓN 2: CAMBIO DIRECTO (Se queda en la app) ---
     else:
