@@ -60,7 +60,7 @@ def load_data():
 # 2. DASHBOARD
 # ==============================================================================
 
-def ender_rotacion_dashboard():
+def render_rotacion_dashboard():
 
     st.title("📊 Análisis Descriptivo de Rotación de Personal")
     st.caption("Dashboard descriptivo – análisis histórico basado en datos de Supabase")
