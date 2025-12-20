@@ -12,7 +12,8 @@ from survey_control_logic import render_survey_control_panel
 from prediccion_manual_module import render_manual_prediction_tab
 from attrition_predictor import render_predictor_page
 from encuestas_historial import historial_encuestas_module
-
+import re
+import time
 
 # ============================================================
 # 0. CONFIGURACIÓN E INICIALIZACIÓN
@@ -35,6 +36,43 @@ def get_supabase() -> Client:
     return create_client(url, key)
 
 supabase = get_supabase()
+
+
+# --- 1. DETECTOR DE REGRESO POR CORREO ---
+# Se activa solo si la URL trae el token de recuperación
+query_params = st.query_params
+
+if query_params.get("type") == "recovery":
+    st.title("🔄 Restablecer mi Contraseña")
+    st.info("Has accedido mediante un enlace seguro de recuperación.")
+    
+    with st.form("recovery_form_final"):
+        nueva_clave = st.text_input("Ingresa tu nueva contraseña", type="password")
+        confirma_clave = st.text_input("Confirma tu nueva contraseña", type="password")
+        
+        # Regla de seguridad: 6 caracteres, 1 Mayúscula, 1 Número
+        regex_seguridad = r"^(?=.*[A-Z])(?=.*\d).{6,}$"
+
+        if st.form_submit_button("Guardar y volver al Login"):
+            if nueva_clave != confirma_clave:
+                st.error("Las contraseñas no coinciden.")
+            elif not re.match(regex_seguridad, nueva_clave):
+                st.error("La clave debe tener al menos 6 caracteres, una mayúscula y un número.")
+            else:
+                try:
+                    # Supabase usa el token invisible de la URL para saber quién es el usuario
+                    supabase.auth.update_user({"password": nueva_clave})
+                    st.success("✅ ¡Contraseña actualizada con éxito!")
+                    
+                    # CUMPLIENDO TU INSTRUCCIÓN: Redirigir al Login
+                    time.sleep(2)
+                    st.query_params.clear() 
+                    st.session_state.clear()
+                    st.rerun() 
+                except Exception as e:
+                    st.error(f"Error técnico: {e}")
+    st.stop() # Evita que cargue el resto de la página mientras está restableciendo
+
 
 # Definición de todas las páginas disponibles
 PAGES = [
@@ -173,13 +211,65 @@ def sign_up(email, password, name):
         st.error(f"Error al registrar: {e}")
 
 def request_password_reset(email):
-    """Solicita un enlace para restablecer la contraseña."""
+    """Solicita un enlace para restablecer la contraseña validando primero el correo."""
+    if not email:
+        st.warning("⚠️ Por favor, ingresa un correo electrónico.")
+        return
+
     try:
-        supabase.auth.reset_password_for_email(email)
-        st.success("Correo de recuperación enviado.")
-        st.info("⚠️ Si no recibes el correo, verifica la configuración SMTP en el panel de Supabase.")
+        # 1. VALIDACIÓN: Consultar si el correo existe en la tabla 'profiles'
+        # Usamos .maybe_single() o .execute() para verificar si hay datos
+        user_check = supabase.table("profiles").select("email").eq("email", email).execute()
+        
+        if not user_check.data:
+            st.error("❌ El correo ingresado no está registrado en nuestra base de datos.")
+            return
+
+        # 2. PROCESO: Si existe, solicitamos el enlace a Supabase
+        supabase.auth.reset_password_for_email(
+            email, 
+            {"redirect_to": REDIRECT_URL}
+        )
+        
+        st.success(f"📧 ¡Enlace enviado! Hemos mandado las instrucciones a **{email}**.")
+        st.info("Nota: Revisa tu carpeta de correos no deseados (spam) si no lo ves en unos minutos.")
+
     except Exception as e:
-        st.error(f"Error al solicitar recuperación: {e}")
+        st.error(f"Hubo un error al procesar la solicitud: {e}")
+
+def process_direct_password_update(email, old_p, new_p, rep_p):
+    """Actualiza la contraseña validando la antigua y redirige al login."""
+    password_regex = r"^(?=.*[A-Z])(?=.*\d).{6,}$"
+    
+    if new_p != rep_p:
+        st.error("❌ Las nuevas contraseñas no coinciden.")
+        return
+    if not re.match(password_regex, new_p):
+        st.error("⚠️ La contraseña debe tener min. 6 caracteres, una mayúscula y un número.")
+        return
+
+    try:
+        # 1. Validar que el usuario existe en la tabla profiles
+        user_check = supabase.table("profiles").select("id").eq("email", email).execute()
+        if not user_check.data:
+            st.error("📧 Este correo no está registrado.")
+            return
+
+        # 2. Login técnico para validar la clave antigua
+        supabase.auth.sign_in_with_password({"email": email, "password": old_p})
+        
+        # 3. Actualizar a la nueva
+        supabase.auth.update_user({"password": new_p})
+        
+        st.success("✅ Actualización exitosa.")
+        
+        # CUMPLIENDO TU INSTRUCCIÓN: Redirigir al Login
+        time.sleep(2)
+        supabase.auth.sign_out()
+        st.session_state.clear()
+        st.rerun()
+    except Exception:
+        st.error("❌ La contraseña antigua es incorrecta.")        
 
 def handle_logout():
     """Cierra la sesión de Supabase y limpia el estado local."""
@@ -214,13 +304,42 @@ def render_signup_form():
 
 
 def render_password_reset_form():
-    with st.form("reset_form", clear_on_submit=True):
-        st.text_input("Correo registrado", key="reset_email_input")
-        if st.form_submit_button("Solicitar Enlace"):
-            if st.session_state.reset_email_input:
-                request_password_reset(st.session_state.reset_email_input)
-            else:
-                st.warning("Debes ingresar un correo.")
+    st.markdown("### ¿Cómo deseas restablecer tu clave?")
+    
+    # Selector de método
+    metodo = st.radio(
+        "Selecciona una opción:", 
+        ["Olvidé mi contraseña (Correo)", "Tengo mi clave antigua (Cambio directo)"], 
+        horizontal=True
+    )
+
+    st.divider()
+
+    if metodo == "Olvidé mi contraseña (Correo)":
+        # OPCIÓN 1: RECUPERACIÓN POR CORREO
+        with st.form("reset_email_form", clear_on_submit=True):
+            email = st.text_input("Correo registrado", key="email_forgot_input")
+            if st.form_submit_button("Solicitar Enlace de Recuperación"):
+                if email:
+                    # Esta función usa la DIRECT_URL que definimos
+                    request_password_reset(email)
+                else:
+                    st.warning("Debes ingresar un correo.")
+    
+    else:
+        # OPCIÓN 2: CAMBIO DIRECTO (Si recuerda la anterior)
+        with st.form("direct_update_form", clear_on_submit=True):
+            col1, col2 = st.columns(2)
+            with col1:
+                email_d = st.text_input("Correo electrónico")
+                old_p = st.text_input("Contraseña actual", type="password")
+            with col2:
+                new_p = st.text_input("Nueva contraseña", type="password")
+                rep_p = st.text_input("Confirmar nueva contraseña", type="password")
+            
+            if st.form_submit_button("Actualizar Contraseña Ahora"):
+                # Esta función valida la clave vieja y luego redirige al login
+                process_direct_password_update(email_d, old_p, new_p, rep_p)
 
 def render_auth_page():
     """Renderiza la página de autenticación (SOLO Email/Pass de Supabase)."""
