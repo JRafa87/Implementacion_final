@@ -66,36 +66,73 @@ def render_rotacion_dashboard():
     st.caption("Dashboard descriptivo – análisis histórico basado en datos de Supabase")
     st.markdown("---")
 
-    data_filtered = data.copy()
+    # ==============================================================================
+    # 1. CARGA DE DATOS
+    # ==============================================================================
     data = load_data()
-    data_renuncias = data[data['EstadoEmpleado'] == 'Renunció']
 
-    # ---------------------------
-    # FILTROS
-    # ---------------------------
+    if data.empty:
+        st.error("No se pudieron cargar los datos desde Supabase.")
+        return
+
+    # Normalizar estado del empleado (clave para todo el dashboard)
+    data['EstadoEmpleado'] = data['EstadoEmpleado'].fillna('Permanece')
+
+    # ==============================================================================
+    # 2. FILTROS
+    # ==============================================================================
     st.sidebar.header("🎯 Filtros")
-    genero = st.sidebar.selectbox("Género", ['All'] + list(data['Gender'].unique()))
-    departamento = st.sidebar.selectbox("Departamento", ['All'] + list(data['Departamento'].unique()))
+
+    genero = st.sidebar.selectbox(
+        "Género",
+        ['All'] + sorted(data['Gender'].dropna().unique().tolist())
+    )
+
+    departamento = st.sidebar.selectbox(
+        "Departamento",
+        ['All'] + sorted(data['Departamento'].dropna().unique().tolist())
+    )
+
+    data_filtered = data.copy()
 
     if genero != 'All':
-        data = data[data['Gender'] == genero]
-        data_renuncias = data_renuncias[data_renuncias['Gender'] == genero]
+        data_filtered = data_filtered[data_filtered['Gender'] == genero]
 
     if departamento != 'All':
-        data = data[data['Departamento'] == departamento]
-        data_renuncias = data_renuncias[data_renuncias['Departamento'] == departamento]
+        data_filtered = data_filtered[data_filtered['Departamento'] == departamento]
 
-    # ---------------------------
-    # KPIs
-    # ---------------------------
+    # ==============================================================================
+    # 3. DATASET DERIVADO – SOLO RENUNCIAS
+    # ==============================================================================
+    data_renuncias = data_filtered[
+        data_filtered['EstadoEmpleado'] == 'Renunció'
+    ]
+
+    # ==============================================================================
+    # 4. KPIs
+    # ==============================================================================
     col1, col2, col3, col4 = st.columns(4)
 
-    col1.metric("👥 Empleados", len(data))
+    col1.metric("👥 Empleados", len(data_filtered))
     col2.metric("🚪 Renuncias", len(data_renuncias))
-    col3.metric("📉 Tasa de rotación", f"{(len(data_renuncias)/len(data))*100:.1f}%")
-    col4.metric("⏱️ Mes promedio de renuncia", f"{data_renuncias['AntiguedadMeses'].mean():.1f}")
+
+    tasa_rotacion = (
+        (len(data_renuncias) / len(data_filtered)) * 100
+        if len(data_filtered) > 0 else 0
+    )
+
+    col3.metric("📉 Tasa de rotación", f"{tasa_rotacion:.1f}%")
+
+    if not data_renuncias.empty:
+        col4.metric(
+            "⏱️ Mes promedio de renuncia",
+            f"{data_renuncias['AntiguedadMeses'].mean():.1f}"
+        )
+    else:
+        col4.metric("⏱️ Mes promedio de renuncia", "—")
 
     st.markdown("---")
+
 
     # ==============================================================================
     # BLOQUE 1 – CUÁNDO SE VAN
