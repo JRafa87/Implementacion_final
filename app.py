@@ -137,7 +137,6 @@ def check_session() -> bool:
         "user_email": None,
         "full_name": "Usuario",
         "date_of_birth": None,
-        "avatar_url": None,
     })
     return False
 
@@ -167,7 +166,6 @@ def sign_up(email, password, name):
                 "full_name": name, 
                 "role": "supervisor", 
                 "date_of_birth": None,
-                "avatar_url": None
             }).execute()
 
             st.success("Registro exitoso. Revisa tu correo electrónico para verificar tu cuenta. Recargando...")
