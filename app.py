@@ -40,40 +40,37 @@ def get_supabase() -> Client:
 supabase = get_supabase()
 
 
-# --- 1. DETECTOR DE REGRESO POR CORREO ---
-# Se activa solo si la URL trae el token de recuperación
-query_params = st.query_params
+# Coloca esto bien arriba en tu archivo principal
+params = st.query_params
 
-if query_params.get("type") == "recovery":
-    st.title("🔄 Restablecer mi Contraseña")
-    st.info("Has accedido mediante un enlace seguro de recuperación.")
+# El correo de Supabase envía un parámetro llamado 'type' con valor 'recovery'
+if params.get("type") == "recovery":
+    st.success("🔐 Sesión de recuperación confirmada")
     
-    with st.form("recovery_form_final"):
-        nueva_clave = st.text_input("Ingresa tu nueva contraseña", type="password")
-        confirma_clave = st.text_input("Confirma tu nueva contraseña", type="password")
+    with st.form("form_update_password"):
+        nueva_p = st.text_input("Nueva Contraseña", type="password")
+        confirma_p = st.text_input("Confirma Nueva Contraseña", type="password")
         
-        # Regla de seguridad: 6 caracteres, 1 Mayúscula, 1 Número
-        regex_seguridad = r"^(?=.*[A-Z])(?=.*\d).{6,}$"
-
-        if st.form_submit_button("Guardar y volver al Login"):
-            if nueva_clave != confirma_clave:
-                st.error("Las contraseñas no coinciden.")
-            elif not re.match(regex_seguridad, nueva_clave):
-                st.error("La clave debe tener al menos 6 caracteres, una mayúscula y un número.")
-            else:
+        if st.form_submit_button("Actualizar y volver al Login"):
+            if nueva_p == confirma_p and len(nueva_p) >= 6:
                 try:
-                    # Supabase usa el token invisible de la URL para saber quién es el usuario
-                    supabase.auth.update_user({"password": nueva_clave})
-                    st.success("✅ ¡Contraseña actualizada con éxito!")
-                    
-                    # CUMPLIENDO TU INSTRUCCIÓN: Redirigir al Login
+                    # Esto actualiza la clave en el sistema de Auth
+                    supabase.auth.update_user({"password": nueva_p})
+                    st.balloons()
+                    st.success("¡Clave actualizada! Redirigiendo...")
                     time.sleep(2)
-                    st.query_params.clear() 
+                    
+                    # TU REQUISITO: Limpiar y redirigir al LOGIN
+                    st.query_params.clear()
                     st.session_state.clear()
                     st.rerun() 
                 except Exception as e:
-                    st.error(f"Error técnico: {e}")
-    st.stop() # Evita que cargue el resto de la página mientras está restableciendo
+                    st.error(f"Error: {e}")
+            else:
+                st.error("Las claves no coinciden o son inválidas.")
+    
+    # IMPORTANTE: st.stop() evita que se cargue el resto de la app (el home)
+    st.stop()
 
 
 # Definición de todas las páginas disponibles
