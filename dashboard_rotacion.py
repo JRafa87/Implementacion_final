@@ -194,7 +194,7 @@ def render_rotacion_dashboard():
         x='Age',
         y='IngresoMensual',
         color='EstadoEmpleado',
-        title="Dispersión: Empleados jóvenes con menor ingreso",
+        #title="Dispersión: Empleados jóvenes con menor ingreso",
         labels={'Age': 'Edad', 'IngresoMensual': 'Ingreso mensual', 'EstadoEmpleado': 'Situación'},
         color_discrete_map={'Renunció': '#E74C3C', 'Permanece': '#2ECC71'},
         opacity=0.6,
@@ -203,24 +203,24 @@ def render_rotacion_dashboard():
     st.plotly_chart(fig_scatter, use_container_width=True)
 
     # BLOQUE – COMPARATIVA SE QUEDAN VS SE VAN
-    st.markdown("## ⚖️ ¿En qué se diferencian quienes se quedan y quienes renuncian?")
-    comparacion = data_filtered.groupby('EstadoEmpleado').agg({
-        'JobSatisfaction': 'mean',
-        'IngresoMensual': 'mean',
-        'YearsSinceLastPromotion': 'mean'
-    }).reset_index()
-    comparacion_melt = comparacion.melt(id_vars='EstadoEmpleado', var_name='Variable', value_name='Promedio')
+    #st.markdown("## ⚖️ ¿En qué se diferencian quienes se quedan y quienes renuncian?")
+    #comparacion = data_filtered.groupby('EstadoEmpleado').agg({
+        #'JobSatisfaction': 'mean',
+        #'IngresoMensual': 'mean',
+        #'YearsSinceLastPromotion': 'mean'
+    #}).reset_index()
+    #comparacion_melt = comparacion.melt(id_vars='EstadoEmpleado', var_name='Variable', value_name='Promedio')
 
-    fig_comp = px.bar(
-        comparacion_melt,
-        x='Variable',
-        y='Promedio',
-        color='EstadoEmpleado',
-        barmode='group',
-        title="Diferencias promedio: Permanencia vs Renuncia",
-        color_discrete_map={'Renunció': '#E74C3C', 'Permanece': '#2ECC71'}
-    )
-    st.plotly_chart(fig_comp, use_container_width=True)
+    #fig_comp = px.bar(
+        #comparacion_melt,
+        #x='Variable',
+        #y='Promedio',
+        #color='EstadoEmpleado',
+       # barmode='group',
+        #title="Diferencias promedio: Permanencia vs Renuncia",
+        #color_discrete_map={'Renunció': '#E74C3C', 'Permanece': '#2ECC71'}
+    #)
+    #st.plotly_chart(fig_comp, use_container_width=True)
 
     # BLOQUE 4 – GESTIÓN Y DESARROLLO
     st.markdown("---")
@@ -237,7 +237,7 @@ def render_rotacion_dashboard():
         ultima_promocion,
         x='Años sin promoción',
         y='Renuncias',
-        title="A mayor tiempo sin promoción, mayor probabilidad de renuncia",
+        #title="A mayor tiempo sin promoción, mayor probabilidad de renuncia",
         color='Renuncias',
         color_continuous_scale='Oranges'
     )
@@ -274,6 +274,6 @@ def render_rotacion_dashboard():
         "evidenciando un alto riesgo en las etapas iniciales.\n\n"
         f"🏢 **{depto_max_rotacion} presenta la mayor tasa de rotación**, "
         "requiriendo intervención prioritaria.\n\n"
-        "⚠️ **Menor satisfacción, menor ingreso y largos periodos sin promoción** "
+        "⚠️ **Menor ingreso y largos periodos sin promoción** "
         "son patrones recurrentes entre quienes abandonan la organización."
     )
