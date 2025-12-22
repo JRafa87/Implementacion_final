@@ -74,6 +74,19 @@ def render_rotacion_dashboard():
         st.error("No se pudieron cargar los datos desde Supabase.")
         return
 
+    # --- CORRECCIÓN CLAVE: Crear tramos ANTES de filtrar o separar datasets ---
+    bins = [0, 6, 12, 24, 60]
+    labels_tramos = ['0–6 meses', '6–12 meses', '1–2 años', '2–5 años']
+    
+    # Creamos la columna en el dataframe base
+    data['TramoAntiguedad'] = pd.cut(
+        data['AntiguedadMeses'], 
+        bins=bins, 
+        labels=labels_tramos
+    )
+    # -----------------------------------------------------------------------
+
+
     # Normalizar estado del empleado
     data['EstadoEmpleado'] = data['EstadoEmpleado'].fillna('Permanece')
 
