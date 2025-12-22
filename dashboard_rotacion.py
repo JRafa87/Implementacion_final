@@ -153,6 +153,56 @@ def render_rotacion_dashboard():
 
     st.markdown("---")
 
+    # ======================================================================
+    # 🔥 BLOQUE – ⏳ TRAMOS DE ANTIGÜEDAD
+    # ======================================================================
+    st.markdown("## ⏳ ¿En qué etapa del ciclo laboral ocurre la rotación?")
+
+    bins = [0, 6, 12, 24, 60]
+    labels = ['0–6 meses', '6–12 meses', '1–2 años', '2–5 años']
+
+    data_filtered['TramoAntiguedad'] = pd.cut(
+        data_filtered['AntiguedadMeses'],
+        bins=bins,
+        labels=labels
+    )
+
+    total_tramo = data_filtered['TramoAntiguedad'].value_counts().sort_index()
+    renuncias_tramo = (
+        data_renuncias['TramoAntiguedad']
+        .value_counts()
+        .reindex(labels)
+        .fillna(0)
+    )
+
+    porcentaje_tramo = (
+        renuncias_tramo / total_tramo * 100
+    ).reset_index()
+
+    porcentaje_tramo.columns = ['Tramo de antigüedad', '% de renuncias']
+
+    fig_tramos = px.bar(
+        porcentaje_tramo,
+        x='Tramo de antigüedad',
+        y='% de renuncias',
+        title="📉 La rotación se concentra en los primeros meses",
+        text='% de renuncias',
+        color='% de renuncias',
+        color_continuous_scale='Reds'
+    )
+
+    fig_tramos.update_traces(
+        texttemplate='%{text:.1f}%',
+        textposition='outside'
+    )
+
+    st.plotly_chart(fig_tramos, use_container_width=True)
+    st.caption("El riesgo de salida es significativamente mayor durante los primeros 12 meses.")
+    st.markdown("---")
+
+    
+
+
     # ==============================================================================
     # BLOQUE 2 – DÓNDE ESTÁ EL PROBLEMA
     # ==============================================================================
@@ -178,6 +228,7 @@ def render_rotacion_dashboard():
     st.plotly_chart(fig_depto, use_container_width=True)
 
     st.markdown("---")
+    
 
     # ==============================================================================
     # BLOQUE 3 – POR QUÉ PASA (GRÁFICO ESTRELLA)
@@ -207,6 +258,42 @@ def render_rotacion_dashboard():
     st.caption("Cada punto representa un empleado. El color indica si renunció o permanece en la empresa.")
 
     st.markdown("---")
+
+
+         # ======================================================================
+    # 🔥 BLOQUE – ⚖️ SE QUEDAN VS SE VAN
+    # ======================================================================
+    st.markdown("## ⚖️ ¿En qué se diferencian quienes se quedan y quienes renuncian?")
+
+    comparacion = data_filtered.groupby('EstadoEmpleado').agg({
+        'JobSatisfaction': 'mean',
+        'IngresoMensual': 'mean',
+        'YearsSinceLastPromotion': 'mean'
+    }).reset_index()
+
+    comparacion_melt = comparacion.melt(
+        id_vars='EstadoEmpleado',
+        var_name='Variable',
+        value_name='Promedio'
+    )
+
+    fig_comp = px.bar(
+        comparacion_melt,
+        x='Variable',
+        y='Promedio',
+        color='EstadoEmpleado',
+        barmode='group',
+        title="Diferencias promedio entre quienes permanecen y quienes renuncian",
+        color_discrete_map={
+            'Renunció': '#E74C3C',
+            'Permanece': '#2ECC71'
+        }
+    )
+
+    st.plotly_chart(fig_comp, use_container_width=True)
+    st.caption("Las diferencias son consistentes en satisfacción, ingreso y crecimiento.")
+    st.markdown("---")
+
 
 
     # ==============================================================================
@@ -256,6 +343,31 @@ def render_rotacion_dashboard():
 
     st.plotly_chart(fig_promo, use_container_width=True)
     
+    
+
+        # ======================================================================
+    # 🔥 BLOQUE – 📆 TENDENCIA TEMPORAL
+    # ======================================================================
+    st.markdown("## 📆 Evolución temporal de las renuncias")
+
+    renuncias_mes = (
+        data_renuncias
+        .groupby(pd.Grouper(key='FechaSalida', freq='M'))
+        .size()
+        .reset_index(name='Renuncias')
+    )
+
+    fig_tiempo = px.line(
+        renuncias_mes,
+        x='FechaSalida',
+        y='Renuncias',
+        markers=True,
+        title="📉 Tendencia mensual de renuncias"
+    )
+
+    st.plotly_chart(fig_tiempo, use_container_width=True)
+    st.caption("Permite identificar picos temporales y patrones recurrentes.")
+    st.markdown("---")
 
 
 
@@ -264,8 +376,12 @@ def render_rotacion_dashboard():
     # ==============================================================================
     st.subheader("🧠 Lectura ejecutiva")
 
-    st.info(
-        f"🔍 El {((data_renuncias['AntiguedadMeses'] <= 12).mean()*100):.0f}% de las renuncias ocurre durante el primer año.\n\n"
-        f"🏢 El departamento con mayor rotación es **{tasa_depto.iloc[-1]['Departamento']}**.\n\n"
-        "⚠️ Baja compensación y estancamiento laboral aparecen recurrentemente en los casos de renuncia."
+        st.info(
+        f"🔍 **El {((data_renuncias['AntiguedadMeses'] <= 12).mean()*100):.0f}% de las renuncias ocurre durante el primer año**, "
+        "evidenciando un alto riesgo en las etapas iniciales.\n\n"
+        f"🏢 **{tasa_depto.iloc[-1]['Departamento']} presenta la mayor tasa de rotación**, "
+        "requiriendo intervención prioritaria.\n\n"
+        "⚠️ **Menor satisfacción, menor ingreso y largos periodos sin promoción** "
+        "son patrones recurrentes entre quienes abandonan la organización."
     )
+
