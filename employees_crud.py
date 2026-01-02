@@ -7,7 +7,7 @@ from datetime import date
 # 1. CONFIGURACIÓN Y MAPEOS (Cache de recursos para velocidad)
 # =================================================================
 
-MAPEO_DEPTOS = {"Sales": "Ventas", "Research & Development": "I+D", "Human Resources": "Recursos Humanos"}
+MAPEO_DEPTOS = {"Sales": "Ventas", "Research & Development": "Investigación y Desarrollo", "Human Resources": "Recursos Humanos"}
 MAPEO_EDUCACION = {"Life Sciences": "Ciencias de la Vida", "Other": "Otros", "Medical": "Médico", "Marketing": "Marketing", "Technical Degree": "Grado Técnico", "Human Resources": "Recursos Humanos"}
 MAPEO_ROLES = {
     "Sales Executive": "Ejecutivo de Ventas", "Research Scientist": "Científico de Investigación",
@@ -101,7 +101,7 @@ def render_employee_management_page():
         es_edit = st.session_state.edit_id is not None
         p = next((e for e in raw_data if e['employeenumber'] == st.session_state.edit_id), {}) if es_edit else {}
 
-        st.subheader("📋 Formulario de Datos" + (" (Edición: Campos Protegidos)" if es_edit else " (Nuevo Ingreso)"))
+        st.subheader("📋 Formulario de Datos" + (" (Edición: Actualización)" if es_edit else " (Nuevo Ingreso)"))
         
         # Inputs de control (Edad y Género)
         c_top1, c_top2 = st.columns(2)
@@ -136,7 +136,7 @@ def render_employee_management_page():
                 job_lvl = st.number_input("Nivel Puesto (1-5)", 1, 5, int(p.get('joblevel', 1)))
             with f4:
                 overtime = st.selectbox("Horas Extra", ["No", "Yes"], index=0 if p.get('overtime')=="No" else 1)
-                stock = st.number_input("Nivel de Acciones (Stock Options)", 0, 3, int(p.get('stockoptionlevel', 0)))
+                stock = st.number_input("Nivel de Acciones", 0, 3, int(p.get('stockoptionlevel', 0)))
 
             st.write("### 🎓 Educación y Perfil")
             e1, e2, e3, e4 = st.columns(4)
