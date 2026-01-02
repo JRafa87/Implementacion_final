@@ -1,106 +1,106 @@
 import streamlit as st
 import pandas as pd
 from supabase import create_client, Client
-from typing import Optional
-from datetime import datetime, timedelta
+from typing import Optional, Dict
+import warnings
+
+warnings.filterwarnings("ignore")
 
 # ==============================================================================
-# 0. CONFIGURACIÓN Y CONEXIÓN A SUPABASE
+# 0. DICCIONARIOS DE TRADUCCIÓN (Basados en tu tabla consolidado)
+# ==============================================================================
+
+TRAD_DEPTO = {
+    "HR": "Recursos Humanos",
+    "RESEARCH_AND_DEVELOPMENT": "I+D",
+    "SALES": "Ventas"
+}
+
+TRAD_PUESTO = {
+    "HEALTHCARE_REPRESENTATIVE": "Representante de Salud",
+    "HUMAN_RESOURCES": "Recursos Humanos",
+    "LABORATORY_TECHNICIAN": "Técnico de Laboratorio",
+    "MANAGER": "Gerente",
+    "MANUFACTURING_DIRECTOR": "Director de Manufactura",
+    "RESEARCH_DIRECTOR": "Director de Investigación",
+    "RESEARCH_SCIENTIST": "Científico de Investigación",
+    "SALES_EXECUTIVE": "Ejecutivo de Ventas",
+    "SALES_REPRESENTATIVE": "Representante de Ventas"
+}
+
+# ==============================================================================
+# 1. CONFIGURACIÓN Y CONEXIÓN
 # ==============================================================================
 
 @st.cache_resource
 def get_supabase() -> Optional[Client]:
-    """Inicializa y cachea el cliente de Supabase. Requiere secrets.toml."""
     url = st.secrets.get("SUPABASE_URL")
     key = st.secrets.get("SUPABASE_KEY")
-    
     if not url or not key:
-        st.error("ERROR: Faltan SUPABASE_URL o SUPABASE_KEY en secrets.toml. La aplicación no puede ejecutarse.")
-        st.stop() 
-    
-    try:
-        return create_client(url, key)
-    except Exception as e:
-        st.error(f"Error al conectar con Supabase: {e}. Revise la URL y la clave.")
-        st.stop() 
+        st.error("Faltan credenciales de Supabase.")
+        st.stop()
+    return create_client(url, key)
 
 supabase = get_supabase()
 
 # ==============================================================================
-# 1. FUNCIONES DE DATOS
+# 2. FUNCIONES DE DATOS
 # ==============================================================================
 
 def fetch_employees_data():
-    """Obtiene datos de empleados reales de la tabla 'empleados' de Supabase."""
-    
-    if supabase is None:
-        return [] 
-        
+    if supabase is None: return [] 
     try:
-        # 🚨 CORRECCIÓN: SOLO se seleccionan las columnas que existen en tu tabla.
-        # Se eliminaron: JobInvolvement y RelationshipSatisfaction.
+        # Ahora incluimos JobInvolvement ya que existe en tu tabla
         columns_to_fetch = [
             "EmployeeNumber", "Department", "JobRole", "PerformanceRating", 
-            "YearsAtCompany", "YearsSinceLastPromotion", "NumeroFaltas"
+            "YearsAtCompany", "YearsSinceLastPromotion", "NumeroFaltas", "JobInvolvement"
         ]
-        
         cols_select = ", ".join(columns_to_fetch)
-        
         response = supabase.table("consolidado").select(cols_select).execute()
         
-        # Mapea claves de Supabase (PascalCase) a claves de Python (minúsculas y acortadas)
-        data = [{
-            k.lower()
-             .replace("employeenumber", "id")
-             .replace("department", "depto")
-             .replace("jobrole", "puesto"): v 
-            for k, v in record.items()
-        } for record in response.data]
-        
+        # Mapeo y Traducción inmediata
+        data = []
+        for r in response.data:
+            dept_orig = r.get("Department", "")
+            puesto_orig = r.get("JobRole", "")
+            
+            data.append({
+                "id": r.get("EmployeeNumber"),
+                "depto": TRAD_DEPTO.get(dept_orig, dept_orig), # Traduce o deja original
+                "puesto": TRAD_PUESTO.get(puesto_orig, puesto_orig),
+                "performancerating": r.get("PerformanceRating"),
+                "yearsatcompany": r.get("YearsAtCompany"),
+                "yearssincelastpromotion": r.get("YearsSinceLastPromotion"),
+                "numerofaltas": r.get("NumeroFaltas"),
+                "jobinvolvement": r.get("JobInvolvement") # Ahora viene de la DB
+            })
         return data
-    
     except Exception as e:
-        st.error(f"Error crítico al ejecutar la consulta SQL: {e}. Verifique la tabla.")
-        st.stop()
+        st.error(f"Error al obtener datos: {e}")
         return []
 
 @st.cache_data(ttl=300)
 def get_employees_data_for_recognition():
-    """Carga los datos de empleados, los limpia y los prepara para el display."""
     df_data = fetch_employees_data() 
-    
-    if not df_data:
-        return pd.DataFrame()
-        
+    if not df_data: return pd.DataFrame()
     df = pd.DataFrame(df_data)
     
-    # Limpieza de tipos y NaNs
-    df['yearssincelastpromotion'] = pd.to_numeric(df['yearssincelastpromotion'], errors='coerce').fillna(0.0)
-    df['performancerating'] = pd.to_numeric(df['performancerating'], errors='coerce').fillna(0)
-    df['numerofaltas'] = pd.to_numeric(df['numerofaltas'], errors='coerce').fillna(0)
-    
-    # 🚨 FIX para lógica de UI: Creamos las columnas faltantes con valor 0 para que no falle.
-    df['jobinvolvement'] = 0 
-    df['relationshipsatisfaction'] = 0 
+    # Limpieza de tipos
+    numeric_cols = ['yearssincelastpromotion', 'performancerating', 'numerofaltas', 'jobinvolvement', 'yearsatcompany']
+    for col in numeric_cols:
+        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
     
     return df
 
 # ==============================================================================
-# 2. LÓGICA DE CLASIFICACIÓN Y RIESGO
+# 3. LÓGICA DE CLASIFICACIÓN
 # ==============================================================================
 
 def get_risk_by_promotion(df):
-    """
-    Calcula el número de empleados en riesgo (Crítico, Moderado, Bajo) por departamento,
-    basado en YearsSinceLastPromotion.
-    """
     def classify_risk(years):
-        if years >= 3.0:
-            return 'Critico'
-        elif years >= 2.0:
-            return 'Moderado'
-        else:
-            return 'Bajo'
+        if years >= 3.0: return 'Critico'
+        elif years >= 2.0: return 'Moderado'
+        else: return 'Bajo'
 
     df['NivelRiesgo'] = df['yearssincelastpromotion'].apply(classify_risk)
     
@@ -118,8 +118,7 @@ def get_risk_by_promotion(df):
     return risk_summary.sort_values(by='RiesgoTotal', ascending=False)
 
 def display_employee_table(data):
-    """Renderiza la tabla de empleados con variables clave y columna de acción."""
-    
+    """Tabla en español con Compromiso real."""
     display_cols = [
         'id', 'puesto', 'performancerating', 'yearsatcompany',
         'yearssincelastpromotion', 'jobinvolvement', 'numerofaltas'
@@ -128,137 +127,93 @@ def display_employee_table(data):
     st.data_editor(
         data[display_cols],
         column_config={
-            "id": "ID",
-            "puesto": "Puesto",
-            "performancerating": "Perf. Rating",
+            "id": "ID Empleado",
+            "puesto": "Cargo / Puesto",
+            "performancerating": "Desempeño",
             "yearsatcompany": st.column_config.NumberColumn("Años Empresa", format="%.1f"),
-            "yearssincelastpromotion": st.column_config.NumberColumn("⚠️ Años S/Prom.", format="%.1f"),
-            "jobinvolvement": "Compromiso",
+            "yearssincelastpromotion": st.column_config.NumberColumn("⚠️ Años S/Promoción", format="%.1f"),
+            "jobinvolvement": "Nivel Compromiso",
             "numerofaltas": "N° Faltas",
-            # 🚨 FIX: Se elimina la configuración de ButtonColumn para evitar el AttributeError
-            # en entornos antiguos de Streamlit Cloud.
         },
         disabled=display_cols, 
         hide_index=True,
         use_container_width=True
     )
-    st.markdown("") 
 
 # ==============================================================================
-# 3. PÁGINA DE RECONOCIMIENTO (UI - Renombrada)
+# 4. UI - RECONOCIMIENTO
 # ==============================================================================
 
-def render_recognition_page_ui(df, risk_df): 
-    """Renderiza la interfaz de Reconocimiento. Requiere dataframes listos."""
-    st.markdown("Identificación de áreas con alto riesgo de estancamiento (`YearsSinceLastPromotion`) para acción proactiva.")
+def render_recognition_page(): 
+    st.title("⭐ Reconocimiento y Desarrollo")
     
-    # --- 1. Alertas Agregadas por Nivel de Riesgo (Accionable Directo) ---
-    st.header("1. 🚨 Zonas de Intervención (Clasificación por Estancamiento)")
+    df = get_employees_data_for_recognition()
+    if df.empty:
+        st.warning("No hay datos disponibles para mostrar.")
+        return
 
+    risk_df = get_risk_by_promotion(df.copy()) 
+
+    st.markdown("Identificación de áreas con alto riesgo de estancamiento para acción proactiva.")
+    
+    # --- 1. Alertas ---
+    st.header("1. 🚨 Zonas de Intervención")
     criticas = risk_df[risk_df['Critico'] > 0]
     moderadas = risk_df[(risk_df['Moderado'] > 0) & (risk_df['Critico'] == 0)]
     
     if not criticas.empty:
-        st.error(
-            f"🛑 **RIESGO CRÍTICO:** {criticas['Critico'].sum()} empleados en total (en {len(criticas)} áreas) llevan **más de 3 años** sin promoción. **Revisión INMEDIATA.**"
-        )
+        st.error(f"🛑 **RIESGO CRÍTICO:** {criticas['Critico'].sum()} empleados llevan **más de 3 años** sin promoción.")
     if not moderadas.empty:
-        st.warning(
-            f"⚠️ **RIESGO MODERADO:** {moderadas['Moderado'].sum()} empleados en total (en {len(moderadas)} áreas) llevan **2 a 3 años** sin promoción. Iniciar seguimiento de desarrollo."
-        )
-    if criticas.empty and moderadas.empty:
-        st.success(
-            f"✅ **ESTADO ÓPTIMO:** Todas las áreas están bajo el umbral de riesgo de estancamiento. Refuerzo positivo."
-        )
+        st.warning(f"⚠️ **RIESGO MODERADO:** {moderadas['Moderado'].sum()} empleados llevan **2 a 3 años** sin promoción.")
     
-    st.markdown("---")
+    st.divider()
 
-    # --- 2. Cuadro de Mandos Detallado ---
-    st.header("2. 📊 Desglose del Estancamiento por Área")
-
+    # --- 2. Tabla de Áreas ---
+    st.header("2. 📊 Desglose por Departamento")
     st.dataframe(
         risk_df.drop(columns=['RiesgoTotal']),
         use_container_width=True,
         hide_index=True,
         column_config={
             "depto": "Departamento",
-            "Critico": "Empleados Críticos (>3A)",
-            "Moderado": "Empleados Moderados (2-3A)",
-            "Bajo": "Empleados en Meta (<2A)",
-            "PromedioAñosSPromocion": st.column_config.NumberColumn(
-                "Promedio Años S/Promoción", format="%.1f años"
-            ),
-            "PorcentajeRiesgo": st.column_config.ProgressColumn(
-                "Riesgo Total (%)", format="%f%%", min_value=0, max_value=100
-            )
+            "Critico": "Críticos (>3A)",
+            "Moderado": "Moderados (2-3A)",
+            "Bajo": "En Meta (<2A)",
+            "PromedioAñosSPromocion": st.column_config.NumberColumn("Promedio Años", format="%.1f años"),
+            "PorcentajeRiesgo": st.column_config.ProgressColumn("Riesgo Total (%)", format="%f%%", min_value=0, max_value=100)
         }
     )
     
-    st.markdown("---")
+    st.divider()
 
-    # --- 3. Detalle de Candidatos y Potenciales (Pestañas) ---
-    st.header("3. 🔍 Detalle de Candidatos a Reconocimiento")
+    # --- 3. Auditoría por Depto ---
+    st.header("3. 🔍 Auditoría de Colaboradores")
     
-    department_options = risk_df['depto'].unique().tolist()
     dept_to_view = st.selectbox(
         "Seleccione el Departamento para auditar:", 
-        options=["Seleccione un departamento"] + department_options,
-        key="select_dept_audit"
+        options=["--- Seleccionar ---"] + sorted(df['depto'].unique().tolist()),
     )
 
-    if dept_to_view != "Seleccione un departamento":
-        
+    if dept_to_view != "--- Seleccionar ---":
         df_filtrado = df[df['depto'] == dept_to_view].copy()
-        
-        tab1, tab2 = st.tabs(["🔴 Riesgo y Estancamiento (>= 2 Años)", "✨ Alto Potencial y Oportunidad"])
+        t1, t2 = st.tabs(["🔴 Estancamiento", "✨ Alto Potencial"])
 
-        with tab1:
-            st.subheader("Candidatos de Alto Riesgo / Estancamiento")
-            UMBRAL_RIESGO = 2.0
-            
-            candidatos_riesgo = df_filtrado[df_filtrado['yearssincelastpromotion'] >= UMBRAL_RIESGO]
-            
+        with t1:
+            candidatos_riesgo = df_filtrado[df_filtrado['yearssincelastpromotion'] >= 2.0]
             if not candidatos_riesgo.empty:
-                st.warning(f"Se encontraron **{len(candidatos_riesgo)}** empleados en riesgo de estancamiento en {dept_to_view}.")
+                st.info(f"Colaboradores con 2 o más años sin ascensos en {dept_to_view}:")
                 display_employee_table(candidatos_riesgo)
             else:
-                st.info("No hay empleados en riesgo de estancamiento en este departamento.")
+                st.success("No hay casos críticos en esta área.")
 
-        with tab2:
-            st.subheader("Potenciales Candidatos a Reconocimiento (Oportunidad)")
-            
-            # Criterio: 1 a 2 años S/Promoción Y buen desempeño (>= 3)
+        with t2:
+            # Candidatos con buen desempeño y tiempo prudente
             candidatos_potenciales = df_filtrado[
                 (df_filtrado['yearssincelastpromotion'] >= 1.0) & 
-                (df_filtrado['yearssincelastpromotion'] < 2.0) &
                 (df_filtrado['performancerating'] >= 3)
             ]
-            
             if not candidatos_potenciales.empty:
-                st.success(f"Se encontraron **{len(candidatos_potenciales)}** candidatos de alto potencial listos para ser reconocidos en {dept_to_view}.")
+                st.success(f"Candidatos para programa de reconocimiento en {dept_to_view}:")
                 display_employee_table(candidatos_potenciales)
             else:
-                st.info("No hay candidatos de alto potencial identificados en este rango de oportunidad.")
-
-# ==============================================================================
-# 4. FUNCIÓN CONTENEDORA (LA QUE LLAMA APP.PY)
-# ==============================================================================
-
-def render_recognition_page(): 
-    """
-    Función que Streamlit llama. Encapsula la obtención de datos, el cálculo 
-    de riesgo y el renderizado de la UI.
-    """
-    st.title("⭐ Reconocimiento y Desarrollo")
-    
-    # Lógica de datos y cálculo de riesgo
-    df = get_employees_data_for_recognition()
-    
-    if df.empty:
-        st.error("No se encontraron datos en la tabla 'empleados'. Verifique que la tabla contenga registros.")
-        return
-
-    risk_df = get_risk_by_promotion(df.copy()) 
-    
-    # Renderiza la interfaz
-    render_recognition_page_ui(df, risk_df)
+                st.info("No se identificaron candidatos con el perfil de alto potencial hoy.")
