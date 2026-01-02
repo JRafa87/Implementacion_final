@@ -106,7 +106,7 @@ def render_rotacion_dashboard():
     st.subheader("🔥 ¿Cuándo se producen las renuncias?")
     fig_hist = px.histogram(df_ren, x='AntiguedadMeses', nbins=20,
                             title="Distribución de renuncias por meses de antigüedad",
-                            labels={'AntiguedadMeses': 'Meses', 'count': 'Frecuencia'},
+                            labels={'AntiguedadMeses': 'Meses', 'total': 'Frecuencia'},
                             color_discrete_sequence=['#E74C3C'])
     st.plotly_chart(fig_hist, use_container_width=True)
 
