@@ -5,39 +5,45 @@ from typing import Optional
 from datetime import date
 
 # =================================================================
-# 1. CONFIGURACIÓN Y MAPEOS DE TRADUCCIÓN
+# 1. CONFIGURACIÓN Y MAPEOS (INGLÉS ORIGINAL <-> ESPAÑOL)
 # =================================================================
 
-# Listas restringidas según tu solicitud
-DEPARTAMENTOS_REQ = ["Sales", "Research & Development", "Human Resources"]
-EDUCACION_REQ = ["Life Sciences", "Other", "Medical", "Marketing", "Technical Degree", "Human Resources"]
-ROLES_REQ = ["Sales Executive", "Research Scientist", "Laboratory Technician", "Manufacturing Director", "Healthcare Representative", "Manager", "Sales Representative", "Research Director", "Human Resources"]
-
-TRADUCCIONES = {
-    "businesstravel": {"Non-Travel": "No viaja", "Travel_Rarely": "Viaja raramente", "Travel_Frequently": "Viaja frecuentemente"},
-    "department": {k: ("Ventas" if k == "Sales" else "I+D / Desarrollo" if k == "Research & Development" else "Recursos Humanos") for k in DEPARTAMENTOS_REQ},
-    "educationfield": {
-        "Life Sciences": "Ciencias de la Vida", "Other": "Otros", "Medical": "Médico", 
-        "Marketing": "Marketing", "Technical Degree": "Grado Técnico", "Human Resources": "Recursos Humanos"
-    },
-    "gender": {"Male": "Masculino", "Female": "Femenino"},
-    "maritalstatus": {"Single": "Soltero/a", "Married": "Casado/a", "Divorced": "Divorciado/a"},
-    "overtime": {"Yes": "Sí", "No": "No"},
-    "jobrole": {k: k for k in ROLES_REQ} # Mantengo nombres de roles para consistencia
+# Listas exactas solicitadas para traducción y envío
+MAPEO_DEPTOS = {
+    "Sales": "Ventas", 
+    "Research & Development": "I+D / Desarrollo", 
+    "Human Resources": "Recursos Humanos"
 }
 
-def get_raw_value(category, display_value):
-    inv_map = {v: k for k, v in TRADUCCIONES.get(category, {}).items()}
-    return inv_map.get(display_value, display_value)
+MAPEO_EDUCACION = {
+    "Life Sciences": "Ciencias de la Vida", 
+    "Other": "Otros", 
+    "Medical": "Médico", 
+    "Marketing": "Marketing", 
+    "Technical Degree": "Grado Técnico", 
+    "Human Resources": "Recursos Humanos"
+}
 
-@st.cache_resource
-def get_supabase() -> Client:
-    url = st.secrets.get("SUPABASE_URL")
-    key = st.secrets.get("SUPABASE_KEY")
-    return create_client(url, key)
+MAPEO_ROLES = {
+    "Sales Executive": "Ejecutivo de Ventas",
+    "Research Scientist": "Científico de Investigación",
+    "Laboratory Technician": "Técnico de Laboratorio",
+    "Manufacturing Director": "Director de Manufactura",
+    "Healthcare Representative": "Representante de Salud",
+    "Manager": "Gerente",
+    "Sales Representative": "Representante de Ventas",
+    "Research Director": "Director de Investigación",
+    "Human Resources": "Recursos Humanos"
+}
 
-supabase = get_supabase()
+TRADUCCIONES_FIJAS = {
+    "businesstravel": {"Non-Travel": "No viaja", "Travel_Rarely": "Viaja raramente", "Travel_Frequently": "Viaja frecuentemente"},
+    "gender": {"Male": "Masculino", "Female": "Femenino"},
+    "maritalstatus": {"Single": "Soltero/a", "Married": "Casado/a", "Divorced": "Divorciado/a"},
+    "overtime": {"Yes": "Sí", "No": "No"}
+}
 
+# Mapeo de variables a columnas de PostgreSQL (PascalCase)
 COLUMN_MAPPING = {
     "employeenumber": "EmployeeNumber", "age": "Age", "businesstravel": "BusinessTravel",
     "department": "Department", "distancefromhome": "DistanceFromHome", "education": "Education",
@@ -51,129 +57,172 @@ COLUMN_MAPPING = {
     "fechaingreso": "FechaIngreso", "fechasalida": "FechaSalida",
 }
 
+@st.cache_resource
+def get_supabase() -> Client:
+    url = st.secrets.get("SUPABASE_URL")
+    key = st.secrets.get("SUPABASE_KEY")
+    return create_client(url, key)
+
+supabase = get_supabase()
+
 # -----------------------------------
 # 2. FUNCIONES CRUD
 # -----------------------------------
-
-def fetch_employees():
-    try:
-        response = supabase.table("empleados").select("*").order("EmployeeNumber").execute()
-        return [{k.lower(): v for k, v in record.items()} for record in response.data]
-    except Exception: return []
-
-def update_employee(emp_id, update_data):
-    pg_data = {COLUMN_MAPPING[k]: v for k, v in update_data.items() if k in COLUMN_MAPPING}
-    supabase.table("empleados").update(pg_data).eq("EmployeeNumber", emp_id).execute()
-
-def delete_employee(emp_id):
-    supabase.table("empleados").delete().eq("EmployeeNumber", emp_id).execute()
 
 def get_next_id():
     resp = supabase.table("empleados").select("EmployeeNumber").order("EmployeeNumber", desc=True).limit(1).execute()
     return (resp.data[0]['EmployeeNumber'] + 1) if resp.data else 1
 
+def fetch_employees():
+    try:
+        response = supabase.table("empleados").select("*").order("EmployeeNumber").execute()
+        return [{k.lower(): v for k, v in record.items()} for record in response.data]
+    except: return []
+
 # -----------------------------------
-# 3. INTERFAZ DE USUARIO
+# 3. PÁGINA PRINCIPAL
 # -----------------------------------
 
 def render_employee_management_page():
-    st.title("👥 Gestión de Empleados")
+    st.title("👥 Gestión Integral de Empleados")
 
     if "edit_id" not in st.session_state: st.session_state.edit_id = None
     if "show_add" not in st.session_state: st.session_state.show_add = False
 
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("➕ Nuevo Empleado"):
+    col_nav1, col_nav2 = st.columns([1, 1])
+    with col_nav1:
+        if st.button("➕ Añadir Nuevo Empleado"):
             st.session_state.show_add = True
             st.session_state.edit_id = None
-    with col2:
-        if st.button("🔄 Refrescar"): st.rerun()
+    with col_nav2:
+        if st.button("🔄 Actualizar Tabla"): st.rerun()
 
-    # FORMULARIO DE REGISTRO / EDICIÓN
+    # FORMULARIO COMPLETO
     if st.session_state.show_add or st.session_state.edit_id:
-        modo_edit = st.session_state.edit_id is not None
-        titulo = f"Editar Empleado {st.session_state.edit_id}" if modo_edit else "Registrar Nuevo Empleado"
-        
-        # Si es edición, cargar datos previos
-        emp_prev = {}
-        if modo_edit:
+        es_edicion = st.session_state.edit_id is not None
+        datos_previos = {}
+        if es_edicion:
             res = supabase.table("empleados").select("*").eq("EmployeeNumber", st.session_state.edit_id).single().execute()
-            emp_prev = {k.lower(): v for k, v in res.data.items()}
+            datos_previos = {k.lower(): v for k, v in res.data.items()}
 
-        with st.form("form_empleado"):
-            st.subheader(titulo)
+        with st.form("formulario_completo"):
+            st.header("Formulario de Datos")
+            
+            # SECCIÓN 1: DATOS CLAVE
+            st.subheader("1. Información Personal")
             c1, c2, c3 = st.columns(3)
             with c1:
-                age = st.number_input("Edad", 0, 100, int(emp_prev.get('age', 25)))
-                gender = st.selectbox("Género", list(TRADUCCIONES["gender"].values()))
-                marital = st.selectbox("Estado Civil", list(TRADUCCIONES["maritalstatus"].values()))
+                age = st.number_input("Edad", 0, 100, int(datos_previos.get('age', 25)))
+                gender_sp = st.selectbox("Género", list(TRADUCCIONES_FIJAS["gender"].values()))
+                marital_sp = st.selectbox("Estado Civil", list(TRADUCCIONES_FIJAS["maritalstatus"].values()))
             with c2:
-                dept = st.selectbox("Departamento", list(TRADUCCIONES["department"].values()))
-                role = st.selectbox("Puesto", ROLES_REQ)
-                income = st.number_input("Salario Mensual", 0, 50000, int(emp_prev.get('monthlyincome', 3000)))
+                income = st.number_input("Sueldo Mensual", 0, 50000, int(datos_previos.get('monthlyincome', 3500)))
+                overtime_sp = st.radio("Horas Extra", list(TRADUCCIONES_FIJAS["overtime"].values()), horizontal=True)
+                contract = st.selectbox("Contrato", ["Fijo", "Temporal", "Servicios"], 
+                                      index=["Fijo", "Temporal", "Servicios"].index(datos_previos.get('tipocontrato', 'Fijo')))
             with c3:
-                travel = st.selectbox("Viajes", list(TRADUCCIONES["businesstravel"].values()))
-                ed_field = st.selectbox("Educación", list(TRADUCCIONES["educationfield"].values()))
-                overtime = st.radio("Horas Extra", list(TRADUCCIONES["overtime"].values()), horizontal=True)
+                f_ingreso = st.date_input("Fecha Ingreso", date.today())
+                dist = st.number_input("Distancia Km", 1, 100, int(datos_previos.get('distancefromhome', 5)))
 
-            # VALIDACIÓN DE EDAD
-            es_valido = age >= 18
-            if not es_valido:
-                st.error("🚫 La edad debe ser 18 años o más para guardar.")
+            # SECCIÓN 2: PUESTO Y EDUCACIÓN (TRADUCCIÓN DINÁMICA)
+            st.subheader("2. Perfil Profesional")
+            c4, c5, c6 = st.columns(3)
+            with c4:
+                dept_sp = st.selectbox("Departamento", list(MAPEO_DEPTOS.values()))
+                role_sp = st.selectbox("Puesto", list(MAPEO_ROLES.values()))
+            with c5:
+                ed_sp = st.selectbox("Campo de Educación", list(MAPEO_EDUCACION.values()))
+                ed_lvl = st.slider("Nivel Educación (1-5)", 1, 5, int(datos_previos.get('education', 3)))
+            with c6:
+                travel_sp = st.selectbox("Viajes", list(TRADUCCIONES_FIJAS["businesstravel"].values()))
+                job_lvl = st.slider("Nivel Puesto (1-5)", 1, 5, int(datos_previos.get('joblevel', 1)))
 
-            cb1, cb2 = st.columns(2)
-            with cb1:
-                if st.form_submit_button("💾 Guardar", disabled=not es_valido):
-                    data = {
-                        "age": age, "gender": get_raw_value("gender", gender),
-                        "maritalstatus": get_raw_value("maritalstatus", marital),
-                        "department": get_raw_value("department", dept),
-                        "jobrole": role, "monthlyincome": income,
-                        "businesstravel": get_raw_value("businesstravel", travel),
-                        "educationfield": get_raw_value("educationfield", ed_field),
-                        "overtime": get_raw_value("overtime", overtime)
-                    }
-                    if modo_edit:
-                        update_employee(st.session_state.edit_id, data)
-                        st.success("Actualizado correctamente")
-                    else:
-                        data["employeenumber"] = get_next_id()
-                        data["fechaingreso"] = date.today().isoformat()
-                        pg_data = {COLUMN_MAPPING[k]: v for k, v in data.items() if k in COLUMN_MAPPING}
-                        supabase.table("empleados").insert(pg_data).execute()
-                        st.success("Creado correctamente")
-                    
+            # SECCIÓN 3: MÉTRICAS Y DESEMPEÑO
+            st.subheader("3. Historial y Métricas")
+            c7, c8, c9 = st.columns(3)
+            with c7:
+                y_comp = st.number_input("Años en Empresa", 0, 50, int(datos_previos.get('yearsatcompany', 0)))
+                y_role = st.number_input("Años en Puesto", 0, 50, int(datos_previos.get('yearsincurrentrole', 0)))
+            with c8:
+                perf = st.number_input("Desempeño (1-4)", 1, 4, int(datos_previos.get('performancerating', 3)))
+                training = st.number_input("Capacitaciones", 0, 10, int(datos_previos.get('trainingtimeslastyear', 2)))
+            with c9:
+                tardanzas = st.number_input("Tardanzas", 0, 100, int(datos_previos.get('numerotardanzas', 0)))
+                faltas = st.number_input("Faltas", 0, 100, int(datos_previos.get('numerofaltas', 0)))
+
+            # RESTRICCIÓN DE EDAD: BLOQUEO FÍSICO
+            edad_valida = age >= 18
+            if not edad_valida:
+                st.error("❌ LA EDAD DEBE SER MAYOR O IGUAL A 18. BOTÓN DE GUARDADO DESHABILITADO.")
+
+            btn_save, btn_cancel = st.columns(2)
+            with btn_save:
+                # El botón se bloquea si la edad es menor a 18
+                guardar = st.form_submit_button("💾 GUARDAR DATOS", disabled=not edad_valida)
+            with btn_cancel:
+                if st.form_submit_button("❌ CANCELAR"):
                     st.session_state.show_add = False
                     st.session_state.edit_id = None
                     st.rerun()
-            with cb2:
-                if st.form_submit_button("❌ Cancelar"):
-                    st.session_state.show_add = False
-                    st.session_state.edit_id = None
-                    st.rerun()
 
-    # TABLA Y ACCIONES
-    data_raw = fetch_employees()
-    if data_raw:
-        df = pd.DataFrame(data_raw)
+            if guardar:
+                # RE-MAPEO A INGLÉS ANTES DE ENVIAR
+                def reverse(d, val): return [k for k, v in d.items() if v == val][0]
+
+                payload = {
+                    "age": age,
+                    "gender": reverse(TRADUCCIONES_FIJAS["gender"], gender_sp),
+                    "maritalstatus": reverse(TRADUCCIONES_FIJAS["maritalstatus"], marital_sp),
+                    "department": reverse(MAPEO_DEPTOS, dept_sp),
+                    "jobrole": reverse(MAPEO_ROLES, role_sp),
+                    "educationfield": reverse(MAPEO_EDUCACION, ed_sp),
+                    "businesstravel": reverse(TRADUCCIONES_FIJAS["businesstravel"], travel_sp),
+                    "overtime": reverse(TRADUCCIONES_FIJAS["overtime"], overtime_sp),
+                    "monthlyincome": income, "tipocontrato": contract, "distancefromhome": dist,
+                    "education": ed_lvl, "joblevel": job_lvl, "yearsatcompany": y_comp,
+                    "yearsincurrentrole": y_role, "performancerating": perf,
+                    "trainingtimeslastyear": training, "numerotardanzas": tardanzas,
+                    "numerofaltas": faltas, "fechaingreso": f_ingreso.isoformat()
+                }
+
+                if es_edicion:
+                    pg_data = {COLUMN_MAPPING[k]: v for k, v in payload.items() if k in COLUMN_MAPPING}
+                    supabase.table("empleados").update(pg_data).eq("EmployeeNumber", st.session_state.edit_id).execute()
+                    st.success("Empleado actualizado.")
+                else:
+                    payload["employeenumber"] = get_next_id()
+                    pg_data = {COLUMN_MAPPING[k]: v for k, v in payload.items() if k in COLUMN_MAPPING}
+                    supabase.table("empleados").insert(pg_data).execute()
+                    st.success("Empleado registrado.")
+                
+                st.session_state.show_add = False
+                st.session_state.edit_id = None
+                st.rerun()
+
+    # TABLA DE VISUALIZACIÓN
+    datos_tabla = fetch_employees()
+    if datos_tabla:
+        df = pd.DataFrame(datos_tabla)
         st.subheader("Listado de Empleados")
-        st.dataframe(df[['employeenumber', 'age', 'department', 'jobrole', 'monthlyincome']], use_container_width=True)
+        # Mostrar columnas principales para no saturar
+        columnas_ver = ['employeenumber', 'age', 'department', 'jobrole', 'monthlyincome']
+        st.dataframe(df[columnas_ver], use_container_width=True, hide_index=True)
 
-        selected_id = st.selectbox("Seleccione ID para Editar/Eliminar", [None] + [e['employeenumber'] for e in data_raw])
-        if selected_id:
-            ca, cb = st.columns(2)
-            with ca:
-                if st.button("✏️ Editar"):
-                    st.session_state.edit_id = selected_id
+        # SELECCIÓN PARA EDICIÓN O ELIMINACIÓN
+        id_selección = st.selectbox("Seleccione ID de empleado para gestionar:", [None] + [e['employeenumber'] for e in datos_tabla])
+        
+        if id_selección:
+            col_ed, col_del = st.columns(2)
+            with col_ed:
+                if st.button("✏️ Editar Registro"):
+                    st.session_state.edit_id = id_selección
+                    st.session_state.show_add = False
                     st.rerun()
-            with cb:
-                if st.button("🗑️ Eliminar"):
-                    delete_employee(selected_id)
-                    st.warning(f"Empleado {selected_id} eliminado")
+            with col_del:
+                if st.button("🗑️ Eliminar Registro"):
+                    supabase.table("empleados").delete().eq("EmployeeNumber", id_selección).execute()
+                    st.warning(f"Empleado {id_selección} eliminado.")
                     st.rerun()
-    else:
-        st.write("No hay datos disponibles.")
 
 if __name__ == "__main__":
     render_employee_management_page()
