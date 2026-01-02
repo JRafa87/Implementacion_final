@@ -7,7 +7,7 @@ from datetime import date
 # 1. CONFIGURACIÓN Y MAPEOS
 # =================================================================
 
-MAPEO_DEPTOS = {"Sales": "Ventas", "Research & Development": "I+D / Desarrollo", "Human Resources": "Recursos Humanos"}
+MAPEO_DEPTOS = {"Sales": "Ventas", "Research & Development": "Investigación y Desarrollo", "Human Resources": "Recursos Humanos"}
 MAPEO_EDUCACION = {"Life Sciences": "Ciencias de la Vida", "Other": "Otros", "Medical": "Médico", "Marketing": "Marketing", "Technical Degree": "Grado Técnico", "Human Resources": "Recursos Humanos"}
 MAPEO_ROLES = {
     "Sales Executive": "Ejecutivo de Ventas", "Research Scientist": "Científico de Investigación",
