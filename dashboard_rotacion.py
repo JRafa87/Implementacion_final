@@ -31,7 +31,9 @@ def load_data():
     df['FechaIngreso'] = pd.to_datetime(df['FechaIngreso'], errors='coerce')
     df['FechaSalida'] = pd.to_datetime(df['FechaSalida'], errors='coerce')
 
-    # 1. TRADUCCIÓN DE DATOS (Mapeo Inglés -> Español)
+    # --- TRADUCCIÓN DE DATOS (Contenido de las celdas) ---
+    
+    # 1. Traducción de Género
     if 'Gender' in df.columns:
         df['Gender'] = df['Gender'].map({
             'Male': 'Masculino', 
@@ -39,17 +41,30 @@ def load_data():
             'Non-binary': 'No binario'
         }).fillna(df['Gender'])
 
-    # 2. TRADUCCIÓN DE COLUMNAS (Para manejo interno y visual)
+    # 2. Traducción de Departamentos (Mapeo Inglés -> Español)
+    # Aquí puedes agregar más departamentos si existen en tu base de datos
+    diccionario_deptos = {
+        'Sales': 'Ventas',
+        'Human Resources': 'Recursos Humanos',
+        'Research & Development': 'I+D / Desarrollo',
+        'Hardware': 'Hardware',
+        'Software': 'Software',
+        'Support': 'Soporte',
+        'Marketing': 'Marketing'
+    }
+    
+    if 'Department' in df.columns:
+        df['Department'] = df['Department'].map(diccionario_deptos).fillna(df['Department'])
+
+    # 3. Traducción de nombres de Columnas
     df = df.rename(columns={
         'Department': 'Departamento',
         'JobRole': 'Puesto',
         'MonthlyIncome': 'IngresoMensual',
-        'Age': 'Edad',
-        'YearsSinceLastPromotion': 'AnosUltimaPromocion',
-        'JobSatisfaction': 'SatisfaccionLaboral'
+        'Age': 'Edad'
     })
 
-    # Lógica de Attrition (Si no existe, se calcula por Fecha de Salida)
+    # Lógica de Attrition
     if 'Attrition' not in df.columns:
         df['Attrition'] = df['FechaSalida'].apply(lambda x: 'No' if pd.isna(x) else 'Yes')
 
@@ -58,15 +73,15 @@ def load_data():
         axis=1
     )
 
-    # Cálculo de métricas de tiempo
+    # Métricas de tiempo
     df['DuracionDias'] = (df['FechaSalida'] - df['FechaIngreso']).dt.days
     df['AntiguedadMeses'] = df['DuracionDias'] / 30
-
-    # Mapeo de contexto humano
-    df['EstadoEmpleado'] = df['Attrition'].map({
-        'Yes': 'Renunció',
-        'No': 'Permanece'
-    })
+    df['EstadoEmpleado'] = df['Attrition'].map({'Yes': 'Renunció', 'No': 'Permanece'})
+    
+    # Tramos de Antigüedad (Se crean aquí para evitar el KeyError)
+    bins = [0, 6, 12, 24, 60, 1000]
+    labels_tramos = ['0–6 meses', '6–12 meses', '1–2 años', '2–5 años', 'Más de 5 años']
+    df['TramoAntiguedad'] = pd.cut(df['AntiguedadMeses'], bins=bins, labels=labels_tramos)
 
     return df.dropna(subset=['FechaIngreso'])
 
@@ -75,170 +90,94 @@ def load_data():
 # ==============================================================================
 
 def render_rotacion_dashboard():
-    # Títulos
     st.title("📊 Análisis Descriptivo de Rotación de Personal")
-    st.caption("Análisis histórico basado en datos de Supabase • Interfaz en Español")
+    st.caption("Filtros en la parte superior • Departamentos traducidos al Español")
     
     data = load_data()
 
     if data.empty:
-        st.error("No se pudieron cargar los datos desde la base de datos.")
+        st.error("No se pudieron cargar los datos.")
         return
 
-    # --- PANEL DE FILTROS SUPERIORES ---
-    st.markdown("### 🎯 Filtros de Visualización")
-    c_filt1, c_filt2, c_filt3 = st.columns(3)
+    # --- PANEL DE FILTROS SUPERIORES (Solo 2 columnas ahora) ---
+    st.markdown("### 🎯 Panel de Control")
+    c_filt1, c_filt2 = st.columns(2)
 
     with c_filt1:
-        genero = st.selectbox(
-            "Filtrar por Género:",
-            ['Todos'] + sorted(data['Gender'].dropna().unique().tolist())
-        )
-
-    with c_filt2:
-        departamento = st.selectbox(
-            "Filtrar por Departamento:",
-            ['Todos'] + sorted(data['Departamento'].dropna().unique().tolist())
-        )
+        genero = st.selectbox("Seleccionar Género:", ['Todos'] + sorted(data['Gender'].dropna().unique().tolist()))
     
-    with c_filt3:
-        # Filtro de búsqueda por puesto
-        puesto = st.selectbox(
-            "Filtrar por Puesto:",
-            ['Todos'] + sorted(data['Puesto'].dropna().unique().tolist())
-        )
+    with c_filt2:
+        departamento = st.selectbox("Seleccionar Departamento:", ['Todos'] + sorted(data['Departamento'].dropna().unique().tolist()))
 
     # Aplicar Filtros
-    data_filtered = data.copy()
+    df_f = data.copy()
     if genero != 'Todos':
-        data_filtered = data_filtered[data_filtered['Gender'] == genero]
+        df_f = df_f[df_f['Gender'] == genero]
     if departamento != 'Todos':
-        data_filtered = data_filtered[data_filtered['Departamento'] == departamento]
-    if puesto != 'Todos':
-        data_filtered = data_filtered[data_filtered['Puesto'] == puesto]
+        df_f = df_f[df_f['Departamento'] == departamento]
 
-    data_renuncias = data_filtered[data_filtered['EstadoEmpleado'] == 'Renunció']
+    df_renuncias = df_f[df_f['EstadoEmpleado'] == 'Renunció']
 
     st.markdown("---")
 
-    # --- BLOQUE DE KPIs ---
+    # --- KPIs ---
     col1, col2, col3, col4 = st.columns(4)
-    col1.metric("👥 Empleados Totales", len(data_filtered))
-    col2.metric("🚪 Total Renuncias", len(data_renuncias))
+    col1.metric("👥 Total Colaboradores", len(df_f))
+    col2.metric("🚪 Bajas (Renuncias)", len(df_renuncias))
     
-    tasa_rotacion = (len(data_renuncias) / len(data_filtered) * 100) if len(data_filtered) > 0 else 0
-    col3.metric("📉 Tasa de Rotación", f"{tasa_rotacion:.1f}%")
-
-    if not data_renuncias.empty:
-        col4.metric("⏱️ Promedio Meses de Salida", f"{data_renuncias['AntiguedadMeses'].mean():.1f}")
-    else:
-        col4.metric("⏱️ Promedio Meses de Salida", "—")
+    tasa = (len(df_renuncias) / len(df_f) * 100) if len(df_f) > 0 else 0
+    col3.metric("📉 Tasa de Rotación", f"{tasa:.1f}%")
+    
+    promedio_meses = df_renuncias['AntiguedadMeses'].mean() if not df_renuncias.empty else 0
+    col4.metric("⏱️ Permanencia Promedio", f"{promedio_meses:.1f} meses")
 
     st.markdown("---")
 
-    # --- BLOQUE 1: ¿CUÁNDO Y EN QUÉ ETAPA? ---
-    st.subheader("🔥 Análisis Crítico de Permanencia")
-    col_a, col_b = st.columns(2)
+    # --- GRÁFICOS ---
+    col_izq, col_der = st.columns(2)
 
-    with col_a:
-        # Histograma de antigüedad
+    with col_izq:
+        st.subheader("🔥 Distribución de Salidas")
         fig_hist = px.histogram(
-            data_renuncias,
-            x='AntiguedadMeses',
-            nbins=20,
-            title="Distribución de renuncias por meses",
-            labels={'AntiguedadMeses': 'Meses en la empresa', 'count': 'Número de renuncias'},
+            df_renuncias, x='AntiguedadMeses', nbins=15,
+            title="Cantidad de renuncias según meses de antigüedad",
+            labels={'AntiguedadMeses': 'Meses transcurridos', 'count': 'Número de personas'},
             color_discrete_sequence=['#E74C3C']
         )
         st.plotly_chart(fig_hist, use_container_width=True)
 
-    with col_b:
-        # Tramos de antigüedad
-        bins = [0, 6, 12, 24, 60]
-        labels_tramos = ['0–6 meses', '6–12 meses', '1–2 años', '2–5 años']
-        data_filtered['TramoAntiguedad'] = pd.cut(data_filtered['AntiguedadMeses'], bins=bins, labels=labels_tramos)
-        
-        total_tramo = data_filtered['TramoAntiguedad'].value_counts().sort_index()
-        renuncias_tramo = data_renuncias['TramoAntiguedad'].value_counts().reindex(labels_tramos).fillna(0)
-        porcentaje_tramo = (renuncias_tramo / total_tramo * 100).reset_index()
-        porcentaje_tramo.columns = ['Tramo', '% de Salidas']
+    with col_der:
+        st.subheader("⏳ Análisis por Etapas")
+        # Porcentajes por tramo
+        total_tramo = df_f['TramoAntiguedad'].value_counts()
+        renuncias_tramo = df_renuncias['TramoAntiguedad'].value_counts()
+        stats_tramo = (renuncias_tramo / total_tramo * 100).reset_index()
+        stats_tramo.columns = ['Tramo', 'Porcentaje']
 
         fig_tramos = px.bar(
-            porcentaje_tramo,
-            x='Tramo', y='% de Salidas',
-            title="Riesgo de salida según etapa laboral",
-            text='% de Salidas',
-            color='% de Salidas',
+            stats_tramo, x='Tramo', y='Porcentaje',
+            title="Porcentaje de deserción por tramo laboral",
+            text='Porcentaje', color='Porcentaje',
             color_continuous_scale='Reds',
-            labels={'% de Salidas': 'Tasa de bajas (%)'}
+            labels={'Porcentaje': '% de Bajas'}
         )
         fig_tramos.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
         st.plotly_chart(fig_tramos, use_container_width=True)
 
-    # --- BLOQUE 2: ¿DÓNDE Y POR QUÉ? ---
     st.markdown("---")
-    col_c, col_d = st.columns(2)
-
-    with col_c:
-        st.subheader("🟥 Rotación por Departamento")
-        tasa_depto = (
-            data.groupby('Departamento')['EstadoEmpleado']
-            .apply(lambda x: (x == 'Renunció').mean() * 100)
-            .reset_index(name='TasaRotacion')
-            .sort_values('TasaRotacion', ascending=True)
-        )
-        fig_depto = px.bar(
-            tasa_depto, x='TasaRotacion', y='Departamento',
-            orientation='h',
-            title="Departamentos con mayor índice de rotación",
-            labels={'TasaRotacion': 'Tasa (%)', 'Departamento': ''},
-            color='TasaRotacion',
-            color_continuous_scale='Reds'
-        )
-        st.plotly_chart(fig_depto, use_container_width=True)
-
-    with col_d:
-        st.subheader("💰 Ingresos vs Edad")
-        fig_scatter = px.scatter(
-            data_filtered, x='Edad', y='IngresoMensual',
-            color='EstadoEmpleado',
-            labels={'Edad': 'Edad', 'IngresoMensual': 'Sueldo Mensual', 'EstadoEmpleado': 'Situación'},
-            color_discrete_map={'Renunció': '#E74C3C', 'Permanece': '#2ECC71'},
-            opacity=0.6,
-            hover_data=['Puesto', 'Departamento']
-        )
-        st.plotly_chart(fig_scatter, use_container_width=True)
-
-    # --- BLOQUE 3: TENDENCIA TEMPORAL ---
-    st.markdown("---")
-    st.subheader("📆 Evolución de Salidas en el Tiempo")
-    renuncias_mes = (
-        data_renuncias
-        .groupby(pd.Grouper(key='FechaSalida', freq='M'))
-        .size()
-        .reset_index(name='Renuncias')
-    )
-    fig_tiempo = px.line(
-        renuncias_mes, x='FechaSalida', y='Renuncias',
-        markers=True,
-        title="Tendencia mensual de renuncias registradas",
-        labels={'FechaSalida': 'Mes de Salida', 'Renuncias': 'Cantidad'}
-    )
-    st.plotly_chart(fig_tiempo, use_container_width=True)
-
-    # --- LECTURA EJECUTIVA ---
-    st.markdown("---")
-    st.subheader("🧠 Conclusiones del Análisis")
     
-    pct_primer_ano = (data_renuncias['AntiguedadMeses'] <= 12).mean() * 100
-    depto_max = tasa_depto.iloc[-1]['Departamento'] if not tasa_depto.empty else "N/A"
-
-    st.info(
-        f"✅ **Análisis de Onboarding:** El **{pct_primer_ano:.0f}%** de las salidas ocurren en el primer año. "
-        f"Se recomienda reforzar el proceso de inducción.\n\n"
-        f"✅ **Área Crítica:** El departamento de **{depto_max}** presenta la mayor vulnerabilidad actual.\n\n"
-        f"✅ **Factores Económicos:** Se observa una correlación entre salarios en niveles iniciales y la decisión de salida."
+    # Gráfico de Ingresos vs Edad
+    st.subheader("💰 Panorama de Ingresos y Edad")
+    fig_scatter = px.scatter(
+        df_f, x='Edad', y='IngresoMensual', color='EstadoEmpleado',
+        labels={'Edad': 'Edad del empleado', 'IngresoMensual': 'Salario Mensual', 'EstadoEmpleado': 'Estado'},
+        color_discrete_map={'Renunció': '#E74C3C', 'Permanece': '#2ECC71'},
+        hover_data=['Departamento', 'Puesto']
     )
+    st.plotly_chart(fig_scatter, use_container_width=True)
+
+    # --- NOTA FINAL ---
+    st.info(f"💡 Datos filtrados para **{genero}** en el departamento de **{departamento}**.")
 
 if __name__ == "__main__":
     render_rotacion_dashboard()
