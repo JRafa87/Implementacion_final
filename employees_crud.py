@@ -4,7 +4,7 @@ from supabase import create_client, Client
 from datetime import date
 
 # =================================================================
-# 1. MAPEOS Y TRADUCCIONES
+# 1. CONFIGURACIÓN Y MAPEOS
 # =================================================================
 
 MAPEO_DEPTOS = {"Sales": "Ventas", "Research & Development": "I+D / Desarrollo", "Human Resources": "Recursos Humanos"}
@@ -15,21 +15,6 @@ MAPEO_ROLES = {
     "Healthcare Representative": "Representante de Salud", "Manager": "Gerente",
     "Sales Representative": "Representante de Ventas", "Research Director": "Director de Investigación",
     "Human Resources": "Recursos Humanos"
-}
-
-COLUMN_MAPPING = {
-    "employeenumber": "EmployeeNumber", "age": "Age", "businesstravel": "BusinessTravel",
-    "department": "Department", "distancefromhome": "DistanceFromHome", "education": "Education",
-    "educationfield": "EducationField", "environmentsatisfaction": "EnvironmentSatisfaction",
-    "gender": "Gender", "jobinvolvement": "JobInvolvement", "joblevel": "JobLevel",
-    "jobrole": "JobRole", "jobsatisfaction": "JobSatisfaction", "maritalstatus": "MaritalStatus",
-    "monthlyincome": "MonthlyIncome", "numcompaniesworked": "NumCompaniesWorked", "overtime": "OverTime",
-    "performancerating": "PerformanceRating", "relationshipsatisfaction": "RelationshipSatisfaction",
-    "totalworkingyears": "TotalWorkingYears", "trainingtimeslastyear": "TrainingTimesLastyear",
-    "yearsatcompany": "YearsAtCompany", "yearsincurrentrole": "YearsInCurrentRole",
-    "yearssincelastpromotion": "YearsSinceLastPromotion", "yearswithcurrmanager": "YearsWithCurrManager",
-    "tipocontrato": "Tipocontrato", "numerotardanzas": "NumeroTardanzas", "numerofaltas": "NumeroFaltas",
-    "fechaingreso": "FechaIngreso"
 }
 
 @st.cache_resource
@@ -51,10 +36,14 @@ def fetch_employees():
 def render_employee_management_page():
     st.title("👥 Gestión de Personal")
 
+    # Estados de la sesión
     if "edit_id" not in st.session_state: st.session_state.edit_id = None
     if "show_add" not in st.session_state: st.session_state.show_add = False
 
-    # --- TABLA SUPERIOR (CORREGIDO I+D / DESARROLLO) ---
+    # Variable para saber si hay un proceso activo (edición o nuevo)
+    proceso_activo = st.session_state.edit_id is not None or st.session_state.show_add
+
+    # --- TABLA SUPERIOR (TRADUCCIÓN I+D / DESARROLLO) ---
     raw_data = fetch_employees()
     if raw_data:
         df = pd.DataFrame(raw_data)
@@ -69,31 +58,38 @@ def render_employee_management_page():
 
     st.divider()
 
-    # --- BUSCADOR ÚNICO (Escribir o Seleccionar) ---
+    # --- BUSCADOR CON BLOQUEO DINÁMICO ---
     st.subheader("🔍 Localizar Colaborador")
     lista_ids = [str(e['employeenumber']) for e in raw_data] if raw_data else []
     
-    id_input = st.selectbox("Busque por número de ID o seleccione de la lista:", 
-                            options=[None] + lista_ids)
+    # REQUERIMIENTO: El buscador se deshabilita si proceso_activo es True
+    id_input = st.selectbox(
+        "Busque por número de ID o seleccione de la lista:", 
+        options=[None] + lista_ids,
+        disabled=proceso_activo,
+        help="El buscador se bloquea durante la edición para evitar errores."
+    )
+
+    if proceso_activo:
+        st.warning("⚠️ El buscador está bloqueado. Finalice la edición o el registro para habilitarlo.")
 
     c_b1, c_b2, c_b3 = st.columns(3)
     with c_b1:
-        if st.button("✏️ Editar Registro", use_container_width=True) and id_input:
+        # Solo permite presionar editar si no hay otro proceso activo
+        if st.button("✏️ Editar Registro", use_container_width=True, disabled=proceso_activo) and id_input:
             st.session_state.edit_id = int(id_input)
-            st.session_state.show_add = False
             st.rerun()
     with c_b2:
-        if st.button("🗑️ Eliminar Registro", use_container_width=True) and id_input:
+        if st.button("🗑️ Eliminar Registro", use_container_width=True, disabled=proceso_activo) and id_input:
             supabase.table("empleados").delete().eq("EmployeeNumber", int(id_input)).execute()
             st.rerun()
     with c_b3:
-        if st.button("➕ Nuevo Registro", use_container_width=True):
+        if st.button("➕ Nuevo Registro", use_container_width=True, disabled=proceso_activo):
             st.session_state.show_add = True
-            st.session_state.edit_id = None
             st.rerun()
 
     # --- FORMULARIO COMPLETO ---
-    if st.session_state.show_add or st.session_state.edit_id:
+    if proceso_activo:
         st.divider()
         es_edit = st.session_state.edit_id is not None
         p = {}
@@ -101,26 +97,27 @@ def render_employee_management_page():
             res_ind = supabase.table("empleados").select("*").eq("EmployeeNumber", st.session_state.edit_id).execute()
             p = {k.lower(): v for k, v in res_ind.data[0].items()} if res_ind.data else {}
 
-        st.subheader("📋 Formulario Completo de Datos")
+        st.subheader("📋 Formulario de Datos" + (" (Modo Edición)" if es_edit else " (Nuevo Registro)"))
         
-        # FILA 1: DATOS CLAVE (Fuera del form para que la edad bloquee dinámicamente)
+        # FILA 1: DATOS PERSONALES
         c1, c2, c3, c4 = st.columns(4)
         with c1:
-            age = st.number_input("Edad (Mínimo 18)", 0, 100, int(p.get('age', 25)), key="age_input")
+            # REQUERIMIENTO: En edición la edad sale en GRIS (disabled)
+            age = st.number_input("Edad (Mínimo 18)", 0, 100, int(p.get('age', 25)), disabled=es_edit)
         with c2:
-            income = st.number_input("Sueldo", 0, 50000, int(p.get('monthlyincome', 3000)))
+            income = st.number_input("Sueldo Mensual", 0, 50000, int(p.get('monthlyincome', 3000)))
         with c3:
             dept = st.selectbox("Departamento", list(MAPEO_DEPTOS.values()))
         with c4:
             role = st.selectbox("Puesto", list(MAPEO_ROLES.values()))
 
-        # RESTRICCIÓN DE EDAD
+        # LÓGICA DE RESTRICCIÓN DE EDAD (MAYOR O IGUAL A 18)
         if age < 18:
-            st.error("🚫 RESTRICCIÓN: El empleado debe ser mayor o igual a 18 años. El formulario está bloqueado.")
+            st.error("🚫 RESTRICCIÓN: Edad mínima de 18 años para habilitar el guardado.")
         else:
-            with st.form("form_registro_completo"):
-                # FILA 2: SATISFACCIÓN
-                st.write("**Satisfacción y Entorno**")
+            with st.form("full_form_employee"):
+                # FILA 2: SATISFACCIÓN Y ENTORNO
+                st.write("**Métricas de Satisfacción**")
                 s1, s2, s3, s4 = st.columns(4)
                 with s1: env_sat = st.slider("Satis. Entorno", 1, 4, int(p.get('environmentsatisfaction', 3)))
                 with s2: job_sat = st.slider("Satis. Trabajo", 1, 4, int(p.get('jobsatisfaction', 3)))
@@ -145,11 +142,10 @@ def render_employee_management_page():
 
                 f_ing = st.date_input("Fecha Ingreso", date.today())
                 
-                # BOTONES DE ENVÍO
-                submit = st.form_submit_button("💾 GUARDAR TODO")
+                # BOTONES DE ACCIÓN
+                btn_save = st.form_submit_button("💾 GUARDAR CAMBIOS")
                 
-                if submit:
-                    # Lógica de guardado (Insert/Update)
+                if btn_save:
                     def to_eng(d, v): return [k for k, val in d.items() if val == v][0]
                     payload = {
                         "Age": age, "MonthlyIncome": income, "Department": to_eng(MAPEO_DEPTOS, dept),
@@ -168,12 +164,12 @@ def render_employee_management_page():
                         payload["EmployeeNumber"] = (l_res.data[0]['EmployeeNumber'] + 1) if l_res.data else 1
                         supabase.table("empleados").insert(payload).execute()
                     
-                    st.success("¡Datos guardados!")
                     st.session_state.edit_id = None
                     st.session_state.show_add = False
+                    st.success("¡Operación completada!")
                     st.rerun()
 
-        if st.button("❌ Cancelar"):
+        if st.button("❌ Cancelar Operación"):
             st.session_state.edit_id = None
             st.session_state.show_add = False
             st.rerun()
