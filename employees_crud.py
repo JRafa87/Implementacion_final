@@ -4,7 +4,7 @@ from supabase import create_client, Client
 from datetime import date
 
 # =================================================================
-# 1. MAPEOS Y TRADUCCIONES (IDÉNTICO A TU BASE DE DATOS)
+# 1. MAPEOS Y TRADUCCIONES
 # =================================================================
 
 MAPEO_DEPTOS = {"Sales": "Ventas", "Research & Development": "I+D / Desarrollo", "Human Resources": "Recursos Humanos"}
@@ -15,12 +15,6 @@ MAPEO_ROLES = {
     "Healthcare Representative": "Representante de Salud", "Manager": "Gerente",
     "Sales Representative": "Representante de Ventas", "Research Director": "Director de Investigación",
     "Human Resources": "Recursos Humanos"
-}
-TRADUCCIONES_FIJAS = {
-    "businesstravel": {"Non-Travel": "No viaja", "Travel_Rarely": "Viaja raramente", "Travel_Frequently": "Viaja frecuentemente"},
-    "gender": {"Male": "Masculino", "Female": "Femenino"},
-    "maritalstatus": {"Single": "Soltero/a", "Married": "Casado/a", "Divorced": "Divorciado/a"},
-    "overtime": {"Yes": "Sí", "No": "No"}
 }
 
 COLUMN_MAPPING = {
@@ -60,7 +54,7 @@ def render_employee_management_page():
     if "edit_id" not in st.session_state: st.session_state.edit_id = None
     if "show_add" not in st.session_state: st.session_state.show_add = False
 
-    # --- TABLA SUPERIOR (TRADUCIDA) ---
+    # --- TABLA SUPERIOR (CORREGIDO I+D / DESARROLLO) ---
     raw_data = fetch_employees()
     if raw_data:
         df = pd.DataFrame(raw_data)
@@ -75,14 +69,12 @@ def render_employee_management_page():
 
     st.divider()
 
-    # --- BUSCADOR ÚNICO (Escribir número o seleccionar) ---
+    # --- BUSCADOR ÚNICO (Escribir o Seleccionar) ---
     st.subheader("🔍 Localizar Colaborador")
     lista_ids = [str(e['employeenumber']) for e in raw_data] if raw_data else []
     
-    # Usamos selectbox con búsqueda: permite escribir el número para filtrar
-    id_input = st.selectbox("Escriba el número de ID o seleccione de la lista:", 
-                            options=[None] + lista_ids,
-                            help="Puede escribir el número directamente para buscar.")
+    id_input = st.selectbox("Busque por número de ID o seleccione de la lista:", 
+                            options=[None] + lista_ids)
 
     c_b1, c_b2, c_b3 = st.columns(3)
     with c_b1:
@@ -95,7 +87,7 @@ def render_employee_management_page():
             supabase.table("empleados").delete().eq("EmployeeNumber", int(id_input)).execute()
             st.rerun()
     with c_b3:
-        if st.button("➕ Nuevo Empleado", use_container_width=True):
+        if st.button("➕ Nuevo Registro", use_container_width=True):
             st.session_state.show_add = True
             st.session_state.edit_id = None
             st.rerun()
@@ -111,102 +103,80 @@ def render_employee_management_page():
 
         st.subheader("📋 Formulario Completo de Datos")
         
-        with st.form("form_final"):
-            # FILA 1: BÁSICOS
-            c1, c2, c3, c4 = st.columns(4)
-            with c1:
-                age = st.number_input("Edad", 0, 100, int(p.get('age', 25)), disabled=es_edit)
-                gender = st.selectbox("Género", list(TRADUCCIONES_FIJAS["gender"].values()))
-            with c2:
-                income = st.number_input("Sueldo", 0, 50000, int(p.get('monthlyincome', 3000)))
-                marital = st.selectbox("Estado Civil", list(TRADUCCIONES_FIJAS["maritalstatus"].values()))
-            with c3:
-                dept = st.selectbox("Departamento", list(MAPEO_DEPTOS.values()))
-                role = st.selectbox("Puesto", list(MAPEO_ROLES.values()))
-            with c4:
-                contract = st.selectbox("Tipo Contrato", ["Fijo", "Temporal", "Servicios"])
+        # FILA 1: DATOS CLAVE (Fuera del form para que la edad bloquee dinámicamente)
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            age = st.number_input("Edad (Mínimo 18)", 0, 100, int(p.get('age', 25)), key="age_input")
+        with c2:
+            income = st.number_input("Sueldo", 0, 50000, int(p.get('monthlyincome', 3000)))
+        with c3:
+            dept = st.selectbox("Departamento", list(MAPEO_DEPTOS.values()))
+        with c4:
+            role = st.selectbox("Puesto", list(MAPEO_ROLES.values()))
+
+        # RESTRICCIÓN DE EDAD
+        if age < 18:
+            st.error("🚫 RESTRICCIÓN: El empleado debe ser mayor o igual a 18 años. El formulario está bloqueado.")
+        else:
+            with st.form("form_registro_completo"):
+                # FILA 2: SATISFACCIÓN
+                st.write("**Satisfacción y Entorno**")
+                s1, s2, s3, s4 = st.columns(4)
+                with s1: env_sat = st.slider("Satis. Entorno", 1, 4, int(p.get('environmentsatisfaction', 3)))
+                with s2: job_sat = st.slider("Satis. Trabajo", 1, 4, int(p.get('jobsatisfaction', 3)))
+                with s3: job_inv = st.slider("Involucramiento", 1, 4, int(p.get('jobinvolvement', 3)))
+                with s4: rel_sat = st.slider("Satis. Relaciones", 1, 4, int(p.get('relationshipsatisfaction', 3)))
+
+                # FILA 3: EDUCACIÓN Y TRAYECTORIA
+                st.write("**Educación y Trayectoria**")
+                t1, t2, t3, t4 = st.columns(4)
+                with t1:
+                    ed_field = st.selectbox("Campo Estudio", list(MAPEO_EDUCACION.values()))
+                    ed_lvl = st.number_input("Nivel Educ.", 1, 5, int(p.get('education', 3)))
+                with t2:
+                    dist = st.number_input("Distancia Km", 0, 100, int(p.get('distancefromhome', 5)))
+                    num_comp = st.number_input("Empresas Prev.", 0, 20, int(p.get('numcompaniesworked', 1)))
+                with t3:
+                    y_total = st.number_input("Años Exp. Total", 0, 50, int(p.get('totalworkingyears', 5)))
+                    y_comp = st.number_input("Años Empresa", 0, 50, int(p.get('yearsatcompany', 0)))
+                with t4:
+                    tardanzas = st.number_input("Tardanzas", 0, 100, int(p.get('numerotardanzas', 0)))
+                    faltas = st.number_input("Faltas", 0, 100, int(p.get('numerofaltas', 0)))
+
                 f_ing = st.date_input("Fecha Ingreso", date.today())
-
-            # FILA 2: SATISFACCIÓN Y NIVELES
-            st.write("**Métricas de Satisfacción y Nivel**")
-            c5, c6, c7, c8 = st.columns(4)
-            with c5:
-                env_sat = st.slider("Satis. Entorno", 1, 4, int(p.get('environmentsatisfaction', 3)))
-                job_sat = st.slider("Satis. Trabajo", 1, 4, int(p.get('jobsatisfaction', 3)))
-            with c6:
-                job_inv = st.slider("Involucramiento", 1, 4, int(p.get('jobinvolvement', 3)))
-                rel_sat = st.slider("Satis. Relaciones", 1, 4, int(p.get('relationshipsatisfaction', 3)))
-            with c7:
-                perf = st.slider("Desempeño", 1, 4, int(p.get('performancerating', 3)))
-                job_lvl = st.slider("Nivel Puesto", 1, 5, int(p.get('joblevel', 1)))
-            with c8:
-                overtime = st.radio("Horas Extra", list(TRADUCCIONES_FIJAS["overtime"].values()), horizontal=True)
-                travel = st.selectbox("Viajes", list(TRADUCCIONES_FIJAS["businesstravel"].values()))
-
-            # FILA 3: EDUCACIÓN Y TRAYECTORIA
-            st.write("**Educación y Trayectoria**")
-            c9, c10, c11, c12 = st.columns(4)
-            with c9:
-                ed_field = st.selectbox("Campo Estudio", list(MAPEO_EDUCACION.values()))
-                ed_lvl = st.number_input("Nivel Educ.", 1, 5, int(p.get('education', 3)))
-            with c10:
-                dist = st.number_input("Distancia Km", 0, 100, int(p.get('distancefromhome', 5)))
-                num_comp = st.number_input("Empresas Prev.", 0, 20, int(p.get('numcompaniesworked', 1)))
-            with c11:
-                y_total = st.number_input("Años Exp. Total", 0, 50, int(p.get('totalworkingyears', 5)))
-                y_comp = st.number_input("Años Empresa", 0, 50, int(p.get('yearsatcompany', 0)))
-            with c12:
-                tardanzas = st.number_input("Tardanzas", 0, 100, int(p.get('numerotardanzas', 0)))
-                faltas = st.number_input("Faltas", 0, 100, int(p.get('numerofaltas', 0)))
-
-            # CAMPOS ADICIONALES (Ocultos pero necesarios para la lógica)
-            training = int(p.get('trainingtimeslastyear', 2))
-            y_role = int(p.get('yearsincurrentrole', 0))
-            y_promo = int(p.get('yearssincelastpromotion', 0))
-            y_mgr = int(p.get('yearswithcurrmanager', 0))
-
-            # --- RESTRICCIÓN DE EDAD (IGUAL O MAYOR A 18) ---
-            bloqueado = age < 18
-            if bloqueado:
-                st.error("🚫 RESTRICCIÓN: No se permiten menores de 18 años.")
-
-            b_save, b_cancel = st.columns(2)
-            with b_save:
-                # El botón se inhabilita físicamente si la edad es menor a 18
-                submit = st.form_submit_button("💾 GUARDAR CAMBIOS", disabled=bloqueado)
-            with b_cancel:
-                if st.form_submit_button("❌ CANCELAR"):
+                
+                # BOTONES DE ENVÍO
+                submit = st.form_submit_button("💾 GUARDAR TODO")
+                
+                if submit:
+                    # Lógica de guardado (Insert/Update)
+                    def to_eng(d, v): return [k for k, val in d.items() if val == v][0]
+                    payload = {
+                        "Age": age, "MonthlyIncome": income, "Department": to_eng(MAPEO_DEPTOS, dept),
+                        "JobRole": to_eng(MAPEO_ROLES, role), "EnvironmentSatisfaction": env_sat,
+                        "JobSatisfaction": job_sat, "JobInvolvement": job_inv, "RelationshipSatisfaction": rel_sat,
+                        "EducationField": to_eng(MAPEO_EDUCACION, ed_field), "Education": ed_lvl,
+                        "DistanceFromHome": dist, "NumCompaniesWorked": num_comp, "TotalWorkingYears": y_total,
+                        "YearsAtCompany": y_comp, "NumeroTardanzas": tardanzas, "NumeroFaltas": faltas,
+                        "FechaIngreso": f_ing.isoformat()
+                    }
+                    
+                    if es_edit:
+                        supabase.table("empleados").update(payload).eq("EmployeeNumber", st.session_state.edit_id).execute()
+                    else:
+                        l_res = supabase.table("empleados").select("EmployeeNumber").order("EmployeeNumber", desc=True).limit(1).execute()
+                        payload["EmployeeNumber"] = (l_res.data[0]['EmployeeNumber'] + 1) if l_res.data else 1
+                        supabase.table("empleados").insert(payload).execute()
+                    
+                    st.success("¡Datos guardados!")
                     st.session_state.edit_id = None
                     st.session_state.show_add = False
                     st.rerun()
 
-            if submit and not bloqueado:
-                def to_eng(d, v): return [k for k, val in d.items() if val == v][0]
-                payload = {
-                    "age": age, "monthlyincome": income, "distancefromhome": dist, "education": ed_lvl,
-                    "environmentsatisfaction": env_sat, "jobinvolvement": job_inv, "joblevel": job_lvl,
-                    "jobsatisfaction": job_sat, "numcompaniesworked": num_comp, "performancerating": perf,
-                    "relationshipsatisfaction": rel_sat, "totalworkingyears": y_total, "trainingtimeslastyear": training,
-                    "yearsatcompany": y_comp, "yearsincurrentrole": y_role, "yearssincelastpromotion": y_promo,
-                    "yearswithcurrmanager": y_mgr, "numerotardanzas": tardanzas, "numerofaltas": faltas,
-                    "fechaingreso": f_ing.isoformat(), "tipocontrato": contract,
-                    "department": to_eng(MAPEO_DEPTOS, dept), "jobrole": to_eng(MAPEO_ROLES, role),
-                    "educationfield": to_eng(MAPEO_EDUCACION, ed_field), "gender": to_eng(TRADUCCIONES_FIJAS["gender"], gender),
-                    "maritalstatus": to_eng(TRADUCCIONES_FIJAS["maritalstatus"], marital), "overtime": to_eng(TRADUCCIONES_FIJAS["overtime"], overtime),
-                    "businesstravel": to_eng(TRADUCCIONES_FIJAS["businesstravel"], travel)
-                }
-                db_ready = {COLUMN_MAPPING[k]: v for k, v in payload.items() if k in COLUMN_MAPPING}
-                
-                if es_edit:
-                    supabase.table("empleados").update(db_ready).eq("EmployeeNumber", st.session_state.edit_id).execute()
-                else:
-                    l_res = supabase.table("empleados").select("EmployeeNumber").order("EmployeeNumber", desc=True).limit(1).execute()
-                    db_ready["EmployeeNumber"] = (l_res.data[0]['EmployeeNumber'] + 1) if l_res.data else 1
-                    supabase.table("empleados").insert(db_ready).execute()
-                
-                st.session_state.edit_id = None
-                st.session_state.show_add = False
-                st.rerun()
+        if st.button("❌ Cancelar"):
+            st.session_state.edit_id = None
+            st.session_state.show_add = False
+            st.rerun()
 
 if __name__ == "__main__":
     render_employee_management_page()
