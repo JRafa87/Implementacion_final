@@ -108,6 +108,16 @@ def render_rotacion_dashboard():
                             title="Distribución de renuncias por meses de antigüedad",
                             labels={'AntiguedadMeses': 'Meses', 'total': 'Frecuencia'},
                             color_discrete_sequence=['#E74C3C'])
+    
+    # Esto elimina el 'count' y pone 'Cantidad de Salidas'
+    fig_hist.update_layout(
+        yaxis_title="Cantidad de Salidas",
+        xaxis_title="Meses de Antigüedad",
+        hovermode="x unified"
+    )
+    # También corregimos el tooltip que sale al pasar el mouse
+    fig_hist.update_traces(hovertemplate="Meses: %{x}<br>Salidas: %{y}")
+
     st.plotly_chart(fig_hist, use_container_width=True)
 
     st.subheader("⏳ ¿En qué etapa ocurre la rotación?")
