@@ -14,7 +14,7 @@ except ImportError:
 # ============================================================================== 
 # 1. RECURSOS Y MAPEOS (Traducción y Caché)
 # ==============================================================================
-MAPEO_DEPTOS_VIEW = {"Sales": "Ventas", "Research & Development": "I+D", "Human Resources": "Recursos Humanos"}
+MAPEO_DEPTOS_VIEW = {"Sales": "Ventas", "Research & Development": "Investigación y Desarrollo", "Human Resources": "Recursos Humanos"}
 MAPEO_ROLES_VIEW = {
     "Sales Executive": "Ejecutivo de Ventas", "Research Scientist": "Científico de Investigación",
     "Laboratory Technician": "Técnico de Laboratorio", "Manufacturing Director": "Director de Manufactura",
