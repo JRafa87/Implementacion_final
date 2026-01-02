@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import joblib
 import shap
+import plotly.express as px
 from supabase import create_client, Client
 from typing import Dict, Any
 import warnings
@@ -19,7 +20,7 @@ MAPPING_PATH = "models/categorical_mapping.pkl"
 EMPLOYEE_TABLE = "consolidado"
 KEY_COLUMN = "EmployeeNumber"
 
-# Traducción de etiquetas de variables
+# Traducción de etiquetas de columnas para la UI
 TRADUCCIONES_COLS = {
     "Age": "Edad", "BusinessTravel": "Viajes de Negocios", "Department": "Departamento",
     "DistanceFromHome": "Distancia desde Casa", "Education": "Nivel Educativo",
@@ -37,29 +38,53 @@ TRADUCCIONES_COLS = {
     "NumeroTardanzas": "Tardanzas", "NumeroFaltas": "Faltas", "tipo_contrato": "Tipo de Contrato"
 }
 
-# Traducción de los VALORES dentro de las categorías
+# Traducción de valores internos (Original -> Español)
 TRADUCCIONES_VALORES = {
-    "BusinessTravel": {"Travel_Rarely": "Viaja Poco", "Travel_Frequently": "Viaja Frecuentemente", "Non-Travel": "No Viaja"},
-    "Department": {"Sales": "Ventas", "Research & Development": "I+D", "Human Resources": "Recursos Humanos"},
-    "EducationField": {"Life Sciences": "Ciencias de la Vida", "Medical": "Medicina", "Marketing": "Marketing", "Technical Degree": "Grado Técnico", "Human Resources": "Recursos Humanos", "Other": "Otros"},
-    "Gender": {"Male": "Masculino", "Female": "Femenino"},
-    "JobRole": {
-        "Sales Executive": "Ejecutivo de Ventas", "Research Scientist": "Científico de Investigación",
-        "Laboratory Technician": "Técnico de Laboratorio", "Manufacturing Director": "Director Manufactura",
-        "Healthcare Representative": "Representante de Salud", "Manager": "Gerente",
-        "Sales Representative": "Representante de Ventas", "Research Director": "Director Investigación",
-        "Human Resources": "Recursos Humanos"
+    "Department": {
+        "HR": "Recursos Humanos",
+        "RESEARCH_AND_DEVELOPMENT": "Investigación y Desarrollo",
+        "SALES": "Ventas"
     },
-    "MaritalStatus": {"Single": "Soltero/a", "Married": "Casado/a", "Divorced": "Divorciado/a"},
-    "OverTime": {"Yes": "Sí", "No": "No"},
-    "tipo_contrato": {"Indefinido": "Indefinido", "Temporal": "Temporal"} # Ajustar según tus datos
+    "BusinessTravel": {
+        "NON-TRAVEL": "Sin Viajes",
+        "TRAVEL_FREQUENTLY": "Viajes Frecuentes",
+        "TRAVEL_RARELY": "Viajes Ocasionales"
+    },
+    "EducationField": {
+        "HUMAN_RESOURCES": "Recursos Humanos",
+        "LIFE_SCIENCES": "Ciencias de la Vida",
+        "MARKETING": "Marketing",
+        "MEDICAL": "Medicina",
+        "OTHER": "Otros",
+        "TECHNICAL_DEGREE": "Grado Técnico"
+    },
+    "Gender": {
+        "FEMALE": "Femenino",
+        "MALE": "Masculino"
+    },
+    "JobRole": {
+        "HEALTHCARE_REPRESENTATIVE": "Representante de Salud",
+        "HUMAN_RESOURCES": "Recursos Humanos",
+        "LABORATORY_TECHNICIAN": "Técnico de Laboratorio",
+        "MANAGER": "Gerente",
+        "MANUFACTURING_DIRECTOR": "Director de Manufactura",
+        "RESEARCH_DIRECTOR": "Director de Investigación",
+        "RESEARCH_SCIENTIST": "Científico de Investigación",
+        "SALES_EXECUTIVE": "Ejecutivo de Ventas",
+        "SALES_REPRESENTATIVE": "Representante de Ventas"
+    },
+    "MaritalStatus": {
+        "DIVORCED": "Divorciado/a",
+        "MARRIED": "Casado/a",
+        "SINGLE": "Soltero/a"
+    }
 }
 
 MODEL_COLUMNS = list(TRADUCCIONES_COLS.keys())
-LOCKED_WHEN_FROM_DB = ["Age", "Gender", "MaritalStatus","JobRole","EducationField","Department"]
+LOCKED_WHEN_FROM_DB = ["Age", "Gender", "MaritalStatus", "JobRole", "EducationField", "Department"]
 
 # ==========================================================
-# 2. CONEXIÓN Y MODELO
+# 2. CARGA DE RECURSOS
 # ==========================================================
 
 @st.cache_resource
@@ -83,11 +108,13 @@ def load_employee_data(emp_id: str) -> Dict[str, Any]:
     return res.data[0] if res.data else {}
 
 # ==========================================================
-# 3. PREDICCIÓN + SHAP
+# 3. PREDICCIÓN + SHAP CON COLORES
 # ==========================================================
 
 def predict_with_shap(data: Dict[str, Any]):
     df = pd.DataFrame([data]).reindex(columns=MODEL_COLUMNS, fill_value=0)
+    
+    # Procesamiento para el modelo
     for col, mp in mapping.items():
         if col in df.columns:
             df[col] = df[col].map(mp).fillna(0)
@@ -98,15 +125,21 @@ def predict_with_shap(data: Dict[str, Any]):
     explainer = shap.Explainer(model)
     shap_values = explainer(df_scaled)
     
+    # Crear DF para gráfico
     shap_df = pd.DataFrame({
         "Variable": [TRADUCCIONES_COLS.get(c, c) for c in MODEL_COLUMNS],
         "Impacto": shap_values.values[0]
-    }).assign(Abs=lambda x: x.Impacto.abs()).sort_values("Abs", ascending=False).head(8)
+    })
+    
+    # Lógica de colores: Rojo (+ riesgo), Verde (- riesgo)
+    shap_df["Color"] = shap_df["Impacto"].apply(lambda x: "Riesgo (Sube)" if x > 0 else "Retención (Baja)")
+    shap_df["Abs"] = shap_df["Impacto"].abs()
+    shap_df = shap_df.sort_values("Abs", ascending=False).head(8)
     
     return proba, shap_df
 
 # ==========================================================
-# 4. UI COMPARADOR
+# 4. INTERFAZ DE USUARIO
 # ==========================================================
 
 def render_manual_prediction_tab():
@@ -116,15 +149,16 @@ def render_manual_prediction_tab():
     st.session_state.setdefault("pred_manual", None)
 
     ids = fetch_employee_ids()
-    selected_id = st.selectbox("Seleccione EmployeeNumber", ["--- Seleccionar ---"] + ids)
+    selected_id = st.selectbox("👤 Seleccione ID del Colaborador", ["--- Seleccionar ---"] + ids)
     base_data = load_employee_data(selected_id) if selected_id != "--- Seleccionar ---" else {}
 
-    st.markdown("---")
-    st.subheader("🧪 Simulación de Escenarios")
+    st.divider()
+    st.subheader("🧪 Simulación de Escenario Hipotético")
 
     manual_input = {}
     col1, col2 = st.columns(2)
-    sliders = ["EnvironmentSatisfaction","JobSatisfaction","RelationshipSatisfaction","WorkLifeBalance","IntencionPermanencia","CargaLaboralPercibida","SatisfaccionSalarial","ConfianzaEmpresa"]
+    sliders = ["EnvironmentSatisfaction","JobSatisfaction","RelationshipSatisfaction","WorkLifeBalance",
+               "IntencionPermanencia","CargaLaboralPercibida","SatisfaccionSalarial","ConfianzaEmpresa"]
 
     for i, col in enumerate(MODEL_COLUMNS):
         base_val = base_data.get(col, 0)
@@ -139,59 +173,70 @@ def render_manual_prediction_tab():
                 manual_input[col] = st.slider(display_label, 1, 5, int(base_val) if base_val else 3, disabled=locked)
             
             elif col in mapping:
-                # Obtener opciones originales del mapeo (inglés)
                 options_en = list(mapping[col].keys())
-                # Crear diccionario inverso para mostrar en español pero guardar en inglés
-                traduccion_opciones = TRADUCCIONES_VALORES.get(col, {})
+                traduccion_dict = TRADUCCIONES_VALORES.get(col, {})
                 
-                # Mostramos en español pero mapeamos al valor original que el modelo entiende
-                # Si no hay traducción, usamos el valor original
-                opciones_display = {traduccion_opciones.get(opt, opt): opt for opt in options_en}
+                # Mapeo Inverso para la UI
+                opciones_ui = {traduccion_dict.get(opt, opt): opt for opt in options_en}
                 
-                default_val_en = base_val if base_val in options_en else options_en[0]
-                default_display = next((k for k, v in opciones_display.items() if v == default_val_en), list(opciones_display.keys())[0])
+                default_en = base_val if base_val in options_en else options_en[0]
+                default_ui = next((k for k, v in opciones_ui.items() if v == default_en), list(opciones_ui.keys())[0])
                 
-                seleccion_es = st.selectbox(display_label, list(opciones_display.keys()), index=list(opciones_display.keys()).index(default_display), disabled=locked)
-                manual_input[col] = opciones_display[seleccion_es]
+                seleccion_ui = st.selectbox(display_label, list(opciones_ui.keys()), 
+                                            index=list(opciones_ui.keys()).index(default_ui), 
+                                            disabled=locked)
+                manual_input[col] = opciones_ui[seleccion_ui]
             
             else:
                 manual_input[col] = st.number_input(display_label, value=float(base_val) if base_val else 0.0, disabled=locked)
 
-    st.markdown("---")
+    st.divider()
     b1, b2 = st.columns(2)
     with b1:
-        if st.button("🏢 Ejecutar ACTUAL", use_container_width=True):
-            if not base_data: st.error("Seleccione un empleado")
+        if st.button("🏢 Ejecutar Estado ACTUAL", use_container_width=True, type="secondary"):
+            if not base_data: st.error("Primero selecciona un empleado.")
             else: st.session_state["pred_base"] = predict_with_shap(base_data)
     with b2:
-        if st.button("🧪 Ejecutar SIMULACIÓN", use_container_width=True):
+        if st.button("🧪 Ejecutar Escenario SIMULADO", use_container_width=True, type="primary"):
             st.session_state["pred_manual"] = predict_with_shap(manual_input)
 
-    # RESULTADOS
+    # ===================== RESULTADOS Y GRÁFICOS =====================
     if st.session_state["pred_base"] or st.session_state["pred_manual"]:
-        st.markdown("## 📊 Comparativa")
+        st.header("📊 Comparativa de Resultados")
         c1, c2, c3 = st.columns(3)
+        
         if st.session_state["pred_base"]:
-            c1.metric("Probabilidad ACTUAL", f"{st.session_state['pred_base'][0]:.2%}")
+            c1.metric("Riesgo ACTUAL", f"{st.session_state['pred_base'][0]:.2%}")
         if st.session_state["pred_manual"]:
-            c2.metric("Probabilidad SIMULADA", f"{st.session_state['pred_manual'][0]:.2%}")
+            c2.metric("Riesgo SIMULADO", f"{st.session_state['pred_manual'][0]:.2%}")
         if st.session_state["pred_base"] and st.session_state["pred_manual"]:
             diff = st.session_state["pred_manual"][0] - st.session_state["pred_base"][0]
             c3.metric("Diferencia", f"{diff:+.2%}", delta_color="inverse")
 
-        st.markdown("### 🧠 Impacto de Variables")
+        st.divider()
+        st.subheader("🧠 ¿Qué factores empujan la decisión?")
+        st.caption("Las barras ROJAS aumentan el riesgo de renuncia. Las barras VERDES ayudan a retener al colaborador.")
+
         col_a, col_b = st.columns(2)
+        
+        def plot_shap(df_shap, title):
+            fig = px.bar(df_shap, x="Impacto", y="Variable", orientation='h',
+                         color="Color", title=title,
+                         color_discrete_map={"Riesgo (Sube)": "#ef5350", "Retención (Baja)": "#66bb6a"},
+                         category_orders={"Variable": df_shap["Variable"].tolist()})
+            fig.update_layout(showlegend=True, yaxis={'categoryorder':'total ascending'})
+            return fig
+
         if st.session_state["pred_base"]:
             with col_a:
-                st.write("**Estado Actual**")
-                st.bar_chart(st.session_state["pred_base"][1].set_index("Variable")["Impacto"])
+                st.plotly_chart(plot_shap(st.session_state["pred_base"][1], "Impacto: Estado ACTUAL"), use_container_width=True)
+        
         if st.session_state["pred_manual"]:
             with col_b:
-                st.write("**Simulación**")
-                st.bar_chart(st.session_state["pred_manual"][1].set_index("Variable")["Impacto"])
+                st.plotly_chart(plot_shap(st.session_state["pred_manual"][1], "Impacto: Escenario SIMULADO"), use_container_width=True)
 
 if __name__ == '__main__':
-    st.set_page_config(page_title="IA Comparador", layout="wide")
+    st.set_page_config(page_title="IA Comparador RRHH", layout="wide")
     render_manual_prediction_tab()
 
 
