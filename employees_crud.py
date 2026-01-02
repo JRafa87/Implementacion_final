@@ -14,13 +14,13 @@ def get_supabase() -> Client:
     url = st.secrets.get("SUPABASE_URL")
     key = st.secrets.get("SUPABASE_KEY")
     if not url or not key:
-        st.error("ERROR: Faltan SUPABASE_URL o SUPABASE_KEY en secrets.toml. La autenticación fallará.")
+        st.error("ERROR: Faltan credenciales en secrets.toml.")
         st.stop()
     return create_client(url, key)
 
 supabase = get_supabase()
 
-# Mapeo de claves de Python (minúscula) a claves de PostgreSQL (CamelCase/PascalCase)
+# Mapeo para persistencia en DB (No cambiar estos nombres)
 COLUMN_MAPPING = {
     "employeenumber": "EmployeeNumber", "age": "Age", "businesstravel": "BusinessTravel",
     "department": "Department", "distancefromhome": "DistanceFromHome", "education": "Education",
@@ -36,376 +36,182 @@ COLUMN_MAPPING = {
     "fechaingreso": "FechaIngreso", "fechasalida": "FechaSalida",
 }
 
-# -----------------------------------
-# 2. FUNCIONES CRUD
-# -----------------------------------
+# =================================================================
+# 2. FUNCIONES CRUD (Mantienen variables originales)
+# =================================================================
 
 def fetch_employees():
-    """Obtiene todos los empleados de la tabla 'empleados'."""
     try:
         response = supabase.table("empleados").select("*").order("EmployeeNumber").execute()
+        # Normalizamos a minúsculas para manejo interno
         data = [{k.lower(): v for k, v in record.items()} for record in response.data]
         return data
     except Exception as e:
-        st.error(f"Error al cargar empleados: {e}")
+        st.error(f"Error al cargar: {e}")
         return []
 
 def fetch_employee_by_id(employee_number: int) -> Optional[dict]:
-    """Obtiene un único empleado por su EmployeeNumber."""
     try:
         response = supabase.table("empleados").select("*").eq("EmployeeNumber", employee_number).single().execute()
         if response.data:
             return {k.lower(): v for k, v in response.data.items()}
         return None
-    except Exception as e:
+    except Exception:
         return None
 
-def get_next_employee_number() -> int:
-    """Consulta el máximo EmployeeNumber y devuelve el siguiente número disponible."""
-    try:
-        response = supabase.table("empleados").select("EmployeeNumber").order("EmployeeNumber", desc=True).limit(1).execute()
-        if response.data and response.data[0]['EmployeeNumber'] is not None:
-            max_id = response.data[0]['EmployeeNumber']
-            return max_id + 1
-        return 1
-    except Exception as e:
-        return 1
-
 def add_employee(employee_data: dict):
-    """Agrega un nuevo empleado a la tabla 'empleados', mapeando las claves de Python a PostgreSQL."""
-    pg_data = {}
-    for py_key, pg_key in COLUMN_MAPPING.items():
-        if py_key in employee_data:
-            pg_data[pg_key] = employee_data[py_key]
-    
+    pg_data = {COLUMN_MAPPING[k]: v for k, v in employee_data.items() if k in COLUMN_MAPPING}
     try:
         supabase.table("empleados").insert(pg_data).execute()
-        st.success(f"Empleado con ID {employee_data['employeenumber']} añadido con éxito.")
+        st.success("Añadido con éxito.")
     except Exception as e:
-        st.error(f"Error al añadir empleado: {e}")
+        st.error(f"Error: {e}")
 
 def update_employee_record(employee_number: int, update_data: dict):
-    """Actualiza un empleado existente por su EmployeeNumber (PK)."""
-    pg_update_data = {}
-    for py_key, pg_key in COLUMN_MAPPING.items():
-        if py_key in update_data:
-            pg_update_data[pg_key] = update_data[py_key]
-    
+    pg_update_data = {COLUMN_MAPPING[k]: v for k, v in update_data.items() if k in COLUMN_MAPPING}
     try:
         supabase.table("empleados").update(pg_update_data).eq("EmployeeNumber", employee_number).execute()
-        st.success(f"Empleado {employee_number} actualizado con éxito.")
+        st.success(f"ID {employee_number} actualizado.")
     except Exception as e:
-        st.error(f"Error al actualizar empleado: {e}")
+        st.error(f"Error: {e}")
 
 def delete_employee_record(employee_number: int):
-    """Elimina un empleado por su EmployeeNumber (PK)."""
     try:
         supabase.table("empleados").delete().eq("EmployeeNumber", employee_number).execute()
-        st.success(f"Empleado {employee_number} eliminado con éxito.")
+        st.success(f"ID {employee_number} eliminado.")
     except Exception as e:
-        st.error(f"Error al eliminar empleado: {e}")
+        st.error(f"Error: {e}")
 
-# -----------------------------------
-# 3. FUNCIONES DE UI Y UTILIDAD
-# -----------------------------------
-
-def clear_cache_and_rerun():
-    """Función para limpiar la caché y recargar la página."""
-    st.cache_data.clear()
-    st.rerun()
+# =================================================================
+# 3. FUNCIONES DE INTERFAZ (Traducción visual)
+# =================================================================
 
 @st.cache_data(ttl=600) 
 def get_employees_data():
-    """Carga los datos de empleados de Supabase y los prepara para el display."""
+    """Prepara el DataFrame para que se vea ordenado en la interfaz."""
     data = fetch_employees() 
-    if data:
-        df = pd.DataFrame(data)
-        df.rename(columns={
-            'employeenumber': 'ID', 'jobrole': 'Puesto', 'department': 'Depto',
-            'monthlyincome': 'Salario Mensual', 'fechaingreso': 'F. Ingreso', 'tipocontrato': 'T. Contrato'
-        }, inplace=True)
-        
-        # Asegurar tipos y manejar NaNs
-        for col in ['numerotardanzas', 'numerofaltas', 'age', 'totalworkingyears', 'yearsatcompany']:
-             df[col] = df.get(col, pd.Series([0] * len(df))).fillna(0).astype(int)
-        
-        df['overtime'] = df['overtime'].fillna('No')
-        df['maritalstatus'] = df['maritalstatus'].fillna('Single')
-        df['gender'] = df['gender'].fillna('Male')
-        return df
-    return pd.DataFrame()
-
-
-def get_unique_options(df: pd.DataFrame, column_name: str, default_options: list) -> list:
-    """Obtiene valores únicos de una columna del DF para selectbox, limpiando NaNs y ordenando."""
-    if df.empty or column_name not in df.columns:
-        return default_options
-        
-    unique_vals = df[column_name].dropna().unique().tolist()
-    unique_vals = [str(v).strip() for v in unique_vals if v is not None]
+    if not data: return pd.DataFrame()
     
-    for opt in default_options:
-        if str(opt).strip() not in unique_vals:
-            unique_vals.append(str(opt).strip())
+    df = pd.DataFrame(data)
     
-    unique_vals.sort()
-    return unique_vals
-
-def get_safe_index(options_list: list, current_value: str, default_index=0):
-    """Busca el índice de un valor en una lista de opciones de forma segura."""
-    try:
-        return options_list.index(current_value.strip())
-    except ValueError:
-        return default_index
-
-# -----------------------------------
-# 4. PÁGINAS DE STREAMLIT
-# -----------------------------------
+    # Solo cambiamos las cabeceras para el display del usuario
+    display_cols = {
+        'employeenumber': 'ID',
+        'age': 'Edad',
+        'gender': 'Género',
+        'jobrole': 'Puesto',
+        'department': 'Departamento',
+        'monthlyincome': 'Salario Mensual',
+        'tipocontrato': 'Tipo de Contrato',
+        'fechaingreso': 'F. Ingreso'
+    }
+    
+    # Creamos una versión para mostrar
+    df_show = df.rename(columns=display_cols)
+    
+    # Traducción de valores específicos para que se vea ordenado
+    if 'Género' in df_show.columns:
+        df_show['Género'] = df_show['Género'].map({'Male': 'Masculino', 'Female': 'Femenino'}).fillna(df_show['Género'])
+    
+    return df_show
 
 def render_employee_management_page():
-    """Página de Gestión de Empleados (CRUD con Streamlit) con formulario de adición completo."""
-    st.title("👥 Gestión de Empleados")
-    st.markdown("Administración de perfiles y estados de los colaboradores de la empresa.")
-
+    st.title("👥 Gestión de Colaboradores")
+    
     if "user_role" not in st.session_state or st.session_state.get("user_role") not in ["admin", "supervisor"]:
-        st.error("🚫 Acceso Denegado. Solo administradores y supervisores pueden gestionar empleados.")
+        st.error("🚫 Acceso restringido.")
         return
 
-    # Inicialización de estados
-    if "show_add_form" not in st.session_state:
-        st.session_state["show_add_form"] = False
-    if "employee_to_edit" not in st.session_state:
-        st.session_state["employee_to_edit"] = None
-
-    # Botones de acción global
-    col_add, col_refresh = st.columns([1, 1])
-    
-    with col_add:
-        if st.button("➕ Añadir Nuevo"):
+    # Botones de control
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("➕ Registrar Nuevo"):
             st.session_state["show_add_form"] = True
-            st.session_state["employee_to_edit"] = None # Ocultar edición
+            st.session_state["edit_id"] = None
+    with c2:
+        if st.button("🔄 Refrescar Tabla"):
+            st.cache_data.clear()
             st.rerun()
-    
-    with col_refresh:
-        if st.button("🔄 Recargar Datos"):
-            clear_cache_and_rerun()
 
-    # =================================================================
-    # FORMULARIO DE ADICIÓN DE EMPLEADO (COMPLETO)
-    # =================================================================
-    if st.session_state["show_add_form"]:
-        st.header("Formulario de Nuevo Empleado")
+    # Formulario de Alta
+    if st.session_state.get("show_add_form"):
+        render_add_form()
+
+    # Visualización de la Tabla Organizada
+    df_view = get_employees_data()
+    if not df_view.empty:
+        st.subheader("Directorio de Personal")
+        st.dataframe(df_view, use_container_width=True, hide_index=True)
         
-        next_id = get_next_employee_number()
-        
-        with st.form("add_employee_form", clear_on_submit=True):
-            
-            st.subheader("1. Datos Clave")
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                new_employee_number = st.number_input("EmployeeNumber (ID)", min_value=1, step=1, value=next_id, disabled=True, key="add_id")
-                new_gender = st.selectbox("Gender", ["Male", "Female"], key="add_gender")
-                new_joblevel = st.number_input("JobLevel", min_value=1, max_value=5, key="add_joblevel", value=1)
-            with col2:
-                new_age = st.number_input("Age", min_value=18, max_value=100, key="add_age", value=30)
-                new_maritalstatus = st.selectbox("MaritalStatus", ["Single", "Married", "Divorced"], key="add_marital")
-                new_monthlyincome = st.number_input("MonthlyIncome", min_value=0, key="add_income", value=4000)
-            with col3:
-                new_fechaingreso = st.date_input("FechaIngreso", value=date.today(), key="add_f_ingreso")
-                new_tipocontrato = st.selectbox("Tipocontrato", ["Fijo", "Temporal", "Servicios"], key="add_contrato")
-                new_overtime = st.radio("OverTime", ("Yes", "No"), key="add_overtime", index=1)
-            
-            st.subheader("2. Experiencia y Puesto")
-            col4, col5, col6 = st.columns(3)
-            with col4:
-                new_department = st.selectbox("Department", ["HR", "Tech", "Finance", "Marketing", "Research & Development"], key="add_dept")
-                new_jobrole = st.selectbox("JobRole", ["Manager", "Developer", "Analyst", "Support", "Sales Executive", "Research Scientist", "Laboratory Technician", "Manufacturing Director", "Healthcare Representative"], key="add_job")
-                new_businesstravel = st.selectbox("BusinessTravel", ["Non-Travel", "Travel_Rarely", "Travel_Frequently"], key="add_travel")
-            with col5:
-                new_education = st.number_input("Education (1-5)", min_value=1, max_value=5, key="add_education", value=3)
-                new_educationfield = st.selectbox("EducationField", ["Life Sciences", "Medical", "Marketing", "Technical Degree", "Human Resources", "Other"], key="add_ed_field")
-                new_totalworkingyears = st.number_input("TotalWorkingYears", min_value=0, key="add_total_years", value=5)
-            with col6:
-                new_numcompaniesworked = st.number_input("NumCompaniesWorked", min_value=0, key="add_num_comp", value=1)
-                new_distancefromhome = st.number_input("DistanceFromHome", min_value=1, key="add_distance", value=10)
-                new_trainingtimeslastyear = st.number_input("TrainingTimesLastYear", min_value=0, max_value=6, key="add_training", value=3)
-
-            st.subheader("3. Trayectoria Interna y Métricas")
-            col7, col8 = st.columns(2)
-            with col7:
-                new_yearsatcompany = st.number_input("YearsAtCompany", min_value=0, key="add_years_comp", value=5)
-                new_yearsincurrentrole = st.number_input("YearsInCurrentRole", min_value=0, key="add_years_role", value=3)
-                new_yearswithcurrmanager = st.number_input("YearsWithCurrManager", min_value=0, key="add_years_manager", value=2)
-            with col8:
-                new_performancerating = st.number_input("PerformanceRating (1-4)", min_value=1, max_value=4, key="add_perf_rating", value=3)
-                new_yearssincelastpromotion = st.number_input("YearsSinceLastPromotion", min_value=0, key="add_last_promo", value=1)
-                new_numerotardanzas = st.number_input("NumeroTardanzas", min_value=0, key="add_tardanzas", value=0)
-                new_numerofaltas = st.number_input("NumeroFaltas", min_value=0, key="add_faltas", value=0)
-
-            col_save, col_cancel = st.columns(2)
-            with col_save:
-                if st.form_submit_button("💾 Guardar Nuevo Empleado"):
-                    if new_employee_number and new_monthlyincome:
-                        employee_data = {
-                            "employeenumber": int(new_employee_number), "age": int(new_age), "gender": new_gender,
-                            "department": new_department, "jobrole": new_jobrole, "joblevel": int(new_joblevel),
-                            "monthlyincome": int(new_monthlyincome), "maritalstatus": new_maritalstatus, "overtime": new_overtime,
-                            "businesstravel": new_businesstravel, "distancefromhome": int(new_distancefromhome), "education": int(new_education),
-                            "educationfield": new_educationfield, "numcompaniesworked": int(new_numcompaniesworked), "performancerating": int(new_performancerating),
-                            "totalworkingyears": int(new_totalworkingyears), "trainingtimeslastyear": int(new_trainingtimeslastyear),
-                            "yearsatcompany": int(new_yearsatcompany), "yearsincurrentrole": int(new_yearsincurrentrole),
-                            "yearssincelastpromotion": int(new_yearssincelastpromotion), "yearswithcurrmanager": int(new_yearswithcurrmanager),
-                            "tipocontrato": new_tipocontrato, "numerotardanzas": int(new_numerotardanzas), "numerofaltas": int(new_numerofaltas),
-                            "fechaingreso": new_fechaingreso.isoformat() if new_fechaingreso else None
-                        }
-                        add_employee(employee_data)
-                        st.session_state["show_add_form"] = False
-                        clear_cache_and_rerun()
-                    else:
-                        st.error("Por favor, complete al menos EmployeeNumber y MonthlyIncome.")
-            with col_cancel:
-                if st.form_submit_button("❌ Cancelar"):
-                    st.session_state["show_add_form"] = False
+        # Selección para Editar/Eliminar
+        selected_id = st.selectbox("Seleccione ID para acciones:", [""] + df_view['ID'].tolist())
+        if selected_id:
+            col_e, col_d = st.columns(2)
+            with col_e:
+                if st.button("✏️ Editar"):
+                    st.session_state["edit_id"] = selected_id
+                    st.rerun()
+            with col_d:
+                if st.button("🗑️ Eliminar"):
+                    delete_employee_record(selected_id)
+                    st.cache_data.clear()
                     st.rerun()
 
-    # 1. Cargar datos (DataFrame maestro para la tabla y las opciones)
-    df = get_employees_data() 
+    # Formulario de Edición
+    if st.session_state.get("edit_id"):
+        render_edit_form(st.session_state["edit_id"])
 
-    # 2. Mostrar empleados existentes
-    if not df.empty:
-        st.header("Lista de Empleados")
-        st.dataframe(df, use_container_width=True, hide_index=True)
+# =================================================================
+# 4. FORMULARIOS (Labels en español, variables originales)
+# =================================================================
 
-        employee_ids_list = df['ID'].tolist()
-        
-        if st.session_state.get("employee_to_edit"):
-            st.session_state["show_select_box"] = False
-        else:
-            st.session_state["show_select_box"] = True
-
-        if st.session_state["show_select_box"]:
-            selected_id = st.selectbox(
-                "Selecciona un Empleado para editar o eliminar:", 
-                options=[""] + employee_ids_list, 
-                key="select_employee"
-            )
-
-            if selected_id:
-                emp_id = selected_id
-                col_edit, col_delete = st.columns([1, 1])
-                with col_edit:
-                    if st.button("✏️ Editar Registro"):
-                        st.session_state["employee_to_edit"] = emp_id
-                        st.session_state["show_add_form"] = False
-                        st.rerun()
-                with col_delete:
-                    if st.button("❌ Eliminar Registro"):
-                        delete_employee_record(emp_id)
-                        clear_cache_and_rerun()
-                        
-    else:
-        st.warning("No hay empleados registrados en la base de datos.")
-
-    # 3. Mostrar formulario de edición (Pasando el DataFrame `df`)
-    if st.session_state.get("employee_to_edit"):
-        render_edit_employee_form(st.session_state["employee_to_edit"], df)
-
-
-def render_edit_employee_form(emp_id: int, df_all_employees: pd.DataFrame):
-    """Formulario de edición de empleado."""
-    employee_data = fetch_employee_by_id(emp_id) 
-    
-    if employee_data:
-        st.header(f"Editar Empleado ID: {emp_id}")
-        
-        # Opciones Dinámicas jaladas del DF
-        dept_options = get_unique_options(df_all_employees, "department", ["HR", "Tech", "Finance", "Marketing"])
-        jobrole_options = get_unique_options(df_all_employees, "jobrole", ["Manager", "Developer", "Analyst", "Support"])
-        tipocontrato_options = get_unique_options(df_all_employees, "tipocontrato", ["Fijo", "Temporal", "Servicios"])
-        travel_options = ["Non-Travel", "Travel_Rarely", "Travel_Frequently"]
-
-        with st.form("edit_employee_form", clear_on_submit=False):
-            
-            # --- Función get_val local ---
-            def get_val(key, default_val):
-                val = employee_data.get(key)
-                if val is None: return default_val
-                
-                if isinstance(default_val, int): return int(val) if val else default_val
-                if isinstance(default_val, float): return float(val) if val else default_val
-                if isinstance(default_val, date) or ('fecha' in key.lower() and val):
-                    try: return date.fromisoformat(str(val)[:10])
-                    except (TypeError, ValueError): return default_val
-                
-                if isinstance(default_val, str): return str(val).strip()
-                return val
-            # ---------------------------
-            
-            st.subheader("Datos de Empleo y Salario")
+def render_add_form():
+    with st.expander("📝 Formulario de Registro", expanded=True):
+        with st.form("new_emp"):
             col1, col2 = st.columns(2)
-
             with col1:
-                current_dept = get_val("department", "HR")
-                new_department = st.selectbox("Department", dept_options, index=get_safe_index(dept_options, current_dept))
-                
-                current_jobrole = get_val("jobrole", "Manager")
-                new_jobrole = st.selectbox("JobRole", jobrole_options, index=get_safe_index(jobrole_options, current_jobrole))
-                new_monthlyincome = st.number_input("MonthlyIncome", min_value=0, value=get_val("monthlyincome", 0))
-                new_joblevel = st.number_input("JobLevel", min_value=1, max_value=5, value=get_val("joblevel", 1))
-            
+                # El valor se guarda en la clave original 'age'
+                age = st.number_input("Edad", min_value=18, value=30)
+                gender = st.selectbox("Género", ["Male", "Female"])
+                department = st.selectbox("Departamento", ["Sales", "Tech", "HR", "Finance"])
             with col2:
-                current_contrato = get_val("tipocontrato", "Fijo")
-                new_tipocontrato = st.selectbox("Tipocontrato", tipocontrato_options, index=get_safe_index(tipocontrato_options, current_contrato))
-                
-                current_travel = get_val("businesstravel", "Non-Travel")
-                new_businesstravel = st.selectbox("BusinessTravel", travel_options, index=get_safe_index(travel_options, current_travel))
-                new_overtime = st.radio("OverTime", ("Yes", "No"), index=["Yes", "No"].index(get_val("overtime", "No")))
-                new_performancerating = st.number_input("PerformanceRating (1-4)", min_value=1, max_value=4, value=get_val("performancerating", 3))
+                monthlyincome = st.number_input("Salario Mensual", min_value=0, value=3000)
+                tipocontrato = st.selectbox("Tipo de Contrato", ["Indefinido", "Temporal", "Prácticas"])
+                fechaingreso = st.date_input("Fecha de Ingreso", value=date.today())
 
-            st.subheader("Historial Interno y Ausencias")
-            col3, col4 = st.columns(2)
-            with col3:
-                new_yearsatcompany = st.number_input("YearsAtCompany", min_value=0, value=get_val("yearsatcompany", 0))
-                new_yearsincurrentrole = st.number_input("YearsInCurrentRole", min_value=0, value=get_val("yearsincurrentrole", 0))
-                new_yearswithcurrmanager = st.number_input("YearsWithCurrManager", min_value=0, value=get_val("yearswithcurrmanager", 0))
-                new_yearssincelastpromotion = st.number_input("YearsSinceLastPromotion", min_value=0, value=get_val("yearssincelastpromotion", 0))
-                new_trainingtimeslastyear = st.number_input("TrainingTimesLastYear", min_value=0, max_value=6, value=get_val("trainingtimeslastyear", 0))
-            with col4:
-                new_numerotardanzas = st.number_input("NumeroTardanzas", min_value=0, value=get_val("numerotardanzas", 0))
-                new_numerofaltas = st.number_input("NumeroFaltas", min_value=0, value=get_val("numerofaltas", 0))
-                
-                st.info(f"Fecha de Ingreso: {get_val('fechaingreso', 'N/A')}")
-                current_fecha_salida = get_val("fechasalida", None) 
-                fecha_salida_value = current_fecha_salida if current_fecha_salida else None
-                
-                new_fechasalida = st.date_input("FechaSalida (Opcional)", value=fecha_salida_value, min_value=get_val("fechaingreso", date(1900, 1, 1)))
+            if st.form_submit_button("Guardar"):
+                # Se mantiene el nombre de la variable original para la DB
+                new_data = {
+                    "employeenumber": supabase.table("empleados").select("EmployeeNumber").order("EmployeeNumber", desc=True).limit(1).execute().data[0]['EmployeeNumber'] + 1,
+                    "age": age,
+                    "gender": gender,
+                    "department": department,
+                    "monthlyincome": monthlyincome,
+                    "tipocontrato": tipocontrato,
+                    "fechaingreso": fechaingreso.isoformat()
+                }
+                add_employee(new_data)
+                st.session_state["show_add_form"] = False
+                st.cache_data.clear()
+                st.rerun()
 
+def render_edit_form(emp_id):
+    emp_data = fetch_employee_by_id(emp_id)
+    if emp_data:
+        st.markdown(f"### Editando ID: {emp_id}")
+        with st.form("edit_emp"):
+            # Usamos labels en español pero emp_data.get utiliza la variable original
+            new_income = st.number_input("Salario Mensual", value=int(emp_data.get('monthlyincome', 0)))
+            new_role = st.text_input("Puesto", value=emp_data.get('jobrole', ''))
             
-            col_save, col_cancel = st.columns(2)
-            with col_save:
-                if st.form_submit_button("💾 Guardar Cambios"):
-                    update_data = {
-                        "businesstravel": new_businesstravel, "department": new_department, "joblevel": int(new_joblevel),
-                        "jobrole": new_jobrole, "monthlyincome": int(new_monthlyincome), "overtime": new_overtime,
-                        "performancerating": int(new_performancerating), "totalworkingyears": get_val("totalworkingyears", 0),
-                        "trainingtimeslastyear": int(new_trainingtimeslastyear), "yearsatcompany": int(new_yearsatcompany),
-                        "yearsincurrentrole": int(new_yearsincurrentrole), "yearssincelastpromotion": int(new_yearssincelastpromotion),
-                        "yearswithcurrmanager": int(new_yearswithcurrmanager), "tipocontrato": new_tipocontrato,
-                        "numerotardanzas": int(new_numerotardanzas), "numerofaltas": int(new_numerofaltas),
-                        "fechasalida": new_fechasalida.isoformat() if new_fechasalida else None 
-                    }
-                    update_employee_record(emp_id, update_data)
-                    st.session_state["employee_to_edit"] = None
-                    clear_cache_and_rerun()
-            
-            with col_cancel:
-                if st.form_submit_button("❌ Cancelar Edición"):
-                    st.session_state["employee_to_edit"] = None
-                    st.rerun()
-    else:
-        st.warning(f"No se pudo encontrar el empleado con ID {emp_id} o hubo un error de conexión.")
-        st.session_state["employee_to_edit"] = None
-        st.rerun()
+            if st.form_submit_button("Actualizar"):
+                update_employee_record(emp_id, {"monthlyincome": new_income, "jobrole": new_role})
+                st.session_state["edit_id"] = None
+                st.cache_data.clear()
+                st.rerun()
+
+if __name__ == "__main__":
+    render_employee_management_page()
 
 
 
