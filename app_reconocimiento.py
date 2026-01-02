@@ -7,7 +7,7 @@ import warnings
 warnings.filterwarnings("ignore")
 
 # ==============================================================================
-# 0. MAPEOS DE TRADUCCIÓN (Para la Interfaz)
+# 0. MAPEOS DE TRADUCCIÓN
 # ==============================================================================
 
 TRAD_DEPTO = {
@@ -43,71 +43,33 @@ supabase = get_supabase()
 def fetch_employees_data():
     if not supabase: return []
     try:
-        # Traemos las columnas con sus nombres originales de la base de datos
         columns = ["EmployeeNumber", "Department", "JobRole", "PerformanceRating", 
                    "YearsAtCompany", "YearsSinceLastPromotion", "NumeroFaltas", "JobInvolvement"]
-        
         response = supabase.table("consolidado").select(", ".join(columns)).execute()
-        
-        # Procesamos los datos manteniendo nombres internos consistentes
-        data = []
-        for r in response.data:
-            data.append({
-                "id": r.get("EmployeeNumber"),
-                "depto_orig": r.get("Department"), # Guardamos el original para lógica
-                "puesto_orig": r.get("JobRole"),   # Guardamos el original para lógica
-                "performancerating": r.get("PerformanceRating"),
-                "yearsatcompany": r.get("YearsAtCompany"),
-                "yearssincelastpromotion": r.get("YearsSinceLastPromotion"),
-                "numerofaltas": r.get("NumeroFaltas"),
-                "jobinvolvement": r.get("JobInvolvement")
-            })
-        return data
+        return response.data
     except Exception as e:
         st.error(f"Error: {e}")
         return []
 
 @st.cache_data(ttl=300)
 def get_prepared_data():
-    data = fetch_employees_data()
-    if not data: return pd.DataFrame()
-    df = pd.DataFrame(data)
+    raw_data = fetch_employees_data()
+    if not raw_data: return pd.DataFrame()
+    df = pd.DataFrame(raw_data)
     
-    # Creamos las versiones traducidas como nuevas columnas para mostrar
-    df['Departamento'] = df['depto_orig'].map(TRAD_DEPTO).fillna(df['depto_orig'])
-    df['Puesto'] = df['puesto_orig'].map(TRAD_PUESTO).fillna(df['puesto_orig'])
+    # Renombrar y Traducir para la lógica y la interfaz
+    df['Departamento'] = df['Department'].map(TRAD_DEPTO).fillna(df['Department'])
+    df['Cargo'] = df['JobRole'].map(TRAD_PUESTO).fillna(df['JobRole'])
     
     # Limpieza numérica
-    for col in ['yearssincelastpromotion', 'performancerating', 'numerofaltas', 'jobinvolvement']:
+    cols_num = ['YearsSinceLastPromotion', 'PerformanceRating', 'NumeroFaltas', 'JobInvolvement', 'YearsAtCompany']
+    for col in cols_num:
         df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
     
     return df
 
 # ==============================================================================
-# 2. LÓGICA DE RIESGO
-# ==============================================================================
-
-def get_risk_summary(df):
-    # Clasificamos usando el nombre traducido 'Departamento' para que el resumen ya salga en español
-    def classify(years):
-        if years >= 3: return 'Crítico'
-        if years >= 2: return 'Moderado'
-        return 'Bajo'
-    
-    df['Riesgo'] = df['yearssincelastpromotion'].apply(classify)
-    
-    summary = df.groupby('Departamento').agg(
-        Critico=('Riesgo', lambda x: (x == 'Crítico').sum()),
-        Moderado=('Riesgo', lambda x: (x == 'Moderado').sum()),
-        Total=('id', 'count'),
-        Promedio=('yearssincelastpromotion', 'mean')
-    ).reset_index()
-    
-    summary['Riesgo %'] = (summary['Critico'] + summary['Moderado']) / summary['Total'] * 100
-    return summary
-
-# ==============================================================================
-# 3. INTERFAZ (Donde impacta la traducción)
+# 2. INTERFAZ
 # ==============================================================================
 
 def render_recognition_page():
@@ -118,14 +80,22 @@ def render_recognition_page():
         st.error("No se detectaron datos.")
         return
 
-    summary = get_risk_summary(df)
+    # --- Resumen de Riesgo ---
+    def classify(y):
+        if y >= 3: return 'Crítico'
+        if y >= 2: return 'Moderado'
+        return 'Bajo'
+    
+    df['Riesgo_Status'] = df['YearsSinceLastPromotion'].apply(classify)
+    
+    summary = df.groupby('Departamento').agg(
+        Critico=('Riesgo_Status', lambda x: (x == 'Crítico').sum()),
+        Moderado=('Riesgo_Status', lambda x: (x == 'Moderado').sum()),
+        Total=('EmployeeNumber', 'count'),
+        Promedio=('YearsSinceLastPromotion', 'mean')
+    ).reset_index()
+    summary['Riesgo %'] = (summary['Critico'] + summary['Moderado']) / summary['Total'] * 100
 
-    # 1. Alertas Superiores
-    total_criticos = summary['Critico'].sum()
-    if total_criticos > 0:
-        st.error(f"🛑 Se han detectado **{total_criticos} colaboradores** en estado crítico (más de 3 años sin ascenso).")
-
-    # 2. Tabla Resumen (Traducción aplicada en las columnas)
     st.subheader("Análisis de Estancamiento por Área")
     st.dataframe(
         summary,
@@ -141,33 +111,44 @@ def render_recognition_page():
         }
     )
 
-    # 3. Filtro y Tabla de Empleados
     st.divider()
-    st.subheader("🔍 Detalle de Candidatos")
-    
-    # El selector ahora usa los nombres ya traducidos
+
+    # --- Filtro de Departamento ---
+    st.subheader("🔍 Auditoría de Colaboradores")
     lista_deptos = sorted(df['Departamento'].unique())
-    dept_sel = st.selectbox("Filtrar por Departamento:", ["--- Mostrar Todos ---"] + lista_deptos)
+    dept_sel = st.selectbox("Seleccione el Departamento para auditar:", ["--- Seleccione un departamento ---"] + lista_deptos)
 
-    df_view = df.copy()
-    if dept_sel != "--- Mostrar Todos ---":
-        df_view = df_view[df_view['Departamento'] == dept_sel]
+    if dept_sel != "--- Seleccione un departamento ---":
+        df_filtrado = df[df['Departamento'] == dept_sel].copy()
 
-    # Mostramos la tabla final con nombres de columnas amigables
-    st.data_editor(
-        df_view[['id', 'Puesto', 'Departamento', 'performancerating', 'jobinvolvement', 'yearssincelastpromotion']],
-        column_config={
-            "id": "ID",
-            "Puesto": "Cargo",
-            "Departamento": "Área",
-            "performancerating": "Desempeño",
-            "jobinvolvement": "Compromiso",
-            "yearssincelastpromotion": st.column_config.NumberColumn("⚠️ Años S/Prom.", format="%.1f")
-        },
-        disabled=True,
-        hide_index=True,
-        use_container_width=True
-    )
+        # Preparar DataFrame final con nombres de columnas ya traducidos para que Streamlit los tome
+        # Eliminamos 'Departamento' porque ya está en el filtro
+        df_final = df_filtrado[['EmployeeNumber', 'Cargo', 'PerformanceRating', 'JobInvolvement', 'YearsSinceLastPromotion', 'NumeroFaltas']].copy()
+        df_final.columns = ['ID', 'Cargo', 'Desempeño', 'Compromiso', 'Años sin Promoción', 'Faltas']
+
+        tab1, tab2 = st.tabs(["🔴 Riesgo de Estancamiento", "✨ Alto Potencial para Promover"])
+
+        with tab1:
+            # Riesgo: 2 o más años sin promoción
+            candidatos_riesgo = df_final[df_final['Años sin Promoción'] >= 2.0]
+            if not candidatos_riesgo.empty:
+                st.warning(f"Se identificaron **{len(candidatos_riesgo)}** colaboradores con 2+ años sin ascenso.")
+                st.dataframe(candidatos_riesgo, use_container_width=True, hide_index=True)
+            else:
+                st.success("No hay colaboradores en riesgo en esta área.")
+
+        with tab2:
+            # Potencial: Desempeño >= 3 y Compromiso >= 3
+            candidatos_potencial = df_final[
+                (df_final['Desempeño'] >= 3) & 
+                (df_final['Compromiso'] >= 3) & 
+                (df_final['Años sin Promoción'] >= 1.0)
+            ]
+            if not candidatos_potencial.empty:
+                st.success(f"Se identificaron **{len(candidatos_potencial)}** candidatos con perfil para promoción.")
+                st.dataframe(candidatos_potencial, use_container_width=True, hide_index=True)
+            else:
+                st.info("No hay candidatos que cumplan el perfil de alto potencial en este momento.")
 
 if __name__ == '__main__':
     st.set_page_config(page_title="Reconocimiento", layout="wide")
