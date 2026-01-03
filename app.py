@@ -31,7 +31,7 @@ def get_supabase() -> Client:
     url = st.secrets.get("SUPABASE_URL")
     key = st.secrets.get("SUPABASE_KEY")
     if not url or not key:
-        st.error("ERROR: Faltan SUPABASE_URL o SUPABASE_KEY en secrets.")
+        st.error("ERROR: Faltan secretos en secrets.toml.")
         st.stop()
     return create_client(url, key)
 
@@ -44,14 +44,14 @@ PAGES = [
 ]
 
 # ============================================================
-# 2. FUNCIONES DE SESIÓN Y SEGURIDAD
+# 1. LÓGICA DE SESIÓN (AUTH)
 # ============================================================
 
 def check_session() -> bool:
     if "current_page" not in st.session_state:
         st.session_state["current_page"] = "Mi Perfil"
-
-    # Captura de tokens de recuperación (Password Reset)
+    
+    # Manejo de tokens en URL (Recuperación)
     q = st.query_params
     if "access_token" in q:
         try:
@@ -72,7 +72,6 @@ def check_session() -> bool:
                     "user_role": "guest",
                     "full_name": user.email.split('@')[0]
                 })
-                # Carga de perfil real
                 res = supabase.table("profiles").select("*").eq("id", user.id).limit(1).execute()
                 if res.data:
                     p = res.data[0]
@@ -85,42 +84,49 @@ def check_session() -> bool:
     return False
 
 # ============================================================
-# 5. RENDERIZADO DE UI (INTERFAZ ORIGINAL RESTAURADA)
+# 2. COMPONENTES DE INTERFAZ DE ACCESO (ESTÉTICA ORIGINAL)
 # ============================================================
 
 def render_signup_form():
-    """Registro con validación en tiempo real y bloqueo visual."""
+    """Formulario de registro mejorado para evitar saltos de página."""
+    # Usamos una clave única y no disparamos rerun inmediato al escribir
     email_signup = st.text_input("Correo Institucional", key="signup_email_unique").strip().lower()
     
     is_duplicate = False
     if email_signup:
+        # Validación interna sin st.rerun()
         res = supabase.table("profiles").select("email").eq("email", email_signup).execute()
         if res.data:
             is_duplicate = True
-            st.error(f"❌ El correo {email_signup} ya está en uso.")
+            st.error(f"❌ El correo {email_signup} ya está registrado.")
+            st.info("💡 Por favor, cambia a la pestaña 'Iniciar Sesión' manualmente.")
 
-    with st.form("signup_form_original"):
+    with st.form("signup_inner_form"):
         name = st.text_input("Nombre completo", disabled=is_duplicate)
         password = st.text_input("Contraseña (mín. 8 caracteres)", type="password", disabled=is_duplicate)
-        submit = st.form_submit_button("Registrarse", disabled=is_duplicate)
+        submit = st.form_submit_button("Crear Cuenta", disabled=is_duplicate)
         
         if submit:
             if name and email_signup and password:
                 try:
-                    supabase.auth.sign_up({"email": email_signup, "password": password})
-                    st.success("✅ Revisa tu correo para verificar la cuenta.")
+                    user_response = supabase.auth.sign_up({"email": email_signup, "password": password})
+                    if user_response.user:
+                        st.success("✅ ¡Registro enviado! Revisa tu correo para verificar la cuenta.")
                 except Exception as e:
-                    st.error(f"Error: {e}")
+                    st.error(f"Error al registrar: {e}")
+            else:
+                st.warning("Completa todos los campos.")
 
 def render_auth_page():
-    """Volvemos a la interfaz inicial de columnas y tabs estéticos."""
+    """Interfaz inicial con tu estética original (columnas y separadores)."""
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.title("Acceso a la Plataforma")
         st.markdown("---")
         st.markdown("<p style='text-align: center; font-style: italic; color: #666;'>Ingresa con tus credenciales</p>", unsafe_allow_html=True)
         st.markdown("---")
-
+        
+        # Mantenemos las pestañas originales
         tabs = st.tabs(["Iniciar Sesión", "Registrarse", "Recuperar Contraseña"])
         
         with tabs[0]:
@@ -132,8 +138,8 @@ def render_auth_page():
                     try:
                         supabase.auth.sign_in_with_password({"email": e.strip().lower(), "password": p})
                         st.rerun()
-                    except:
-                        st.error("Acceso denegado.")
+                    except Exception as ex:
+                        st.error("❌ Credenciales incorrectas o correo no verificado.")
 
         with tabs[1]:
             st.subheader("Crear Cuenta")
@@ -141,12 +147,15 @@ def render_auth_page():
 
         with tabs[2]:
             st.subheader("Restablecer")
-            st.info("Ingresa tu correo institucional para recibir las instrucciones.")
+            st.info("Ingresa tu correo institucional para recibir instrucciones de recuperación.")
+
+# ============================================================
+# 3. SIDEBAR Y NAVEGACIÓN
+# ============================================================
 
 def render_sidebar():
-    """Sidebar con perfil completo, correo y control de encuestas."""
     user_role = st.session_state.get('user_role', 'guest')
-    user_email = st.session_state.get('user_email', '')
+    user_email = st.session_state.get('user_email', 'Desconocido')
     current_page = st.session_state.get("current_page", "Mi Perfil")
     
     with st.sidebar:
@@ -162,11 +171,10 @@ def render_sidebar():
         st.markdown("---")
         st.markdown("### Navegación")
         
-        # Filtro de páginas por rol
         pages_to_show = [p for p in PAGES if not (p == "Gestión de Empleados" and user_role not in ["admin", "supervisor"])]
         
         for page in pages_to_show:
-            if st.button(page, use_container_width=True, type="primary" if current_page == page else "secondary", key=f"btn_{page}"):
+            if st.button(page, use_container_width=True, type="primary" if current_page == page else "secondary", key=f"nav_{page}"):
                 st.session_state.current_page = page
                 st.rerun()
         
@@ -176,21 +184,20 @@ def render_sidebar():
             st.session_state.clear()
             st.rerun()
 
-        # CONTROL DE ENCUESTAS (No afecta el parpadeo de otras páginas)
+        # Control de Encuestas (No afecta el flujo de otras páginas)
         if user_role in ["admin", "supervisor"]:
             st.markdown("---")
             st.markdown("### ⚙️ Control de Encuestas")
             render_survey_control_panel(supabase)
 
 # ============================================================
-# 6. FLUJO DE CONTROL PRINCIPAL (OPTIMIZADO)
+# 4. EJECUCIÓN PRINCIPAL (CON FILTRO ANTI-DELAY)
 # ============================================================
 
-# Este contenedor es la clave para eliminar el delay y parpadeo al cargar
-placeholder = st.empty()
+main_container = st.empty()
 
 if check_session():
-    with placeholder.container():
+    with main_container.container():
         render_sidebar()
         
         page_map = {
@@ -203,10 +210,9 @@ if check_session():
             "Historial de Encuesta": historial_encuestas_module
         }
         
-        # Ejecutamos la página actual
         active = st.session_state.get("current_page", "Mi Perfil")
-        page_map.get(active, lambda: None)()
+        page_map.get(active, lambda: st.info("Página no disponible"))()
 else:
-    with placeholder.container():
+    with main_container.container():
         render_auth_page()
 
