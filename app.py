@@ -6,7 +6,7 @@ import pandas as pd
 import re
 import time
 
-# Importaciones de módulos locales (Se mantienen todos)
+# Importaciones de módulos locales
 from profile import render_profile_page 
 from employees_crud import render_employee_management_page
 from app_reconocimiento import render_recognition_page
@@ -16,15 +16,13 @@ from prediccion_manual_module import render_manual_prediction_tab
 from attrition_predictor import render_predictor_page
 from encuestas_historial import historial_encuestas_module
 
+DIRECT_URL_1 = "https://desercion-predictor.streamlit.app/?type=recovery"
+
 # ============================================================
-# 0. CONFIGURACIÓN E INICIALIZACIÓN
+# 0. CONFIGURACIÓN
 # ============================================================
 
-st.set_page_config(
-    page_title="App Deserción Laboral",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+st.set_page_config(page_title="App Deserción Laboral", layout="wide", initial_sidebar_state="expanded")
 
 @st.cache_resource
 def get_supabase() -> Client:
@@ -35,152 +33,175 @@ def get_supabase() -> Client:
 supabase = get_supabase()
 
 # ============================================================
-# 2. LÓGICA DE VALIDACIÓN (FUERA DEL FORMULARIO)
-# ============================================================
-
-def check_email_exists(email: str):
-    """Consulta rápida a la DB para ver si el correo ya existe."""
-    if not email: return False
-    try:
-        res = supabase.table("profiles").select("email").eq("email", email.strip().lower()).execute()
-        return bool(res.data)
-    except:
-        return False
-
-# ============================================================
-# 3. ACCIONES DE AUTENTICACIÓN
+# 2. LÓGICA DE PERFIL Y SESIÓN
 # ============================================================
 
 def _fetch_and_set_user_profile(user_id: str, email: str):
-    """Establece la sesión de forma inmediata para evitar recargas dobles."""
-    st.session_state.update({
-        "authenticated": True,
-        "user_id": user_id,
-        "user_email": email,
-    })
+    st.session_state.update({"authenticated": True, "user_id": user_id, "user_email": email})
     try:
         response = supabase.table("profiles").select("*").eq("id", user_id).limit(1).execute()
         if response.data:
-            profile = response.data[0]
+            p = response.data[0]
             st.session_state.update({
-                "user_role": profile.get("role", "guest"),
-                "full_name": profile.get("full_name", email.split('@')[0]),
+                "user_role": p.get("role", "guest"),
+                "full_name": p.get("full_name", email.split('@')[0]),
+                "avatar_url": p.get("avatar_url", None)
             })
     except:
         pass
     return True
 
-def sign_in_manual(email, password):
-    try:
-        res = supabase.auth.sign_in_with_password({"email": email.strip().lower(), "password": password})
-        if res.user:
-            _fetch_and_set_user_profile(res.user.id, res.user.email)
-            st.rerun()
-    except Exception as e:
-        st.error("Credenciales incorrectas")
-
 def check_session() -> bool:
-    if st.session_state.get("authenticated"):
-        return True
+    if st.session_state.get("authenticated"): return True
     try:
-        user_response = supabase.auth.get_user()
-        if user_response and user_response.user:
-            return _fetch_and_set_user_profile(user_response.user.id, user_response.user.email)
-    except:
-        pass
+        user_res = supabase.auth.get_user()
+        if user_res and user_res.user:
+            return _fetch_and_set_user_profile(user_res.user.id, user_res.user.email)
+    except: pass
     return False
 
 # ============================================================
-# 5. UI COMPONENTS (TRANSICIÓN LIMPIA)
+# 3. COMPONENTES DE INTERFAZ (AUTH)
 # ============================================================
 
 def render_auth_page():
     _, col2, _ = st.columns([1, 2, 1])
     with col2:
         st.title("Acceso a la Plataforma")
-        # Usamos una key para que el cambio de tab sea instantáneo y no recargue la página
         tabs = st.tabs(["Iniciar Sesión", "Registrarse", "Recuperar Contraseña"])
         
+        # --- TAB 1: LOGIN ---
         with tabs[0]:
             with st.form("login_form"):
-                e = st.text_input("Correo", key="l_email")
-                p = st.text_input("Contraseña", type="password", key="l_pass")
-                if st.form_submit_button("Entrar", use_container_width=True):
-                    sign_in_manual(e, p)
-        
+                e = st.text_input("Correo")
+                p = st.text_input("Contraseña", type="password")
+                if st.form_submit_button("Iniciar Sesión", use_container_width=True):
+                    try:
+                        res = supabase.auth.sign_in_with_password({"email": e.strip().lower(), "password": p})
+                        if res.user:
+                            _fetch_and_set_user_profile(res.user.id, res.user.email)
+                            st.rerun()
+                    except: st.error("Credenciales incorrectas")
+
+        # --- TAB 2: REGISTRO ---
         with tabs[1]:
-            # --- REGISTRO CON VALIDACIÓN REAL-TIME ---
-            # Sacamos el correo del st.form para usar on_change y evitar el error de Streamlit
-            st.markdown("### Crear Cuenta")
-            nombre = st.text_input("Nombre completo", key="reg_name")
-            
-            # Validación inmediata del correo
-            email_reg = st.text_input("Correo electrónico", key="reg_email")
-            
-            correo_existe = False
+            st.subheader("Crear Cuenta")
+            # Validación de correo fuera del form para evitar el error de Streamlit
+            email_reg = st.text_input("Correo electrónico", key="reg_email_field")
             if email_reg:
-                correo_existe = check_email_exists(email_reg)
-                if correo_existe:
-                    st.error(f"⚠️ El correo '{email_reg}' ya está registrado. Por favor, inicia sesión.")
+                res = supabase.table("profiles").select("email").eq("email", email_reg.strip().lower()).execute()
+                if res.data:
+                    st.error(f"⚠️ El correo '{email_reg}' ya existe.")
+                    st.session_state["block_reg"] = True
+                else:
+                    st.session_state["block_reg"] = False
 
-            with st.form("signup_final_step"):
-                pass_reg = st.text_input("Contraseña (mín. 6 caracteres)", type="password")
-                # El botón solo funciona si el correo es nuevo
-                if st.form_submit_button("Completar Registro", use_container_width=True):
-                    if correo_existe:
-                        st.warning("Usa un correo diferente.")
-                    elif nombre and email_reg and pass_reg:
-                        # Llamada a tu función sign_up original
-                        st.info("Procesando registro...")
-                    else:
-                        st.error("Completa todos los campos.")
+            with st.form("signup_form_complete"):
+                nombre = st.text_input("Nombre completo")
+                pass1 = st.text_input("Contraseña (mín. 6 caracteres)", type="password")
+                if st.form_submit_button("Registrarse", use_container_width=True):
+                    if st.session_state.get("block_reg"):
+                        st.error("Usa otro correo.")
+                    elif nombre and email_reg and pass1:
+                        try:
+                            supabase.auth.sign_up({"email": email_reg, "password": pass1})
+                            st.success("Revisa tu correo para verificar la cuenta.")
+                        except Exception as e: st.error(f"Error: {e}")
 
+        # --- TAB 3: RECUPERACIÓN ---
         with tabs[2]:
-            metodo = st.radio("Opción:", ["Código OTP", "Cambio directo"], horizontal=True, key="reset_nav")
-            st.divider()
-            if metodo == "Código OTP":
-                st.write("Ingresa tu correo para recibir el código.")
-                # Lógica de recuperación...
+            st.subheader("Gestión de Credenciales")
+            metodo = st.radio("Selecciona:", ["Olvidé mi contraseña (OTP)", "Cambio directo"], horizontal=True, key="reset_nav")
+            
+            if metodo == "Olvidé mi contraseña (OTP)":
+                step = st.session_state.get("recovery_step", 1)
+                if step == 1:
+                    with st.form("step1_otp"):
+                        mail = st.text_input("Correo institucional")
+                        if st.form_submit_button("Enviar Código"):
+                            try:
+                                supabase.auth.reset_password_for_email(mail.strip().lower())
+                                st.session_state.temp_email = mail.strip().lower()
+                                st.session_state.recovery_step = 2
+                                st.rerun()
+                            except: st.error("Error al enviar")
+                else:
+                    st.info(f"Código enviado a {st.session_state.temp_email}")
+                    with st.form("step2_otp"):
+                        code = st.text_input("Código OTP")
+                        n_p = st.text_input("Nueva contraseña", type="password")
+                        c_p = st.text_input("Confirmar contraseña", type="password")
+                        if st.form_submit_button("Actualizar"):
+                            if n_p == c_p and len(n_p) >= 8:
+                                try:
+                                    supabase.auth.verify_otp({"email": st.session_state.temp_email, "token": code, "type": "recovery"})
+                                    supabase.auth.update_user({"password": n_p})
+                                    st.success("¡Éxito! Iniciando sesión...")
+                                    time.sleep(2)
+                                    st.session_state.clear()
+                                    st.rerun()
+                                except: st.error("Código inválido")
+                    if st.button("⬅️ Volver"):
+                        st.session_state.recovery_step = 1
+                        st.rerun()
+            
             else:
-                with st.form("direct_reset"):
-                    st.text_input("Correo")
-                    st.text_input("Clave Actual", type="password")
-                    st.text_input("Nueva Clave", type="password")
-                    st.form_submit_button("Actualizar")
+                with st.form("direct_form"):
+                    d_mail = st.text_input("Correo electrónico")
+                    d_old = st.text_input("Contraseña actual", type="password")
+                    d_new = st.text_input("Nueva contraseña", type="password")
+                    d_rep = st.text_input("Repetir nueva contraseña", type="password")
+                    if st.form_submit_button("Actualizar Ahora"):
+                        if d_new == d_rep:
+                            try:
+                                supabase.auth.sign_in_with_password({"email": d_mail, "password": d_old})
+                                supabase.auth.update_user({"password": d_new})
+                                st.success("Contraseña cambiada.")
+                            except: st.error("Datos incorrectos")
 
 # ============================================================
-# 6. MAIN FLOW
+# 4. SIDEBAR Y PRINCIPAL
 # ============================================================
 
-if check_session():
-    # Sidebar
-    current_page = st.session_state.get("current_page", "Mi Perfil")
-    user_role = st.session_state.get('user_role', 'guest')
-
+def render_sidebar():
+    role = st.session_state.get("user_role", "guest")
+    email = st.session_state.get("user_email", "")
+    name = st.session_state.get("full_name", "Usuario")
+    
     with st.sidebar:
-        st.title(f"👋 {st.session_state.get('full_name', 'Usuario')}")
-        st.divider()
+        col1, col2 = st.columns([1, 3])
+        with col1:
+            st.markdown(f'<img src="https://placehold.co/100x100?text=U" style="border-radius:50%; width:60px; border:2px solid #007ACC;">', unsafe_allow_html=True)
+        with col2:
+            st.title(f"👋 {name.split()[0]}")
+            st.caption(f"Rol: **{role.capitalize()}**")
+        
+        st.markdown("---")
+        curr = st.session_state.get("current_page", "Mi Perfil")
         for p in ["Mi Perfil", "Dashboard", "Gestión de Empleados", "Predicción desde Archivo", "Predicción Manual", "Reconocimiento", "Historial de Encuesta"]:
-            if p == "Gestión de Empleados" and user_role not in ["admin", "supervisor"]: continue
-            if st.button(p, use_container_width=True, type="primary" if current_page == p else "secondary"):
+            if p == "Gestión de Empleados" and role not in ["admin", "supervisor"]: continue
+            if st.button(p, use_container_width=True, type="primary" if curr == p else "secondary"):
                 st.session_state.current_page = p
                 st.rerun()
         
+        st.markdown("---")
+        st.caption(f"Cuenta: `{email}`")
         if st.button("Cerrar Sesión", use_container_width=True):
             supabase.auth.sign_out()
             st.session_state.clear()
             st.rerun()
 
-    # Mapeo de páginas
-    page_map = {
-        "Mi Perfil": lambda: render_profile_page(supabase, None),
-        "Dashboard": render_rotacion_dashboard,
-        "Gestión de Empleados": render_employee_management_page,
-        "Predicción desde Archivo": render_predictor_page,
-        "Predicción Manual": render_manual_prediction_tab,
-        "Reconocimiento": render_recognition_page,
-        "Historial de Encuesta": historial_encuestas_module
-    }
-    page_map.get(current_page, lambda: None)()
+# --- FLUJO PRINCIPAL ---
+if check_session():
+    render_sidebar()
+    page = st.session_state.get("current_page", "Mi Perfil")
+    
+    if page == "Mi Perfil": render_profile_page(supabase, None)
+    elif page == "Dashboard": render_rotacion_dashboard()
+    elif page == "Gestión de Empleados": render_employee_management_page()
+    elif page == "Predicción desde Archivo": render_predictor_page()
+    elif page == "Predicción Manual": render_manual_prediction_tab()
+    elif page == "Reconocimiento": render_recognition_page()
+    elif page == "Historial de Encuesta": historial_encuestas_module()
 else:
     render_auth_page()
