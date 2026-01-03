@@ -7,29 +7,32 @@ import warnings
 warnings.filterwarnings("ignore")
 
 # ==============================================================================
-# 0. MAPEOS DE TRADUCCIÓN
+# 0. MAPEOS DE TRADUCCIÓN EXACTOS (Basados en tu lista)
 # ==============================================================================
 
 TRAD_DEPTO = {
-    "HR": "Recursos Humanos",
-    "RESEARCH_AND_DEVELOPMENT": "Investigación y Desarrollo",
-    "SALES": "Ventas"
+    "Human Resources": "Recursos Humanos",
+    "Research & Development": "Investigación y Desarrollo",
+    "Sales": "Ventas"
 }
 
 TRAD_PUESTO = {
-    "HEALTHCARE_REPRESENTATIVE": "Representante de Salud",
-    "HUMAN_RESOURCES": "Recursos Humanos",
-    "LABORATORY_TECHNICIAN": "Técnico de Laboratorio",
-    "MANAGER": "Gerente",
-    "MANUFACTURING_DIRECTOR": "Director de Manufactura",
-    "RESEARCH_DIRECTOR": "Director de Investigación",
-    "RESEARCH_SCIENTIST": "Científico de Investigación",
-    "SALES_EXECUTIVE": "Ejecutivo de Ventas",
-    "SALES_REPRESENTATIVE": "Representante de Ventas"
+    # Ventas
+    "Sales Executive": "Ejecutivo de Ventas",
+    "Sales Representative": "Representante de Ventas",
+    # I+D
+    "Research Scientist": "Científico de Investigación",
+    "Laboratory Technician": "Técnico de Laboratorio",
+    "Manufacturing Director": "Director de Manufactura",
+    "Healthcare Representative": "Representante de Salud",
+    "Research Director": "Director de Investigación",
+    # Comunes / HR
+    "Manager": "Gerente",
+    "Human Resources": "Recursos Humanos"
 }
 
 # ==============================================================================
-# 1. CONEXIÓN Y DATOS
+# 1. CONEXIÓN Y OBTENCIÓN DE DATOS
 # ==============================================================================
 
 @st.cache_resource
@@ -43,12 +46,13 @@ supabase = get_supabase()
 def fetch_employees_data():
     if not supabase: return []
     try:
+        # Extraemos las columnas clave de la tabla consolidado
         columns = ["EmployeeNumber", "Department", "JobRole", "PerformanceRating", 
-                   "YearsAtCompany", "YearsSinceLastPromotion", "NumeroFaltas", "JobInvolvement"]
+                   "YearsSinceLastPromotion", "JobInvolvement", "NumeroFaltas"]
         response = supabase.table("consolidado").select(", ".join(columns)).execute()
         return response.data
     except Exception as e:
-        st.error(f"Error: {e}")
+        st.error(f"Error al conectar con la base de datos: {e}")
         return []
 
 @st.cache_data(ttl=300)
@@ -57,19 +61,19 @@ def get_prepared_data():
     if not raw_data: return pd.DataFrame()
     df = pd.DataFrame(raw_data)
     
-    # Renombrar y Traducir para la lógica y la interfaz
-    df['Departamento'] = df['Department'].map(TRAD_DEPTO).fillna(df['Department'])
-    df['Cargo'] = df['JobRole'].map(TRAD_PUESTO).fillna(df['JobRole'])
+    # Aplicamos la traducción interna
+    df['Departamento_Vista'] = df['Department'].map(TRAD_DEPTO).fillna(df['Department'])
+    df['Cargo_Vista'] = df['JobRole'].map(TRAD_PUESTO).fillna(df['JobRole'])
     
-    # Limpieza numérica
-    cols_num = ['YearsSinceLastPromotion', 'PerformanceRating', 'NumeroFaltas', 'JobInvolvement', 'YearsAtCompany']
+    # Limpieza de datos numéricos
+    cols_num = ['YearsSinceLastPromotion', 'PerformanceRating', 'JobInvolvement', 'NumeroFaltas']
     for col in cols_num:
         df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
     
     return df
 
 # ==============================================================================
-# 2. INTERFAZ
+# 2. RENDERIZADO DE LA PÁGINA
 # ==============================================================================
 
 def render_recognition_page():
@@ -77,79 +81,79 @@ def render_recognition_page():
     
     df = get_prepared_data()
     if df.empty:
-        st.error("No se detectaron datos.")
+        st.warning("No se encontraron datos para procesar.")
         return
 
-    # --- Resumen de Riesgo ---
-    def classify(y):
+    # --- Resumen Ejecutivo por Departamento ---
+    def classify_risk(y):
         if y >= 3: return 'Crítico'
         if y >= 2: return 'Moderado'
         return 'Bajo'
     
-    df['Riesgo_Status'] = df['YearsSinceLastPromotion'].apply(classify)
+    df['Nivel_Riesgo'] = df['YearsSinceLastPromotion'].apply(classify_risk)
     
-    summary = df.groupby('Departamento').agg(
-        Critico=('Riesgo_Status', lambda x: (x == 'Crítico').sum()),
-        Moderado=('Riesgo_Status', lambda x: (x == 'Moderado').sum()),
+    summary = df.groupby('Departamento_Vista').agg(
+        Critico=('Nivel_Riesgo', lambda x: (x == 'Crítico').sum()),
+        Moderado=('Nivel_Riesgo', lambda x: (x == 'Moderado').sum()),
         Total=('EmployeeNumber', 'count'),
-        Promedio=('YearsSinceLastPromotion', 'mean')
+        Promedio_Anos=('YearsSinceLastPromotion', 'mean')
     ).reset_index()
-    summary['Riesgo %'] = (summary['Critico'] + summary['Moderado']) / summary['Total'] * 100
 
-    st.subheader("Análisis de Estancamiento por Área")
+    st.subheader("Estado de Estancamiento por Departamento")
     st.dataframe(
         summary,
         use_container_width=True,
         hide_index=True,
         column_config={
-            "Departamento": "Área / Departamento",
-            "Critico": "Riesgo Crítico",
-            "Moderado": "Riesgo Moderado",
-            "Total": "N° Colaboradores",
-            "Promedio": st.column_config.NumberColumn("Años Promedio", format="%.1f"),
-            "Riesgo %": st.column_config.ProgressColumn("Nivel de Riesgo (%)", min_value=0, max_value=100, format="%.0f%%")
+            "Departamento_Vista": "Departamento",
+            "Critico": "Riesgo Crítico (>3 años)",
+            "Moderado": "Riesgo Moderado (2-3 años)",
+            "Total": "Colaboradores Totales",
+            "Promedio_Anos": st.column_config.NumberColumn("Promedio de Años", format="%.1f")
         }
     )
 
     st.divider()
 
-    # --- Filtro de Departamento ---
+    # --- Buscador y Filtro ---
     st.subheader("🔍 Auditoría de Colaboradores")
-    lista_deptos = sorted(df['Departamento'].unique())
-    dept_sel = st.selectbox("Seleccione el Departamento para auditar:", ["--- Seleccione un departamento ---"] + lista_deptos)
+    lista_deptos = sorted(df['Departamento_Vista'].unique())
+    dept_sel = st.selectbox("Seleccione un Departamento para analizar:", ["--- Seleccione ---"] + lista_deptos)
 
-    if dept_sel != "--- Seleccione un departamento ---":
-        df_filtrado = df[df['Departamento'] == dept_sel].copy()
+    if dept_sel != "--- Seleccione ---":
+        # Filtrar datos por departamento seleccionado
+        df_filtrado = df[df['Departamento_Vista'] == dept_sel].copy()
 
-        # Preparar DataFrame final con nombres de columnas ya traducidos para que Streamlit los tome
-        # Eliminamos 'Departamento' porque ya está en el filtro
-        df_final = df_filtrado[['EmployeeNumber', 'Cargo', 'PerformanceRating', 'JobInvolvement', 'YearsSinceLastPromotion', 'NumeroFaltas']].copy()
-        df_final.columns = ['ID', 'Cargo', 'Desempeño', 'Compromiso', 'Años sin Promoción', 'Faltas']
+        # Seleccionamos y renombramos columnas para que la interfaz sea 100% en español
+        # No incluimos el departamento porque ya está en el filtro superior
+        df_display = df_filtrado[['EmployeeNumber', 'Cargo_Vista', 'PerformanceRating', 'JobInvolvement', 'YearsSinceLastPromotion', 'NumeroFaltas']].copy()
+        df_display.columns = ['ID', 'Cargo', 'Desempeño', 'Compromiso', 'Años sin Promoción', 'Faltas']
 
-        tab1, tab2 = st.tabs(["🔴 Riesgo de Estancamiento", "✨ Alto Potencial para Promover"])
+        tab1, tab2 = st.tabs(["🔴 Riesgo de Estancamiento", "✨ Candidatos a Promoción"])
 
         with tab1:
-            # Riesgo: 2 o más años sin promoción
-            candidatos_riesgo = df_final[df_final['Años sin Promoción'] >= 2.0]
-            if not candidatos_riesgo.empty:
-                st.warning(f"Se identificaron **{len(candidatos_riesgo)}** colaboradores con 2+ años sin ascenso.")
-                st.dataframe(candidatos_riesgo, use_container_width=True, hide_index=True)
+            # Riesgo: 2 años o más sin ser promovidos
+            df_riesgo = df_display[df_display['Años sin Promoción'] >= 2.0].sort_values('Años sin Promoción', ascending=False)
+            if not df_riesgo.empty:
+                st.error(f"Se han identificado {len(df_riesgo)} colaboradores con riesgo de desmotivación por estancamiento.")
+                st.dataframe(df_riesgo, use_container_width=True, hide_index=True)
             else:
-                st.success("No hay colaboradores en riesgo en esta área.")
+                st.success("¡Excelente! No hay colaboradores con estancamiento crítico en este departamento.")
 
         with tab2:
-            # Potencial: Desempeño >= 3 y Compromiso >= 3
-            candidatos_potencial = df_final[
-                (df_final['Desempeño'] >= 3) & 
-                (df_final['Compromiso'] >= 3) & 
-                (df_final['Años sin Promoción'] >= 1.0)
-            ]
-            if not candidatos_potencial.empty:
-                st.success(f"Se identificaron **{len(candidatos_potencial)}** candidatos con perfil para promoción.")
-                st.dataframe(candidatos_potencial, use_container_width=True, hide_index=True)
+            # Potencial: Desempeño Alto (>=3), Compromiso Alto (>=3) y al menos 1 año en el puesto
+            df_potencial = df_display[
+                (df_display['Desempeño'] >= 3) & 
+                (df_display['Compromiso'] >= 3) & 
+                (df_display['Años sin Promoción'] >= 1.0)
+            ].sort_values(['Desempeño', 'Años sin Promoción'], ascending=False)
+            
+            if not df_potencial.empty:
+                st.info(f"Se han identificado {len(df_potencial)} colaboradores con alto potencial para ser promovidos o reconocidos.")
+                st.dataframe(df_potencial, use_container_width=True, hide_index=True)
             else:
-                st.info("No hay candidatos que cumplan el perfil de alto potencial en este momento.")
+                st.write("No se encontraron colaboradores que cumplan simultáneamente con alto desempeño y compromiso en este periodo.")
 
 if __name__ == '__main__':
-    st.set_page_config(page_title="Reconocimiento", layout="wide")
+    st.set_page_config(page_title="Gestión de Talento", layout="wide")
     render_recognition_page()
