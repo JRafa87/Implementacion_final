@@ -3,10 +3,8 @@ from typing import Optional
 from supabase import create_client, Client
 import datetime
 import pandas as pd
-import re
-import time
 
-# Importaciones de módulos locales
+# Módulos locales
 from profile import render_profile_page
 from employees_crud import render_employee_management_page
 from app_reconocimiento import render_recognition_page
@@ -16,10 +14,13 @@ from prediccion_manual_module import render_manual_prediction_tab
 from attrition_predictor import render_predictor_page
 from encuestas_historial import historial_encuestas_module
 
+import re
+import time
+
 DIRECT_URL_1 = "https://desercion-predictor.streamlit.app/?type=recovery"
 
 # ============================================================
-# 0. CONFIGURACIÓN E INICIALIZACIÓN
+# 0. CONFIGURACIÓN
 # ============================================================
 
 st.set_page_config(
@@ -33,174 +34,225 @@ def get_supabase() -> Client:
     url = st.secrets.get("SUPABASE_URL")
     key = st.secrets.get("SUPABASE_KEY")
     if not url or not key:
-        st.error("ERROR: Faltan secretos de Supabase.")
+        st.error("Faltan credenciales Supabase.")
         st.stop()
     return create_client(url, key)
 
 supabase = get_supabase()
 
-PAGES = ["Mi Perfil", "Dashboard", "Gestión de Empleados", "Predicción desde Archivo", "Predicción Manual", "Reconocimiento", "Historial de Encuesta"]
+PAGES = [
+    "Mi Perfil",
+    "Dashboard",
+    "Gestión de Empleados",
+    "Predicción desde Archivo",
+    "Predicción Manual",
+    "Reconocimiento",
+    "Historial de Encuesta"
+]
 
 # ============================================================
-# 2. FUNCIONES DE PERFIL Y SESIÓN
+# 2. PERFIL Y ROLES
 # ============================================================
 
 def _fetch_and_set_user_profile(user_id: str, email: str):
-    """Establece datos de sesión rápidamente."""
-    # Seteo inmediato para evitar que check_session devuelva False por error de latencia
-    st.session_state["authenticated"] = True
-    st.session_state["user_id"] = user_id
-    st.session_state["user_email"] = email
+    st.session_state.update({
+        "authenticated": True,
+        "user_id": user_id,
+        "user_email": email,
+        "user_role": "guest",
+        "full_name": email.split("@")[0]
+    })
 
     try:
-        # Traemos solo lo necesario para mayor velocidad
-        response = supabase.table("profiles").select("role, full_name").eq("id", user_id).maybe_single().execute()
+        response = supabase.table("profiles").select("*").eq("id", user_id).limit(1).execute()
         if response.data:
-            st.session_state["user_role"] = response.data.get("role", "guest")
-            st.session_state["full_name"] = response.data.get("full_name") or email.split('@')[0]
-        else:
-            st.session_state["user_role"] = "guest"
-            st.session_state["full_name"] = email.split('@')[0]
+            profile = response.data[0]
+            st.session_state["user_role"] = profile.get("role", "guest")
+            st.session_state["full_name"] = profile.get("full_name") or email.split("@")[0]
         return True
-    except:
-        return True # Permitir entrada aunque falle el perfil (fallback a email)
+    except Exception as e:
+        st.error(f"Error cargando perfil: {e}")
+        return False
+
+# ============================================================
+# 3. AUTENTICACIÓN
+# ============================================================
+
+def set_page(page_name):
+    st.session_state.current_page = page_name
 
 def check_session() -> bool:
-    """Verificación de sesión ultra-rápida."""
-    if st.session_state.get("authenticated"):
-        return True
+    if "current_page" not in st.session_state:
+        st.session_state.current_page = "Mi Perfil"
 
     try:
         user_response = supabase.auth.get_user()
-        if user_response and user_response.user:
-            return _fetch_and_set_user_profile(user_response.user.id, user_response.user.email)
-    except:
+        user = getattr(user_response, "user", None)
+        if user:
+            return _fetch_and_set_user_profile(user.id, user.email)
+    except Exception:
         pass
+
+    st.session_state.update({
+        "authenticated": False,
+        "user_role": "guest",
+        "user_id": None,
+        "user_email": None,
+        "full_name": "Usuario",
+    })
     return False
 
-# ============================================================
-# 3. LÓGICA DE AUTENTICACIÓN (MEJORADA Y SIN DELAY)
-# ============================================================
+# ==========================
+# LOGIN SIN DELAY
+# ==========================
 
 def sign_in_manual(email, password):
-    if not email or not password:
-        st.warning("⚠️ Completa todos los campos.")
-        return
-    
-    with st.spinner("Autenticando..."):
-        try:
-            res = supabase.auth.sign_in_with_password({"email": email.strip().lower(), "password": password})
-            if res.user:
-                # Actualizamos estado ANTES del rerun para eliminar el delay visual
-                _fetch_and_set_user_profile(res.user.id, res.user.email)
-                st.rerun()
-        except:
-            st.error("❌ Credenciales inválidas.")
+    try:
+        auth_response = supabase.auth.sign_in_with_password({
+            "email": email.strip().lower(),
+            "password": password
+        })
+
+        user = auth_response.user
+        if user:
+            _fetch_and_set_user_profile(user.id, user.email)
+            st.session_state.current_page = "Mi Perfil"
+            st.success("✅ Sesión iniciada")
+            st.rerun()
+
+    except Exception:
+        st.error("❌ Correo o contraseña incorrectos.")
+
+# ==========================
+# REGISTRO CON VALIDACIÓN
+# ==========================
 
 def sign_up(email, password, name):
-    """Validación de duplicados y registro bloqueante."""
-    email_limpio = email.strip().lower()
-    
-    if len(password) < 6:
-        st.error("❌ La contraseña debe tener al menos 6 caracteres.")
-        return
+    email = email.strip().lower()
 
-    with st.spinner("Validando correo..."):
-        try:
-            # 1. BLOQUEO DE DUPLICADOS: Verificar si el correo ya existe en la DB
-            check_user = supabase.table("profiles").select("email").eq("email", email_limpio).execute()
-            
-            if check_user.data and len(check_user.data) > 0:
-                st.error(f"❌ El correo '{email_limpio}' ya está registrado. El registro se ha bloqueado.")
-                return # SE BLOQUEA EL REGISTRO AQUÍ
+    try:
+        check = supabase.table("profiles").select("id").eq("email", email).execute()
+        if check.data:
+            st.error("❌ Este correo ya está registrado.")
+            return
 
-            # 2. Si no existe, procedemos
-            user_response = supabase.auth.sign_up({"email": email_limpio, "password": password})
-            
-            if user_response.user:
-                st.success("✅ Cuenta creada. Por favor, verifica tu correo electrónico.")
-                st.balloons()
-            else:
-                st.error("No se pudo procesar el registro.")
-        except Exception as e:
-            st.error(f"Error: {str(e)}")
+        user_response = supabase.auth.sign_up({
+            "email": email,
+            "password": password
+        })
+
+        user = getattr(user_response, "user", None)
+        if user:
+            supabase.table("profiles").insert({
+                "id": user.id,
+                "email": email,
+                "full_name": name,
+                "role": "guest"
+            }).execute()
+
+            st.success("✅ Registro exitoso")
+            st.info("📧 Revisa tu correo para verificar la cuenta")
+        else:
+            st.error("No se pudo crear el usuario")
+
+    except Exception as e:
+        st.error(f"Error en el registro: {e}")
 
 # ============================================================
-# 5. UI Y RENDERIZADO
+# LOGOUT
 # ============================================================
+
+def handle_logout():
+    try:
+        supabase.auth.sign_out()
+    except Exception:
+        pass
+    st.session_state.clear()
+    st.rerun()
+
+# ============================================================
+# UI AUTH
+# ============================================================
+
+def render_login_form():
+    with st.form("login_form"):
+        st.text_input("Correo", key="login_email")
+        st.text_input("Contraseña", type="password", key="login_password")
+        if st.form_submit_button("Iniciar Sesión"):
+            sign_in_manual(
+                st.session_state.login_email,
+                st.session_state.login_password
+            )
+
+def render_signup_form():
+    with st.form("signup_form"):
+        st.text_input("Nombre completo", key="signup_name")
+        st.text_input("Correo", key="signup_email")
+        st.text_input("Contraseña", type="password", key="signup_password")
+        if st.form_submit_button("Registrarse"):
+            sign_up(
+                st.session_state.signup_email,
+                st.session_state.signup_password,
+                st.session_state.signup_name
+            )
 
 def render_auth_page():
-    col1, col2, col3 = st.columns([1, 2, 1])
+    col1, col2, col3 = st.columns([1,2,1])
     with col2:
         st.title("Acceso a la Plataforma")
-        st.divider()
-        tabs = st.tabs(["Iniciar Sesión", "Registrarse", "Recuperar"])
-        
+        tabs = st.tabs(["Iniciar Sesión", "Registrarse"])
         with tabs[0]:
-            with st.form("login_f"):
-                e = st.text_input("Correo")
-                p = st.text_input("Contraseña", type="password")
-                if st.form_submit_button("Entrar", use_container_width=True):
-                    sign_in_manual(e, p)
-        
+            render_login_form()
         with tabs[1]:
-            with st.form("signup_f"):
-                n = st.text_input("Nombre completo")
-                em = st.text_input("Correo")
-                pw = st.text_input("Contraseña", type="password")
-                if st.form_submit_button("Crear Cuenta", use_container_width=True):
-                    if n and em and pw:
-                        sign_up(em, pw, n)
-                    else:
-                        st.error("Faltan datos.")
-        
-        with tabs[2]:
-            render_password_reset_form()
+            render_signup_form()
+
+# ============================================================
+# SIDEBAR
+# ============================================================
 
 def render_sidebar():
-    user_role = st.session_state.get('user_role', 'guest')
-    current_page = st.session_state.get("current_page", "Mi Perfil")
-    
+    current_page = st.session_state.get("current_page")
+    user_role = st.session_state.get("user_role")
+
     with st.sidebar:
-        st.title(f"👋 {st.session_state.get('full_name', 'Usuario').split(' ')[0]}")
+        st.title(f"👋 {st.session_state.get('full_name')}")
         st.caption(f"Rol: {user_role}")
-        st.divider()
-        
+
         for page in PAGES:
             if page == "Gestión de Empleados" and user_role not in ["admin", "supervisor"]:
                 continue
-            
-            if st.button(page, use_container_width=True, type="primary" if current_page == page else "secondary"):
-                st.session_state.current_page = page
-                st.rerun()
-                
-        st.divider()
-        if st.button("Cerrar Sesión", use_container_width=True):
-            supabase.auth.sign_out()
-            st.session_state.clear()
-            st.rerun()
+            st.button(page, on_click=set_page, args=(page,), use_container_width=True)
+
+        st.markdown("---")
+        st.button("Cerrar Sesión", use_container_width=True, on_click=handle_logout)
+
+        if user_role in ["admin", "supervisor"]:
+            st.markdown("---")
+            render_survey_control_panel(supabase)
 
 # ============================================================
-# 6. FLUJO PRINCIPAL (ATÓMICO)
+# MAIN
 # ============================================================
 
-# Eliminamos el delay de carga verificando la sesión una sola vez al inicio
-if check_session():
+session_is_active = check_session()
+
+if session_is_active:
     render_sidebar()
-    
+
     page_map = {
-        "Mi Perfil": lambda: render_profile_page(supabase, request_password_reset),
+        "Mi Perfil": lambda: render_profile_page(supabase, None),
         "Dashboard": render_rotacion_dashboard,
-        "Gestión de Empleados": render_employee_management_page, 
+        "Gestión de Empleados": render_employee_management_page,
         "Predicción desde Archivo": render_predictor_page,
         "Predicción Manual": render_manual_prediction_tab,
         "Reconocimiento": render_recognition_page,
         "Historial de Encuesta": historial_encuestas_module
     }
-    
-    cp = st.session_state.get("current_page", "Mi Perfil")
-    if cp in page_map:
-        page_map[cp]()
+
+    render_func = page_map.get(st.session_state.current_page)
+    if render_func:
+        render_func()
 else:
     render_auth_page()
+
 
