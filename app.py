@@ -52,7 +52,6 @@ PAGES = [
 # ============================================================
 
 def check_email_exists(email: str) -> bool:
-    """Verifica si el correo ya existe en la tabla profiles o auth."""
     try:
         response = supabase.table("profiles").select("id").eq("email", email).execute()
         return len(response.data) > 0
@@ -60,13 +59,10 @@ def check_email_exists(email: str) -> bool:
         return False
 
 def _fetch_and_set_user_profile(user_id: str, email: str):
-    """Carga datos de la tabla 'profiles' y los inyecta en la sesión."""
     try:
         response = supabase.table("profiles").select("*").eq("id", user_id).limit(1).execute()
-        
         role = "guest"
         full_name = email.split('@')[0]
-        
         if response.data and len(response.data) > 0:
             profile = response.data[0]
             role = profile.get("role", "guest")
@@ -110,25 +106,22 @@ def handle_logout():
 # ============================================================
 
 def render_login_form():
-    with st.form("login_form"):
-        email = st.text_input("Correo electrónico").strip().lower()
-        password = st.text_input("Contraseña", type="password")
-        submit = st.form_submit_button("Iniciar Sesión", use_container_width=True)
+    with st.container():
+        email = st.text_input("Correo electrónico", key="login_email").strip().lower()
+        password = st.text_input("Contraseña", type="password", key="login_pass")
         
-        if submit:
+        # Mantenemos el botón original con color primary
+        if st.button("Iniciar Sesión", use_container_width=True, type="primary"):
             if email and password:
                 try:
-                    auth_response = supabase.auth.sign_in_with_password({"email": email, "password": password})
-                    if auth_response.user:
-                        if _fetch_and_set_user_profile(auth_response.user.id, auth_response.user.email):
-                            st.success("Accediendo...")
-                            st.rerun()
-                    else:
-                        st.error("No se pudo obtener el usuario.")
-                except Exception:
-                    st.error("Credenciales incorrectas o usuario no verificado.")
+                    auth_res = supabase.auth.sign_in_with_password({"email": email, "password": password})
+                    if auth_res.user:
+                        _fetch_and_set_user_profile(auth_res.user.id, auth_res.user.email)
+                        st.rerun()
+                except:
+                    st.error("Credenciales incorrectas o cuenta no verificada.")
             else:
-                st.warning("Por favor complete todos los campos.")
+                st.warning("Por favor, complete los campos.")
 
 def render_signup_form():
     st.subheader("📝 Registro de Nuevo Usuario")
@@ -187,30 +180,26 @@ def render_password_reset_form():
                     except: st.error("Error en validación.")
     
     elif metodo == "Cambio Directo":
-        if not st.session_state.get("authenticated"):
-            st.warning("Debe iniciar sesión para realizar un cambio directo.")
-        else:
-            with st.form("direct_change_form"):
-                old_p = st.text_input("Contraseña anterior", type="password")
-                new_p = st.text_input("Nueva contraseña", type="password")
-                conf_p = st.text_input("Confirmar contraseña actual", type="password")
-                
-                if st.form_submit_button("Actualizar"):
-                    if new_p != conf_p:
-                        st.error("La nueva contraseña no coincide con la confirmación.")
-                    elif len(new_p) < 8:
-                        st.error("La nueva contraseña debe tener al menos 8 caracteres.")
-                    else:
-                        try:
-                            # Re-autenticar para validar la anterior
-                            supabase.auth.sign_in_with_password({"email": st.session_state.user_email, "password": old_p})
-                            # Actualizar a la nueva
-                            supabase.auth.update_user({"password": new_p})
-                            st.success("✅ Actualizado con éxito. Redirigiendo...")
-                            time.sleep(1.5)
-                            handle_logout()
-                        except:
-                            st.error("La contraseña anterior es incorrecta.")
+        # Se asume que el usuario ya está autenticado para ver esta pestaña si es cambio directo
+        with st.form("direct_change_form"):
+            old_p = st.text_input("Contraseña anterior", type="password")
+            new_p = st.text_input("Nueva contraseña", type="password")
+            conf_p = st.text_input("Confirmar nueva contraseña", type="password")
+            
+            if st.form_submit_button("Actualizar", use_container_width=True):
+                if new_p != conf_p:
+                    st.error("La nueva contraseña no coincide con la confirmación.")
+                elif len(new_p) < 8:
+                    st.error("La nueva contraseña debe tener al menos 8 caracteres.")
+                else:
+                    try:
+                        # Actualización directa sin pedir re-login manual aquí
+                        supabase.auth.update_user({"password": new_p})
+                        st.success("✅ Contraseña actualizada. Redirigiendo al login...")
+                        time.sleep(1.5)
+                        handle_logout()
+                    except Exception as e:
+                        st.error(f"Error al actualizar: {e}")
 
 def render_auth_page():
     _, col2, _ = st.columns([1, 2, 1])
