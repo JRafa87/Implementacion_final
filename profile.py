@@ -43,7 +43,6 @@ if "profile_loaded" not in st.session_state:
 def load_user_profile_data(user_id: str):
     if not user_id:
         return None
-    # Usamos el cliente desde el state
     supabase = st.session_state["supabase"]
     response = (
         supabase
@@ -54,7 +53,6 @@ def load_user_profile_data(user_id: str):
         .execute()
     )
     return response.data
-
 
 def hydrate_session(profile: dict):
     if not profile:
@@ -80,35 +78,32 @@ def format_datetime_peru(iso_str, use_now_if_none=False, date_only=False):
             now = datetime.datetime.now(TIMEZONE_PERU)
             return now.strftime("%Y-%m-%d") if date_only else now.strftime("%Y-%m-%d %H:%M hrs (PE)")
         return "N/A"
-    dt = datetime.datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
-    dt = dt.astimezone(TIMEZONE_PERU)
-    return dt.strftime("%Y-%m-%d") if date_only else dt.strftime("%Y-%m-%d %H:%M hrs (PE)")
-
+    try:
+        dt = datetime.datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
+        dt = dt.astimezone(TIMEZONE_PERU)
+        return dt.strftime("%Y-%m-%d") if date_only else dt.strftime("%Y-%m-%d %H:%M hrs (PE)")
+    except:
+        return "N/A"
 
 def handle_avatar_upload():
     file = st.session_state.get("avatar_uploader")
     if file:
         st.session_state["temp_avatar_bytes"] = file.read()
 
-
 def update_profile(name, dob, phone, address, avatar):
     supabase = st.session_state["supabase"]
     user_id = st.session_state["user_id"]
-
     if not name or len(name.strip()) < 1:
         st.session_state["update_status_message"] = ("error", "❌ El nombre es obligatorio.")
         return 
-
     payload = {
         "full_name": name.strip(),
         "phone_number": phone.strip() if phone else None,
         "address": address.strip() if address else None,
         "date_of_birth": dob.strftime("%Y-%m-%d") if dob else None
     }
-
     if avatar:
         payload["avatar_url"] = "data:image/png;base64," + base64.b64encode(avatar).decode()
-
     try:
         supabase.table("profiles").update(payload).eq("id", user_id).execute()
         load_user_profile_data.clear()
@@ -124,7 +119,7 @@ def update_profile(name, dob, phone, address, avatar):
 # ==========================================================
 
 def render_profile_page(supabase_client, request_password_reset_func=None):
-    # Definimos supabase localmente para que todo el bloque funcione
+    # Definir supabase local para evitar el error 'not defined'
     supabase = supabase_client 
     st.session_state["supabase"] = supabase_client
     user_id = st.session_state.get("user_id")
@@ -133,6 +128,7 @@ def render_profile_page(supabase_client, request_password_reset_func=None):
         st.warning("⚠️ Usuario no autenticado")
         return
 
+    # Mensajes de éxito/error al inicio
     if st.session_state.get("update_status_message"):
         status_type, status_msg = st.session_state.pop("update_status_message")
         if status_type == "success": st.success(status_msg)
@@ -164,7 +160,7 @@ def render_profile_page(supabase_client, request_password_reset_func=None):
         
         dob = st.date_input("🗓️ Fecha de nacimiento", value=initial_dob or datetime.date(2000, 1, 1))
 
-        # Validaciones simples
+        # Validación en tiempo real para el botón de guardado
         submit_disabled = False
         if phone and not re.match(r"^9\d{8}$", phone):
             st.error("❌ Teléfono debe iniciar con 9 y tener 9 dígitos.")
@@ -172,56 +168,74 @@ def render_profile_page(supabase_client, request_password_reset_func=None):
 
         with st.form("profile_form"):
             st.markdown("---")
-            if st.form_submit_button("💾 Guardar cambios", disabled=submit_disabled):
+            if st.form_submit_button("💾 Guardar cambios", disabled=submit_disabled, use_container_width=True):
                 update_profile(name, dob, phone, address, st.session_state.get("temp_avatar_bytes"))
 
-        # Datos lectura
-        st.markdown("### Datos de Cuenta")
-        st.info(f"**Rol:** {st.session_state['user_role'].capitalize()} | **Correo:** {st.session_state['user_email']}")
+        # --- SECCIÓN DE SOLO LECTURA ---
+        st.markdown("### ℹ️ Información de Cuenta")
+        c_acc1, c_acc2 = st.columns(2)
+        with c_acc1:
+            st.text_input("📅 Fecha de Creación", 
+                         value=format_datetime_peru(st.session_state["created_at"], date_only=True), 
+                         disabled=True)
+            st.text_input("🏷️ Rol de Usuario", 
+                         value=st.session_state["user_role"].capitalize(), 
+                         disabled=True)
+        with c_acc2:
+            st.text_input("⏰ Última sesión registrada", 
+                         value=format_datetime_peru(st.session_state.get("last_sign_in_at"), use_now_if_none=True), 
+                         disabled=True)
+            st.text_input("📧 Correo Electrónico", 
+                         value=st.session_state["user_email"], 
+                         disabled=True)
 
     # ======================================================
-    # CAMBIO DE CONTRASEÑA (CORREGIDO)
+    # CAMBIO DE CONTRASEÑA (OTP)
     # ======================================================
     st.markdown("---")
-    st.subheader("🔒 Seguridad de la cuenta")
+    st.subheader("🔒 Seguridad")
 
     if "show_reset_fields" not in st.session_state:
         st.session_state.show_reset_fields = False
 
     if not st.session_state.show_reset_fields:
-        if st.button("Actualizar contraseña", use_container_width=True):
+        if st.button("Actualizar contraseña de acceso", use_container_width=True):
             try:
-                # Usamos supabase (definido al inicio de render_profile_page)
                 supabase.auth.reset_password_for_email(st.session_state["user_email"])
                 st.session_state.show_reset_fields = True
-                st.info(f"Código enviado a: **{st.session_state['user_email']}**")
+                st.info(f"Código de seguridad enviado a: **{st.session_state['user_email']}**")
                 time.sleep(1.5)
                 st.rerun()
             except Exception as e:
-                st.error(f"Error: {e}")
+                st.error(f"Error al enviar: {e}")
     else:
         with st.form("profile_otp_reset_form"):
-            st.markdown("#### Validar Cambio")
-            otp_code = st.text_input("Código de verificación", placeholder="000000")
-            new_pw = st.text_input("Nueva contraseña", type="password")
-            conf_pw = st.text_input("Confirmar nueva contraseña", type="password")
+            st.markdown("#### Confirmar Cambio con Código")
+            otp_code = st.text_input("Código de verificación", placeholder="Escribe el código aquí")
             
-            c1, c2 = st.columns(2)
-            with c1:
-                if st.form_submit_button("✅ Guardar nueva contraseña", use_container_width=True):
+            cp1, cp2 = st.columns(2)
+            with cp1:
+                new_pw = st.text_input("Nueva contraseña", type="password")
+            with cp2:
+                conf_pw = st.text_input("Repetir nueva contraseña", type="password")
+            
+            b1, b2 = st.columns(2)
+            with b1:
+                if st.form_submit_button("✅ Actualizar ahora", use_container_width=True):
                     if new_pw == conf_pw and len(new_pw) >= 8:
                         try:
-                            # Validar OTP y Actualizar
-                            supabase.auth.verify_otp({"email": st.session_state["user_email"], "token": otp_code.strip(), "type": "recovery"})
+                            supabase.auth.verify_otp({"email": st.session_state["user_email"], 
+                                                      "token": otp_code.strip(), 
+                                                      "type": "recovery"})
                             supabase.auth.update_user({"password": new_pw})
-                            st.success("✨ ¡Contraseña actualizada!")
+                            st.success("✅ ¡Contraseña actualizada exitosamente!")
                             st.balloons()
                             st.session_state.show_reset_fields = False
                             time.sleep(2)
                             st.rerun()
-                        except: st.error("Código incorrecto o expirado.")
-                    else: st.error("Las contraseñas no coinciden o son muy cortas.")
-            with c2:
+                        except: st.error("Código incorrecto, expirado o mal ingresado.")
+                    else: st.error("Asegúrate que las claves coincidan y tengan al menos 8 caracteres.")
+            with b2:
                 if st.form_submit_button("❌ Cancelar", use_container_width=True):
                     st.session_state.show_reset_fields = False
                     st.rerun()
