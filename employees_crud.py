@@ -4,7 +4,7 @@ from supabase import create_client, Client
 from datetime import date
 
 # =================================================================
-# 1. CONFIGURACIÓN Y MAPEOS (Cache de recursos para velocidad)
+# 1. CONFIGURACIÓN Y MAPEOS
 # =================================================================
 
 MAPEO_DEPTOS = {"Sales": "Ventas", "Research & Development": "Investigación y Desarrollo", "Human Resources": "Recursos Humanos"}
@@ -28,7 +28,6 @@ def get_supabase() -> Client:
 
 supabase = get_supabase()
 
-# Cacheamos la consulta de empleados por 2 minutos para mejorar la velocidad al cambiar de pestaña
 @st.cache_data(ttl=120)
 def fetch_employees_fast():
     res = supabase.table("empleados").select("*").order("EmployeeNumber").execute()
@@ -44,6 +43,16 @@ def get_tipos_contrato():
         pass
     return ["Tiempo Completo", "Indefinido", "Temporal"]
 
+def get_next_employee_number():
+    """Obtiene el último ID y suma 1"""
+    try:
+        res = supabase.table("empleados").select("EmployeeNumber").order("EmployeeNumber", desc=True).limit(1).execute()
+        if res.data:
+            return int(res.data[0]['EmployeeNumber']) + 1
+        return 1
+    except:
+        return 1
+
 def to_eng(mapeo, valor_esp):
     return [k for k, v in mapeo.items() if v == valor_esp][0]
 
@@ -54,13 +63,10 @@ def to_eng(mapeo, valor_esp):
 def render_employee_management_page():
     st.title("👥 Gestión de Personal")
 
-    # Inicialización de estados
     if "edit_id" not in st.session_state: st.session_state.edit_id = None
     if "show_add" not in st.session_state: st.session_state.show_add = False
 
     proceso_activo = st.session_state.edit_id is not None or st.session_state.show_add
-    
-    # Carga de datos optimizada
     raw_data = fetch_employees_fast()
     tipos_contrato = get_tipos_contrato()
 
@@ -88,7 +94,7 @@ def render_employee_management_page():
     with c_b2:
         if st.button("🗑️ Eliminar", use_container_width=True, disabled=proceso_activo or not id_sel):
             supabase.table("empleados").delete().eq("EmployeeNumber", int(id_sel)).execute()
-            st.cache_data.clear() # Limpia cache para refrescar tabla
+            st.cache_data.clear()
             st.rerun()
     with c_b3:
         if st.button("➕ Nuevo Registro", use_container_width=True, disabled=proceso_activo):
@@ -101,10 +107,15 @@ def render_employee_management_page():
         es_edit = st.session_state.edit_id is not None
         p = next((e for e in raw_data if e['employeenumber'] == st.session_state.edit_id), {}) if es_edit else {}
 
+        # Definir ID automático o existente
+        current_id = st.session_state.edit_id if es_edit else get_next_employee_number()
+
         st.subheader("📋 Formulario de Datos" + (" (Edición: Actualización)" if es_edit else " (Nuevo Ingreso)"))
         
-        # Inputs de control (Edad y Género)
-        c_top1, c_top2 = st.columns(2)
+        # Fila de control superior
+        c_top0, c_top1, c_top2 = st.columns([1, 1, 2])
+        with c_top0:
+            st.text_input("ID Empleado", value=str(current_id), disabled=True)
         with c_top1:
             age = st.number_input("Edad", 0, 100, int(p.get('age', 25)), disabled=es_edit)
             permitir = age >= 18
@@ -116,7 +127,6 @@ def render_employee_management_page():
                                  index=list(MAPEO_GENERO.values()).index(val_gen_esp), 
                                  disabled=es_edit)
 
-        # Inicio de Formulario Único
         with st.form("main_employee_form"):
             st.write("### 💼 Información Laboral")
             f1, f2, f3, f4 = st.columns(4)
@@ -130,7 +140,6 @@ def render_employee_management_page():
                 r_val = MAPEO_ROLES.get(p.get('jobrole'), "Ejecutivo de Ventas")
                 role = st.selectbox("Puesto", list(MAPEO_ROLES.values()), index=list(MAPEO_ROLES.values()).index(r_val))
             with f3:
-                # Corregido: MAPEO_VIAJES
                 v_val = MAPEO_VIAJES.get(p.get('businesstravel'), "Sin Viajes")
                 travel = st.selectbox("Viajes de Negocios", list(MAPEO_VIAJES.values()), index=list(MAPEO_VIAJES.values()).index(v_val))
                 job_lvl = st.number_input("Nivel Puesto (1-5)", 1, 5, int(p.get('joblevel', 1)))
@@ -177,11 +186,11 @@ def render_employee_management_page():
                 f_sal_str = p.get('fechasalida')
                 f_sal = st.date_input("Fecha Salida (Opcional)", date.fromisoformat(f_sal_str) if f_sal_str else None)
 
-            # BOTÓN DE ENVÍO SIEMPRE DENTRO DEL FORM
             submitted = st.form_submit_button("💾 GUARDAR CAMBIOS", disabled=not permitir)
             
             if submitted:
                 payload = {
+                    "EmployeeNumber": current_id,
                     "Age": age, "Gender": to_eng(MAPEO_GENERO, gender),
                     "MonthlyIncome": income, "Department": to_eng(MAPEO_DEPTOS, dept),
                     "JobRole": to_eng(MAPEO_ROLES, role), "BusinessTravel": to_eng(MAPEO_VIAJES, travel),
@@ -197,17 +206,14 @@ def render_employee_management_page():
                 }
                 
                 if es_edit:
-                    supabase.table("empleados").update(payload).eq("EmployeeNumber", st.session_state.edit_id).execute()
+                    supabase.table("empleados").update(payload).eq("EmployeeNumber", current_id).execute()
                 else:
-                    l_res = supabase.table("empleados").select("EmployeeNumber").order("EmployeeNumber", desc=True).limit(1).execute()
-                    payload["EmployeeNumber"] = (l_res.data[0]['EmployeeNumber'] + 1) if l_res.data else 1
                     supabase.table("empleados").insert(payload).execute()
                 
-                # Resetear estados y limpiar caché
                 st.session_state.edit_id = None
                 st.session_state.show_add = False
                 st.cache_data.clear()
-                st.success("¡Base de Datos Actualizada!")
+                st.success(f"¡Base de Datos Actualizada! (ID: {current_id})")
                 st.rerun()
 
         if st.button("❌ Cancelar Operación"):
