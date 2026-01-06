@@ -70,11 +70,11 @@ def _fetch_and_set_user_profile(user_id: str, email: str):
         return False
 
 # ============================================================
-# 3. LÓGICA DE AUTENTICACIÓN (SOLUCIÓN AL DOBLE CLIC)
+# 3. LÓGICA DE AUTENTICACIÓN (REFINADA PARA EVITAR PARPADEO)
 # ============================================================
 
 def login_callback():
-    """Esta función se ejecuta inmediatamente al hacer clic, evitando el doble clic."""
+    """Ejecuta el login y limpia el estado para un ingreso inmediato."""
     email = st.session_state.get("login_email", "").strip().lower()
     password = st.session_state.get("login_pass", "")
     
@@ -92,18 +92,23 @@ def login_callback():
             # Filtro estricto: Debe estar en la tabla profiles
             if _fetch_and_set_user_profile(auth_res.user.id, auth_res.user.email):
                 st.session_state.login_error = None
+                # No necesitamos hacer nada más, st.rerun() no es necesario aquí 
+                # porque el callback ya fuerza la actualización del estado.
             else:
                 supabase.auth.sign_out()
-                st.session_state.login_error = "Usuario no autorizado en la tabla de perfiles."
+                st.session_state.login_error = "Usuario no autorizado: No se encuentra en la base de datos de perfiles."
         else:
             st.session_state.login_error = "Correo o contraseña incorrectos."
     except:
         st.session_state.login_error = "Error de autenticación. Verifique sus datos."
 
 def check_session() -> bool:
+    # Prioridad: Si ya marcamos como autenticado en esta ejecución
     if st.session_state.get("authenticated"):
         return True
+    
     try:
+        # Verificación silenciosa de sesión persistente
         session = supabase.auth.get_session()
         if session and session.user:
             return _fetch_and_set_user_profile(session.user.id, session.user.email)
@@ -125,15 +130,15 @@ def handle_logout():
 # ============================================================
 
 def render_login_form():
-    with st.container():
-        # Mostrar errores si existen en el estado
+    # Usamos un contenedor para agrupar y evitar saltos visuales
+    login_cont = st.container()
+    with login_cont:
         if st.session_state.get("login_error"):
             st.error(st.session_state.login_error)
             
         st.text_input("Correo electrónico", key="login_email").strip().lower()
         st.text_input("Contraseña", type="password", key="login_pass")
         
-        # El parámetro 'on_click' es la clave para evitar el doble clic
         st.button("Iniciar Sesión", 
                   use_container_width=True, 
                   type="primary", 
@@ -193,7 +198,7 @@ def render_password_reset_form():
                         st.success("Contraseña cambiada con éxito.")
                         st.session_state.recovery_step = 1
                     except:
-                        st.error("Error en validación del código.")
+                        st.error("Error en validación.")
 
     else:
         with st.form("direct_change_form"):
@@ -266,10 +271,13 @@ def render_sidebar():
             render_survey_control_panel(supabase)
 
 # ============================================================
-# 6. EJECUCIÓN MAESTRA
+# 6. EJECUCIÓN MAESTRA (ORDENADA PARA EVITAR PARPADEO)
 # ============================================================
 
-if check_session():
+# Comprobamos sesión PRIMERO antes de renderizar nada
+is_logged_in = check_session()
+
+if is_logged_in:
     render_sidebar()
     page_map = {
         "Mi Perfil": lambda: render_profile_page(supabase, None),
