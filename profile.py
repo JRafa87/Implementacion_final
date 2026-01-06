@@ -300,12 +300,81 @@ def render_profile_page(supabase_client, request_password_reset):
                 )
                 # Si hubo error en update_profile, el mensaje se mostrará al inicio del siguiente ciclo.
 
-    # ======================================================
-    # CAMBIO DE CONTRASEÑA
+# ======================================================
+    # CAMBIO DE CONTRASEÑA (DENTRO DEL PERFIL)
     # ======================================================
     st.markdown("---")
-    if st.button("🔒 Cambiar contraseña", use_container_width=True):
-        request_password_reset(st.session_state["user_email"])
+    st.subheader("🔒 Seguridad de la cuenta")
+
+    # Control de estados en session_state
+    if "show_reset_fields" not in st.session_state:
+        st.session_state.show_reset_fields = False
+
+    if not st.session_state.show_reset_fields:
+        # Botón inicial
+        if st.button("Actualizar contraseña", use_container_width=True):
+            try:
+                # 1. Enviar código OTP al correo del usuario logueado
+                supabase.auth.reset_password_for_email(st.session_state["user_email"])
+                st.session_state.show_reset_fields = True
+                st.info(f"Se ha enviado un código de verificación a: **{st.session_state['user_email']}**")
+                time.sleep(1.5)
+                st.rerun()
+            except Exception as e:
+                st.error(f"No se pudo enviar el código: {e}")
+    else:
+        # Formulario de actualización (Aparece solo tras solicitar el código)
+        with st.form("profile_otp_reset_form"):
+            st.markdown("#### Validar Cambio")
+            otp_code = st.text_input("Código de verificación (enviado al correo)", placeholder="000000")
+            
+            col_p1, col_p2 = st.columns(2)
+            with col_p1:
+                new_pw = st.text_input("Nueva contraseña", type="password")
+            with col_p2:
+                conf_pw = st.text_input("Confirmar nueva contraseña", type="password")
+            
+            st.divider()
+            
+            c1, c2 = st.columns(2)
+            with c1:
+                submit = st.form_submit_button("✅ Guardar nueva contraseña", use_container_width=True)
+            with c2:
+                cancel = st.form_submit_button("❌ Cancelar", use_container_width=True)
+
+            if submit:
+                if not otp_code or not new_pw:
+                    st.warning("Completa todos los campos.")
+                elif new_pw != conf_pw:
+                    st.error("Las contraseñas no coinciden.")
+                elif len(new_pw) < 8:
+                    st.error("La contraseña debe tener al menos 8 caracteres.")
+                else:
+                    try:
+                        # 2. Validar el código OTP
+                        supabase.auth.verify_otp({
+                            "email": st.session_state["user_email"],
+                            "token": otp_code.strip(),
+                            "type": "recovery"
+                        })
+                        
+                        # 3. Actualizar la contraseña en Supabase (sin cerrar sesión)
+                        supabase.auth.update_user({"password": new_pw})
+                        
+                        st.success("✨ ¡Contraseña actualizada con éxito!")
+                        st.balloons()
+                        
+                        # Limpiar el estado para ocultar el formulario y volver al botón inicial
+                        st.session_state.show_reset_fields = False
+                        time.sleep(2)
+                        st.rerun()
+                        
+                    except Exception:
+                        st.error("El código OTP es incorrecto o ha caducado. Inténtalo de nuevo.")
+
+            if cancel:
+                st.session_state.show_reset_fields = False
+                st.rerun()
 
 
 
