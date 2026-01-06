@@ -36,7 +36,7 @@ def load_data():
     if 'Department' in df.columns:
         dict_dept = {
             'Sales': 'Ventas',
-            'Research & Development': 'Investigción y Desarrollo',
+            'Research & Development': 'Investigación y Desarrollo',
             'Human Resources': 'Recursos Humanos',
             'Software': 'Software/Sistemas',
             'Hardware': 'Hardware'
