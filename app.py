@@ -93,8 +93,7 @@ def check_session() -> bool:
 def handle_logout():
     try:
         supabase.auth.sign_out()
-    except: 
-        pass
+    except: pass
     st.session_state.clear()
     st.rerun()
 
@@ -120,16 +119,35 @@ def render_login_form():
                 st.warning("Por favor, complete los campos.")
 
 def render_signup_form():
-    st.info("Complete los datos en el formulario de registro.")
-    # Aquí puedes añadir tu lógica de registro previa
+    st.subheader("📝 Registro de Nuevo Usuario")
+    with st.form("signup_form"):
+        email = st.text_input("Correo Electrónico").strip().lower()
+        full_name = st.text_input("Nombre Completo")
+        new_password = st.text_input("Contraseña", type="password")
+        confirm_password = st.text_input("Confirmar Contraseña", type="password")
+        
+        if st.form_submit_button("Crear Cuenta", use_container_width=True):
+            if not email or not new_password:
+                st.warning("El correo y la contraseña son obligatorios.")
+            elif new_password != confirm_password:
+                st.error("Las contraseñas no coinciden.")
+            else:
+                try:
+                    res = supabase.auth.sign_up({
+                        "email": email,
+                        "password": new_password,
+                        "options": {"data": {"full_name": full_name}}
+                    })
+                    st.success("Registro exitoso. Revisa tu correo para confirmar.")
+                except Exception as e:
+                    st.error(f"Error: {e}")
 
 def render_password_reset_form():
     st.subheader("🛠️ Gestión de Credenciales")
     metodo = st.radio("Método:", ["Código OTP (Olvido)", "Cambio Directo"], horizontal=True)
 
     if metodo == "Código OTP (Olvido)":
-        if "recovery_step" not in st.session_state: 
-            st.session_state.recovery_step = 1
+        if "recovery_step" not in st.session_state: st.session_state.recovery_step = 1
 
         if st.session_state.recovery_step == 1:
             with st.form("otp_request"):
@@ -147,25 +165,43 @@ def render_password_reset_form():
                     try:
                         supabase.auth.verify_otp({"email": st.session_state.temp_email, "token": otp_code.strip(), "type": "recovery"})
                         supabase.auth.update_user({"password": new_pass})
-                        st.success("Cambiado correctamente. Redirigiendo al login...")
+                        st.success("Cambiado. Volviendo al login...")
                         time.sleep(1.5)
-                        handle_logout() # Esto limpia la sesión y vuelve a mostrar el login
-                    except: 
-                        st.error("Error en validación del código o contraseña.")
-    else:
-        st.info("Para cambio directo debe estar autenticado.")
+                        handle_logout() 
+                    except: st.error("Error en validación.")
+    
+    elif metodo == "Cambio Directo":
+        if not st.session_state.get("authenticated"):
+            st.info("Inicie sesión para cambiar su contraseña directamente desde aquí.")
+        else:
+            with st.form("direct_change"):
+                old_p = st.text_input("Contraseña anterior", type="password")
+                new_p = st.text_input("Nueva contraseña", type="password")
+                conf_p = st.text_input("Confirmar contraseña actual", type="password")
+                
+                if st.form_submit_button("Actualizar"):
+                    if new_p != conf_p:
+                        st.error("La nueva contraseña no coincide con la confirmación.")
+                    else:
+                        try:
+                            # Validar contraseña anterior
+                            supabase.auth.sign_in_with_password({"email": st.session_state.user_email, "password": old_p})
+                            # Actualizar
+                            supabase.auth.update_user({"password": new_p})
+                            st.success("Contraseña actualizada. Redirigiendo...")
+                            time.sleep(1.5)
+                            handle_logout()
+                        except:
+                            st.error("La contraseña anterior es incorrecta.")
 
 def render_auth_page():
     _, col2, _ = st.columns([1, 2, 1])
     with col2:
         st.title("Acceso al Sistema")
         tabs = st.tabs(["🔑 Login", "📝 Registro", "🔄 Recuperar"])
-        with tabs[0]: 
-            render_login_form()
-        with tabs[1]: 
-            render_signup_form()
-        with tabs[2]: 
-            render_password_reset_form()
+        with tabs[0]: render_login_form()
+        with tabs[1]: render_signup_form()
+        with tabs[2]: render_password_reset_form()
 
 # ============================================================
 # 5. SIDEBAR Y FLUJO PRINCIPAL
@@ -183,28 +219,15 @@ def render_sidebar():
         st.caption(f"Rol: **{user_role.capitalize()}**")
         st.markdown("---")
         
-        icon_map = {
-            "Mi Perfil": "👤", "Dashboard": "📊", "Gestión de Empleados": "👥", 
-            "Predicción desde Archivo": "📁", "Predicción Manual": "✏️", 
-            "Reconocimiento": "⭐", "Historial de Encuesta": "📜"
-        }
+        icon_map = {"Mi Perfil": "👤", "Dashboard": "📊", "Gestión de Empleados": "👥", "Predicción desde Archivo": "📁", "Predicción Manual": "✏️", "Reconocimiento": "⭐", "Historial de Encuesta": "📜"}
         
         for page in PAGES:
-            if page == "Gestión de Empleados" and user_role not in ["admin", "supervisor"]: 
-                continue
-            st.button(
-                f"{icon_map.get(page, '➡️')} {page}", 
-                key=f"nav_{page}", 
-                use_container_width=True, 
-                type="primary" if current_page == page else "secondary", 
-                on_click=set_page, 
-                args=(page,)
-            )
+            if page == "Gestión de Empleados" and user_role not in ["admin", "supervisor"]: continue
+            st.button(f"{icon_map.get(page, '➡️')} {page}", key=f"nav_{page}", use_container_width=True, 
+                      type="primary" if current_page == page else "secondary", on_click=set_page, args=(page,))
             
         st.markdown("---")
-        if st.button("Cerrar Sesión", use_container_width=True): 
-            handle_logout()
-        
+        if st.button("Cerrar Sesión", use_container_width=True): handle_logout()
         if user_role in ["admin", "supervisor"]:
             render_survey_control_panel(supabase)
 
@@ -226,8 +249,6 @@ if check_session():
     }
     
     current = st.session_state.get("current_page", "Mi Perfil")
-    page_func = page_map.get(current)
-    if page_func:
-        page_func()
+    page_map.get(current, lambda: None)()
 else:
     render_auth_page()
