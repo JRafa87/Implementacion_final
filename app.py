@@ -59,10 +59,7 @@ def check_email_exists(email: str) -> bool:
         return False
 
 def _fetch_and_set_user_profile(user_id: str, email: str):
-    """
-    Carga el perfil del usuario. 
-    SI NO EXISTE en la tabla 'profiles', NO PERMITE EL ACCESO.
-    """
+    """Carga perfil. Si no existe en tabla 'profiles', NO entra."""
     try:
         response = supabase.table("profiles").select("*").eq("id", user_id).limit(1).execute()
 
@@ -76,11 +73,8 @@ def _fetch_and_set_user_profile(user_id: str, email: str):
                 "full_name": profile.get("full_name") or email.split("@")[0]
             })
             return True
-        else:
-            # Si el usuario existe en Auth pero no en la tabla profiles
-            return False
-    except Exception as e:
-        st.error(f"Error al verificar perfil: {e}")
+        return False
+    except:
         return False
 
 # ============================================================
@@ -91,10 +85,9 @@ def check_session() -> bool:
     if st.session_state.get("authenticated"):
         return True
     try:
-        res = supabase.auth.get_session()
-        if res and res.session:
-            # Validamos que además de sesión, tenga perfil en la tabla
-            return _fetch_and_set_user_profile(res.user.id, res.user.email)
+        session = supabase.auth.get_session()
+        if session and session.user:
+            return _fetch_and_set_user_profile(session.user.id, session.user.email)
     except:
         pass
     return False
@@ -113,94 +106,86 @@ def handle_logout():
 # ============================================================
 
 def render_login_form():
-    msg_placeholder = st.empty()
-    
-    with st.form("login_form_secure"):
-        email = st.text_input("Correo electrónico").strip().lower()
-        password = st.text_input("Contraseña", type="password")
-        submit = st.form_submit_button("Iniciar Sesión", use_container_width=True)
-
-        if submit:
+    with st.container():
+        msg_placeholder = st.empty()
+        # Diseño original: Inputs directos (sin st.form para evitar el error de doble clic)
+        email = st.text_input("Correo electrónico", key="login_email").strip().lower()
+        password = st.text_input("Contraseña", type="password", key="login_pass")
+        
+        if st.button("Iniciar Sesión", use_container_width=True, type="primary"):
             if email and password:
                 try:
                     auth_res = supabase.auth.sign_in_with_password({
                         "email": email,
                         "password": password
                     })
-                    
-                    if auth_res.user:
-                        # VALIDACIÓN CRÍTICA: ¿Tiene perfil en la tabla?
+
+                    if auth_res and auth_res.user:
+                        # VALIDACIÓN: Debe estar en la tabla profiles
                         if _fetch_and_set_user_profile(auth_res.user.id, auth_res.user.email):
-                            msg_placeholder.success("Acceso concedido.")
-                            time.sleep(0.4)
+                            msg_placeholder.success("Acceso correcto")
+                            time.sleep(0.3)
                             st.rerun()
                         else:
-                            # Si existe en Auth pero no en perfiles, cerramos sesión de Auth por seguridad
                             supabase.auth.sign_out()
-                            msg_placeholder.error("Usuario no registrado en la base de datos de perfiles. Por favor, regístrese.")
+                            msg_placeholder.error("Usuario no autorizado: No se encuentra en la tabla de perfiles.")
                     else:
                         msg_placeholder.error("Correo o contraseña incorrectos.")
                 except:
-                    msg_placeholder.error("Credenciales inválidas o error de conexión.")
+                    msg_placeholder.error("Error de autenticación. Verifique sus datos.")
             else:
                 msg_placeholder.warning("Complete todos los campos.")
 
 def render_signup_form():
-    st.subheader("📝 Crear Cuenta Nueva")
-    email_reg = st.text_input("Correo institucional", key="reg_email").strip().lower()
+    st.subheader("📝 Registro de Nuevo Usuario")
+    email_reg = st.text_input("Correo institucional", key="reg_email_input").strip().lower()
     
     email_exists = False
     if email_reg and "@" in email_reg:
         email_exists = check_email_exists(email_reg)
         if email_exists:
-            st.error("Este correo ya está registrado en el sistema.")
+            st.error("⚠️ Este correo ya existe.")
 
-    with st.form("signup_action"):
+    with st.form("signup_form_final"):
         full_name = st.text_input("Nombre completo")
         pass_reg = st.text_input("Contraseña (mín. 8 caracteres)", type="password")
-        submit = st.form_submit_button("Registrarse ahora", use_container_width=True, disabled=email_exists)
+        submit_btn = st.form_submit_button("Registrarse", use_container_width=True, disabled=email_exists or not email_reg)
         
-        if submit:
-            if len(pass_reg) >= 8 and full_name and email_reg:
+        if submit_btn:
+            if len(pass_reg) >= 8 and full_name:
                 try:
-                    # Al registrarse, Supabase Auth creará el usuario
-                    # Importante: Tu base de datos debe tener un Trigger para insertar en 'profiles' 
-                    # automáticamente al crearse el registro en Auth.
                     supabase.auth.sign_up({
                         "email": email_reg,
                         "password": pass_reg,
                         "options": {"data": {"full_name": full_name}}
                     })
-                    st.success("Registro procesado. Por favor, verifica tu correo electrónico para activar la cuenta.")
+                    st.success("✅ Registro enviado. Verifica tu correo.")
                 except Exception as e:
-                    st.error(f"Error en el registro: {e}")
+                    st.error(f"Error: {e}")
             else:
-                st.error("Asegúrese de llenar todos los campos y que la clave tenga 8+ caracteres.")
+                st.error("Datos incompletos o contraseña muy corta.")
 
 def render_password_reset_form():
-    st.subheader("🔄 Recuperación de Credenciales")
-    metodo = st.radio("Opción:", ["Código OTP (Olvido)", "Cambio Directo"], horizontal=True)
+    st.subheader("🛠️ Gestión de Credenciales")
+    metodo = st.radio("Método:", ["Código OTP (Olvido)", "Cambio Directo"], horizontal=True)
 
     if metodo == "Código OTP (Olvido)":
         if "recovery_step" not in st.session_state:
             st.session_state.recovery_step = 1
 
         if st.session_state.recovery_step == 1:
-            with st.form("req_otp"):
-                email_reset = st.text_input("Correo electrónico").strip().lower()
-                if st.form_submit_button("Enviar código al correo"):
-                    try:
-                        supabase.auth.reset_password_for_email(email_reset)
-                        st.session_state.temp_email = email_reset
-                        st.session_state.recovery_step = 2
-                        st.rerun()
-                    except:
-                        st.error("No se pudo enviar el código.")
+            with st.form("otp_request"):
+                email = st.text_input("Correo")
+                if st.form_submit_button("Enviar Código"):
+                    supabase.auth.reset_password_for_email(email.strip().lower())
+                    st.session_state.temp_email = email.strip().lower()
+                    st.session_state.recovery_step = 2
+                    st.rerun()
         else:
-            with st.form("verify_otp"):
-                otp_code = st.text_input("Código de seguridad")
+            with st.form("otp_verify"):
+                otp_code = st.text_input("Código OTP")
                 new_pass = st.text_input("Nueva contraseña", type="password")
-                if st.form_submit_button("Cambiar Contraseña"):
+                if st.form_submit_button("Cambiar"):
                     try:
                         supabase.auth.verify_otp({
                             "email": st.session_state.temp_email,
@@ -208,34 +193,36 @@ def render_password_reset_form():
                             "type": "recovery"
                         })
                         supabase.auth.update_user({"password": new_pass})
-                        st.success("✅ Contraseña actualizada correctamente.")
+                        st.success("Contraseña cambiada")
                         st.session_state.recovery_step = 1
                     except:
-                        st.error("Código incorrecto o expirado.")
+                        st.error("Error en validación.")
 
     else:
-        with st.form("direct_update_logged"):
-            # Campo de contraseña anterior solicitado
+        with st.form("direct_change_form"):
+            # Se ha añadido el campo de contraseña anterior
             old_p = st.text_input("Contraseña Actual", type="password")
             new_p = st.text_input("Nueva contraseña", type="password")
             conf_p = st.text_input("Confirmar nueva contraseña", type="password")
 
-            if st.form_submit_button("Actualizar"):
+            if st.form_submit_button("Actualizar", use_container_width=True):
                 if new_p != conf_p:
-                    st.error("Las contraseñas nuevas no coinciden.")
+                    st.error("Las contraseñas no coinciden.")
                 elif len(new_p) < 8:
-                    st.error("Debe tener al menos 8 caracteres.")
+                    st.error("Debe tener mínimo 8 caracteres.")
+                elif not old_p:
+                    st.error("Debe ingresar su contraseña actual.")
                 else:
                     try:
                         supabase.auth.update_user({"password": new_p})
-                        st.success("Contraseña actualizada con éxito.")
+                        st.success("Contraseña actualizada")
                     except Exception as e:
                         st.error(f"Error: {e}")
 
 def render_auth_page():
     _, col2, _ = st.columns([1, 2, 1])
     with col2:
-        st.title("Acceso Corporativo")
+        st.title("Acceso al Sistema")
         tabs = st.tabs(["🔑 Login", "📝 Registro", "🔄 Recuperar"])
         with tabs[0]: render_login_form()
         with tabs[1]: render_signup_form()
