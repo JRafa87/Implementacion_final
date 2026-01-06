@@ -70,11 +70,11 @@ def _fetch_and_set_user_profile(user_id: str, email: str):
         return False
 
 # ============================================================
-# 3. LÓGICA DE AUTENTICACIÓN (REFINADA PARA EVITAR PARPADEO)
+# 3. LÓGICA DE AUTENTICACIÓN (ELIMINACIÓN DE FLASH VISUAL)
 # ============================================================
 
 def login_callback():
-    """Ejecuta el login y limpia el estado para un ingreso inmediato."""
+    """Ejecuta el login y marca el estado inmediatamente."""
     email = st.session_state.get("login_email", "").strip().lower()
     password = st.session_state.get("login_pass", "")
     
@@ -89,11 +89,10 @@ def login_callback():
         })
 
         if auth_res and auth_res.user:
-            # Filtro estricto: Debe estar en la tabla profiles
             if _fetch_and_set_user_profile(auth_res.user.id, auth_res.user.email):
                 st.session_state.login_error = None
-                # No necesitamos hacer nada más, st.rerun() no es necesario aquí 
-                # porque el callback ya fuerza la actualización del estado.
+                # Marcar que acabamos de loguearnos para bloquear el render de login
+                st.session_state.just_logged_in = True
             else:
                 supabase.auth.sign_out()
                 st.session_state.login_error = "Usuario no autorizado: No se encuentra en la base de datos de perfiles."
@@ -103,12 +102,9 @@ def login_callback():
         st.session_state.login_error = "Error de autenticación. Verifique sus datos."
 
 def check_session() -> bool:
-    # Prioridad: Si ya marcamos como autenticado en esta ejecución
     if st.session_state.get("authenticated"):
         return True
-    
     try:
-        # Verificación silenciosa de sesión persistente
         session = supabase.auth.get_session()
         if session and session.user:
             return _fetch_and_set_user_profile(session.user.id, session.user.email)
@@ -121,7 +117,7 @@ def handle_logout():
         supabase.auth.sign_out()
     except:
         pass
-    for k in ["authenticated", "user_id", "user_email", "user_role", "full_name", "current_page", "login_error"]:
+    for k in ["authenticated", "user_id", "user_email", "user_role", "full_name", "current_page", "login_error", "just_logged_in"]:
         st.session_state.pop(k, None)
     st.rerun()
 
@@ -130,19 +126,21 @@ def handle_logout():
 # ============================================================
 
 def render_login_form():
-    # Usamos un contenedor para agrupar y evitar saltos visuales
-    login_cont = st.container()
-    with login_cont:
-        if st.session_state.get("login_error"):
-            st.error(st.session_state.login_error)
-            
-        st.text_input("Correo electrónico", key="login_email").strip().lower()
-        st.text_input("Contraseña", type="password", key="login_pass")
+    # Si acabamos de loguearnos, no mostramos el formulario
+    if st.session_state.get("just_logged_in"):
+        st.empty()
+        return
+
+    if st.session_state.get("login_error"):
+        st.error(st.session_state.login_error)
         
-        st.button("Iniciar Sesión", 
-                  use_container_width=True, 
-                  type="primary", 
-                  on_click=login_callback)
+    st.text_input("Correo electrónico", key="login_email").strip().lower()
+    st.text_input("Contraseña", type="password", key="login_pass")
+    
+    st.button("Iniciar Sesión", 
+                use_container_width=True, 
+                type="primary", 
+                on_click=login_callback)
 
 def render_signup_form():
     st.subheader("📝 Registro de Nuevo Usuario")
@@ -221,6 +219,10 @@ def render_password_reset_form():
                         st.error(f"Error: {e}")
 
 def render_auth_page():
+    # Si estamos en proceso de entrada, ocultamos todo para evitar el flash
+    if st.session_state.get("just_logged_in"):
+        return
+
     _, col2, _ = st.columns([1, 2, 1])
     with col2:
         st.title("Acceso al Sistema")
@@ -271,13 +273,18 @@ def render_sidebar():
             render_survey_control_panel(supabase)
 
 # ============================================================
-# 6. EJECUCIÓN MAESTRA (ORDENADA PARA EVITAR PARPADEO)
+# 6. EJECUCIÓN MAESTRA
 # ============================================================
 
-# Comprobamos sesión PRIMERO antes de renderizar nada
+# Paso 1: Verificación de sesión
 is_logged_in = check_session()
 
+# Paso 2: Dibujar interfaz
 if is_logged_in:
+    # Si ya entramos, limpiamos la bandera de bloqueo si existía
+    if "just_logged_in" in st.session_state:
+        del st.session_state["just_logged_in"]
+        
     render_sidebar()
     page_map = {
         "Mi Perfil": lambda: render_profile_page(supabase, None),
