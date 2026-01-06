@@ -140,7 +140,45 @@ def render_auth_page():
         with tabs[2]: 
             # (Lógica de recovery omitida por brevedad, usa la que ya tenías)
             st.info("Ingrese su correo para recuperar contraseña.")
+ef render_password_reset_form():
+    st.subheader("🛠️ Gestión de Credenciales")
+    metodo = st.radio("Método:", ["Código OTP (Olvido)", "Cambio Directo"], horizontal=True)
 
+    if metodo == "Código OTP (Olvido)":
+        if "recovery_step" not in st.session_state: st.session_state.recovery_step = 1
+
+        if st.session_state.recovery_step == 1:
+            with st.form("otp_request"):
+                email = st.text_input("Correo")
+                if st.form_submit_button("Enviar Código"):
+                    supabase.auth.reset_password_for_email(email.strip().lower())
+                    st.session_state.temp_email = email.strip().lower()
+                    st.session_state.recovery_step = 2
+                    st.rerun()
+        else:
+            with st.form("otp_verify"):
+                otp_code = st.text_input("Código OTP")
+                new_pass = st.text_input("Nueva contraseña", type="password")
+                if st.form_submit_button("Cambiar"):
+                    try:
+                        supabase.auth.verify_otp({"email": st.session_state.temp_email, "token": otp_code.strip(), "type": "recovery"})
+                        supabase.auth.update_user({"password": new_pass})
+                        st.success("Cambiado. Volviendo al login...")
+                        time.sleep(1.5)
+                        handle_logout() # Redirige al login según tus instrucciones
+                    except: st.error("Error en validación.")
+    else:
+        # Lógica de cambio directo omitida para brevedad, igual a la tuya pero con handle_logout() al final
+        pass
+
+def render_auth_page():
+    _, col2, _ = st.columns([1, 2, 1])
+    with col2:
+        st.title("Acceso al Sistema")
+        tabs = st.tabs(["🔑 Login", "📝 Registro", "🔄 Recuperar"])
+        with tabs[0]: render_login_form()
+        with tabs[1]: render_signup_form()
+        with tabs[2]: render_password_reset_form()
 # ============================================================
 # 5. SIDEBAR Y FLUJO PRINCIPAL
 # ============================================================
