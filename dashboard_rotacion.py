@@ -49,7 +49,7 @@ def load_data():
     else:
         df['Tipo de Contrato'] = 'No definido'
 
-    # Renombrar columnas para consistencia
+    # Renombrar columnas para consistencia (Manteniendo nombres originales internamente)
     df = df.rename(columns={
         'MonthlyIncome': 'Ingreso Mensual',
         'Age': 'Edad',
@@ -79,6 +79,7 @@ def load_data():
 # ==============================================================================
 
 def render_rotacion_dashboard():
+    st.set_page_config(layout="wide") # Opcional: para aprovechar mejor el ancho total
     st.title("📊 Análisis Descriptivo de Rotación de Personal")
     
     data = load_data()
@@ -152,7 +153,7 @@ def render_rotacion_dashboard():
                            color='Salidas', color_continuous_scale='Oranges')
         st.plotly_chart(fig_promo, use_container_width=True)
 
-    # --- 3. RESTO DE GRÁFICOS ---
+    # --- 3. RELACIÓN INGRESOS Y EDAD ---
     st.subheader("💰 Relación entre Ingresos, Edad y Rotación")
     fig_scat = px.scatter(df_f, x='Edad', y='Ingreso Mensual', color='Estado de Empleado',
                           labels={'Edad': 'Edad', 'Ingreso Mensual': 'Sueldo (USD)', 'Estado de Empleado': 'Situación'},
@@ -160,6 +161,7 @@ def render_rotacion_dashboard():
                           hover_data=['Puesto', 'Departamento', 'Tipo de Contrato'])
     st.plotly_chart(fig_scat, use_container_width=True)
 
+    # --- 4. TENDENCIA TEMPORAL ---
     st.subheader("📆 Evolución histórica de bajas")
     if not df_ren.empty:
         ren_mes = df_ren.groupby(pd.Grouper(key='FechaSalida', freq='M')).size().reset_index(name='Total')
@@ -167,6 +169,25 @@ def render_rotacion_dashboard():
                            title="Tendencia temporal de renuncias",
                            labels={'Total': 'Cantidad de Salidas', 'FechaSalida': 'Mes'})
         st.plotly_chart(fig_line, use_container_width=True)
+
+    # --- 5. GRÁFICO SOLICITADO: DISTRIBUCIÓN POR MESES DE ANTIGÜEDAD (ANCHO COMPLETO) ---
+    st.subheader("📊 Distribución de renuncias por meses de antigüedad")
+    if not df_ren.empty:
+        # Agrupamos por el valor entero de meses de antigüedad
+        df_ren['Meses_Enteros'] = df_ren['AntiguedadMeses'].fillna(0).astype(int)
+        dist_antiguedad = df_ren.groupby('Meses_Enteros').size().reset_index(name='count')
+        
+        fig_meses = px.bar(
+            dist_antiguedad, 
+            x='Meses_Enteros', 
+            y='count',
+            title="Detalle de bajas por mes exacto de permanencia",
+            labels={'Meses_Enteros': 'Antigüedad al renunciar (meses)', 'count': 'count'},
+            color_discrete_sequence=['#E74C3C'] 
+        )
+        
+        fig_meses.update_layout(bargap=0.1)
+        st.plotly_chart(fig_meses, use_container_width=True)
 
     # --- LECTURA EJECUTIVA ---
     st.markdown("---")
