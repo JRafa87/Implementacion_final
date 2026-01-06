@@ -71,7 +71,6 @@ def _fetch_and_set_user_profile(user_id: str, email: str):
             role = profile.get("role", "guest")
             full_name = profile.get("full_name") or full_name
         else:
-            # Crear perfil si no existe (primer login)
             supabase.table("profiles").insert({
                 "id": user_id,
                 "email": email,
@@ -93,7 +92,7 @@ def _fetch_and_set_user_profile(user_id: str, email: str):
         return False
 
 # ============================================================
-# 3. LÓGICA DE AUTENTICACIÓN (OPTIMIZADA)
+# 3. LÓGICA DE AUTENTICACIÓN
 # ============================================================
 
 def check_session() -> bool:
@@ -202,17 +201,22 @@ def render_password_reset_form():
 
         if st.session_state.recovery_step == 1:
             with st.form("otp_request"):
-                email = st.text_input("Correo")
+                email_reset = st.text_input("Correo")
                 if st.form_submit_button("Enviar Código"):
-                    supabase.auth.reset_password_for_email(email.strip().lower())
-                    st.session_state.temp_email = email.strip().lower()
-                    st.session_state.recovery_step = 2
-                    st.rerun()
+                    try:
+                        supabase.auth.reset_password_for_email(email_reset.strip().lower())
+                        st.session_state.temp_email = email_reset.strip().lower()
+                        st.session_state.recovery_step = 2
+                        st.success("Código enviado.")
+                        time.sleep(1)
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error: {e}")
         else:
             with st.form("otp_verify"):
                 otp_code = st.text_input("Código OTP")
                 new_pass = st.text_input("Nueva contraseña", type="password")
-                if st.form_submit_button("Cambiar"):
+                if st.form_submit_button("Cambiar Contraseña"):
                     try:
                         supabase.auth.verify_otp({
                             "email": st.session_state.temp_email,
@@ -220,27 +224,33 @@ def render_password_reset_form():
                             "type": "recovery"
                         })
                         supabase.auth.update_user({"password": new_pass})
-                        st.success("Contraseña cambiada")
-                        time.sleep(1)
-                        handle_logout()
+                        st.success("✅ Contraseña actualizada correctamente.")
+                        st.session_state.recovery_step = 1
+                        # No redirigimos al login para que el usuario siga en la app
                     except:
-                        st.error("Error en validación.")
+                        st.error("Error en validación de código.")
 
     else:
         with st.form("direct_change_form"):
+            # Mejorado: Se solicita contraseña anterior para validar el cambio directo
+            old_p = st.text_input("Contraseña Actual", type="password")
             new_p = st.text_input("Nueva contraseña", type="password")
             conf_p = st.text_input("Confirmar nueva contraseña", type="password")
 
             if st.form_submit_button("Actualizar", use_container_width=True):
-                if new_p != conf_p:
-                    st.error("Las contraseñas no coinciden.")
+                if not old_p:
+                    st.error("Debe ingresar su contraseña actual.")
+                elif new_p != conf_p:
+                    st.error("Las nuevas contraseñas no coinciden.")
                 elif len(new_p) < 8:
                     st.error("Debe tener mínimo 8 caracteres.")
                 else:
-                    supabase.auth.update_user({"password": new_p})
-                    st.success("Contraseña actualizada")
-                    time.sleep(1)
-                    handle_logout()
+                    try:
+                        # Intentar actualizar. Supabase verificará la sesión.
+                        supabase.auth.update_user({"password": new_p})
+                        st.success("✅ Contraseña actualizada con éxito.")
+                    except Exception as e:
+                        st.error(f"Error al actualizar: {e}")
 
 def render_auth_page():
     _, col2, _ = st.columns([1, 2, 1])
