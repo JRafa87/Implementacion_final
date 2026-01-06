@@ -51,18 +51,10 @@ PAGES = [
 # 2. FUNCIONES DE APOYO Y PERFIL
 # ============================================================
 
-def check_email_exists(email: str) -> bool:
-    try:
-        response = supabase.table("profiles").select("id").eq("email", email.strip().lower()).execute()
-        return len(response.data) > 0
-    except:
-        return False
-
 def _fetch_and_set_user_profile(user_id: str, email: str):
-    """Carga perfil. Si no existe en tabla 'profiles', NO entra."""
+    """Carga perfil. Si no existe en tabla 'profiles', retorna False."""
     try:
         response = supabase.table("profiles").select("*").eq("id", user_id).limit(1).execute()
-
         if response.data and len(response.data) > 0:
             profile = response.data[0]
             st.session_state.update({
@@ -78,8 +70,35 @@ def _fetch_and_set_user_profile(user_id: str, email: str):
         return False
 
 # ============================================================
-# 3. LÓGICA DE AUTENTICACIÓN
+# 3. LÓGICA DE AUTENTICACIÓN (SOLUCIÓN AL DOBLE CLIC)
 # ============================================================
+
+def login_callback():
+    """Esta función se ejecuta inmediatamente al hacer clic, evitando el doble clic."""
+    email = st.session_state.get("login_email", "").strip().lower()
+    password = st.session_state.get("login_pass", "")
+    
+    if not email or not password:
+        st.session_state.login_error = "Complete todos los campos."
+        return
+
+    try:
+        auth_res = supabase.auth.sign_in_with_password({
+            "email": email,
+            "password": password
+        })
+
+        if auth_res and auth_res.user:
+            # Filtro estricto: Debe estar en la tabla profiles
+            if _fetch_and_set_user_profile(auth_res.user.id, auth_res.user.email):
+                st.session_state.login_error = None
+            else:
+                supabase.auth.sign_out()
+                st.session_state.login_error = "Usuario no autorizado en la tabla de perfiles."
+        else:
+            st.session_state.login_error = "Correo o contraseña incorrectos."
+    except:
+        st.session_state.login_error = "Error de autenticación. Verifique sus datos."
 
 def check_session() -> bool:
     if st.session_state.get("authenticated"):
@@ -97,7 +116,7 @@ def handle_logout():
         supabase.auth.sign_out()
     except:
         pass
-    for k in ["authenticated", "user_id", "user_email", "user_role", "full_name", "current_page"]:
+    for k in ["authenticated", "user_id", "user_email", "user_role", "full_name", "current_page", "login_error"]:
         st.session_state.pop(k, None)
     st.rerun()
 
@@ -107,52 +126,30 @@ def handle_logout():
 
 def render_login_form():
     with st.container():
-        msg_placeholder = st.empty()
-        # Diseño original: Inputs directos (sin st.form para evitar el error de doble clic)
-        email = st.text_input("Correo electrónico", key="login_email").strip().lower()
-        password = st.text_input("Contraseña", type="password", key="login_pass")
+        # Mostrar errores si existen en el estado
+        if st.session_state.get("login_error"):
+            st.error(st.session_state.login_error)
+            
+        st.text_input("Correo electrónico", key="login_email").strip().lower()
+        st.text_input("Contraseña", type="password", key="login_pass")
         
-        if st.button("Iniciar Sesión", use_container_width=True, type="primary"):
-            if email and password:
-                try:
-                    auth_res = supabase.auth.sign_in_with_password({
-                        "email": email,
-                        "password": password
-                    })
-
-                    if auth_res and auth_res.user:
-                        # VALIDACIÓN: Debe estar en la tabla profiles
-                        if _fetch_and_set_user_profile(auth_res.user.id, auth_res.user.email):
-                            msg_placeholder.success("Acceso correcto")
-                            time.sleep(0.3)
-                            st.rerun()
-                        else:
-                            supabase.auth.sign_out()
-                            msg_placeholder.error("Usuario no autorizado: No se encuentra en la tabla de perfiles.")
-                    else:
-                        msg_placeholder.error("Correo o contraseña incorrectos.")
-                except:
-                    msg_placeholder.error("Error de autenticación. Verifique sus datos.")
-            else:
-                msg_placeholder.warning("Complete todos los campos.")
+        # El parámetro 'on_click' es la clave para evitar el doble clic
+        st.button("Iniciar Sesión", 
+                  use_container_width=True, 
+                  type="primary", 
+                  on_click=login_callback)
 
 def render_signup_form():
     st.subheader("📝 Registro de Nuevo Usuario")
     email_reg = st.text_input("Correo institucional", key="reg_email_input").strip().lower()
     
-    email_exists = False
-    if email_reg and "@" in email_reg:
-        email_exists = check_email_exists(email_reg)
-        if email_exists:
-            st.error("⚠️ Este correo ya existe.")
-
     with st.form("signup_form_final"):
         full_name = st.text_input("Nombre completo")
         pass_reg = st.text_input("Contraseña (mín. 8 caracteres)", type="password")
-        submit_btn = st.form_submit_button("Registrarse", use_container_width=True, disabled=email_exists or not email_reg)
+        submit_btn = st.form_submit_button("Registrarse", use_container_width=True)
         
         if submit_btn:
-            if len(pass_reg) >= 8 and full_name:
+            if len(pass_reg) >= 8 and full_name and email_reg:
                 try:
                     supabase.auth.sign_up({
                         "email": email_reg,
@@ -193,14 +190,13 @@ def render_password_reset_form():
                             "type": "recovery"
                         })
                         supabase.auth.update_user({"password": new_pass})
-                        st.success("Contraseña cambiada")
+                        st.success("Contraseña cambiada con éxito.")
                         st.session_state.recovery_step = 1
                     except:
-                        st.error("Error en validación.")
+                        st.error("Error en validación del código.")
 
     else:
         with st.form("direct_change_form"):
-            # Se ha añadido el campo de contraseña anterior
             old_p = st.text_input("Contraseña Actual", type="password")
             new_p = st.text_input("Nueva contraseña", type="password")
             conf_p = st.text_input("Confirmar nueva contraseña", type="password")
@@ -209,13 +205,13 @@ def render_password_reset_form():
                 if new_p != conf_p:
                     st.error("Las contraseñas no coinciden.")
                 elif len(new_p) < 8:
-                    st.error("Debe tener mínimo 8 caracteres.")
+                    st.error("Mínimo 8 caracteres.")
                 elif not old_p:
-                    st.error("Debe ingresar su contraseña actual.")
+                    st.error("Ingrese su contraseña actual.")
                 else:
                     try:
                         supabase.auth.update_user({"password": new_p})
-                        st.success("Contraseña actualizada")
+                        st.success("Contraseña actualizada exitosamente.")
                     except Exception as e:
                         st.error(f"Error: {e}")
 
