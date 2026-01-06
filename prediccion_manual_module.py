@@ -173,7 +173,7 @@ def render_manual_prediction_tab():
                 
                 # REGLA SOLICITADA: Si no hay ID e intenta modificar la edad
                 if selected_id == "--- Seleccionar ---" and val_edad > 0:
-                    st.error("⚠️ Selecciona un ID y se bloquean las predicciones")
+                    st.error("⚠️ Selecciona un ID")
                     bloqueo_por_edad = True
 
             elif col in sliders:
