@@ -20,7 +20,6 @@ MAPPING_PATH = "models/categorical_mapping.pkl"
 EMPLOYEE_TABLE = "consolidado"
 KEY_COLUMN = "EmployeeNumber"
 
-# Traducción de etiquetas de columnas para la UI
 TRADUCCIONES_COLS = {
     "Age": "Edad", "BusinessTravel": "Viajes de Negocios", "Department": "Departamento",
     "DistanceFromHome": "Distancia desde Casa", "Education": "Nivel Educativo",
@@ -38,7 +37,6 @@ TRADUCCIONES_COLS = {
     "NumeroTardanzas": "Tardanzas", "NumeroFaltas": "Faltas", "tipo_contrato": "Tipo de Contrato"
 }
 
-# Traducción de valores internos (Original -> Español)
 TRADUCCIONES_VALORES = {
     "Department": {
         "HR": "Recursos Humanos",
@@ -114,7 +112,6 @@ def load_employee_data(emp_id: str) -> Dict[str, Any]:
 def predict_with_shap(data: Dict[str, Any]):
     df = pd.DataFrame([data]).reindex(columns=MODEL_COLUMNS, fill_value=0)
     
-    # Procesamiento para el modelo
     for col, mp in mapping.items():
         if col in df.columns:
             df[col] = df[col].map(mp).fillna(0)
@@ -125,13 +122,11 @@ def predict_with_shap(data: Dict[str, Any]):
     explainer = shap.Explainer(model)
     shap_values = explainer(df_scaled)
     
-    # Crear DF para gráfico
     shap_df = pd.DataFrame({
         "Variable": [TRADUCCIONES_COLS.get(c, c) for c in MODEL_COLUMNS],
         "Impacto": shap_values.values[0]
     })
     
-    # Lógica de colores: Rojo (+ riesgo), Verde (- riesgo)
     shap_df["Color"] = shap_df["Impacto"].apply(lambda x: "Riesgo (Sube)" if x > 0 else "Retención (Baja)")
     shap_df["Abs"] = shap_df["Impacto"].abs()
     shap_df = shap_df.sort_values("Abs", ascending=False).head(8)
@@ -160,6 +155,9 @@ def render_manual_prediction_tab():
     sliders = ["EnvironmentSatisfaction","JobSatisfaction","RelationshipSatisfaction","WorkLifeBalance",
                "IntencionPermanencia","CargaLaboralPercibida","SatisfaccionSalarial","ConfianzaEmpresa"]
 
+    # Flag de validación para la edad
+    bloqueo_por_edad = False
+
     for i, col in enumerate(MODEL_COLUMNS):
         base_val = base_data.get(col, 0)
         locked = col in LOCKED_WHEN_FROM_DB and selected_id != "--- Seleccionar ---"
@@ -169,14 +167,21 @@ def render_manual_prediction_tab():
         with container:
             display_label = f"{label_es} 🔒" if locked else label_es
             
-            if col in sliders:
+            if col == "Age":
+                val_edad = st.number_input(display_label, value=float(base_val) if base_val else 0.0, disabled=locked)
+                manual_input[col] = val_edad
+                
+                # REGLA SOLICITADA: Si no hay ID e intenta modificar la edad
+                if selected_id == "--- Seleccionar ---" and val_edad > 0:
+                    st.error("⚠️ Selecciona un ID y se bloquean las predicciones")
+                    bloqueo_por_edad = True
+
+            elif col in sliders:
                 manual_input[col] = st.slider(display_label, 1, 5, int(base_val) if base_val else 3, disabled=locked)
             
             elif col in mapping:
                 options_en = list(mapping[col].keys())
                 traduccion_dict = TRADUCCIONES_VALORES.get(col, {})
-                
-                # Mapeo Inverso para la UI
                 opciones_ui = {traduccion_dict.get(opt, opt): opt for opt in options_en}
                 
                 default_en = base_val if base_val in options_en else options_en[0]
@@ -193,11 +198,13 @@ def render_manual_prediction_tab():
     st.divider()
     b1, b2 = st.columns(2)
     with b1:
-        if st.button("🏢 Ejecutar Estado ACTUAL", use_container_width=True, type="secondary"):
+        # Botón deshabilitado si hay error de edad
+        if st.button("🏢 Ejecutar Estado ACTUAL", use_container_width=True, type="secondary", disabled=bloqueo_por_edad):
             if not base_data: st.error("Primero selecciona un empleado.")
             else: st.session_state["pred_base"] = predict_with_shap(base_data)
     with b2:
-        if st.button("🧪 Ejecutar Escenario SIMULADO", use_container_width=True, type="primary"):
+        # Botón deshabilitado si hay error de edad
+        if st.button("🧪 Ejecutar Escenario SIMULADO", use_container_width=True, type="primary", disabled=bloqueo_por_edad):
             st.session_state["pred_manual"] = predict_with_shap(manual_input)
 
     # ===================== RESULTADOS Y GRÁFICOS =====================
@@ -238,6 +245,5 @@ def render_manual_prediction_tab():
 if __name__ == '__main__':
     st.set_page_config(page_title="IA Comparador RRHH", layout="wide")
     render_manual_prediction_tab()
-
 
 
