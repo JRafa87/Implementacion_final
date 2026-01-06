@@ -65,7 +65,6 @@ def _fetch_and_set_user_profile(user_id: str, email: str):
     try:
         response = supabase.table("profiles").select("*").eq("id", user_id).limit(1).execute()
         
-        # Valores por defecto
         role = "guest"
         full_name = email.split('@')[0]
         
@@ -82,29 +81,24 @@ def _fetch_and_set_user_profile(user_id: str, email: str):
             "full_name": full_name
         })
         return True
-    except Exception as e:
-        st.error(f"Error al cargar perfil: {e}")
+    except:
         return False
 
 # ============================================================
-# 3. LÓGICA DE AUTENTICACIÓN
+# 3. LÓGICA DE AUTENTICACIÓN (FLUJO INSTANTÁNEO)
 # ============================================================
 
 def check_session() -> bool:
-    if "current_page" not in st.session_state:
-        st.session_state["current_page"] = "Mi Perfil"
-
+    """Verifica sesión sin latencia visual."""
     if st.session_state.get("authenticated"):
         return True
 
-    # Verificar si hay una sesión activa en Supabase Auth
     try:
         user_response = supabase.auth.get_user()
         if user_response and user_response.user:
             return _fetch_and_set_user_profile(user_response.user.id, user_response.user.email)
     except:
         pass
-    
     return False
 
 def handle_logout():
@@ -127,29 +121,25 @@ def render_login_form():
         if submit:
             if email and password:
                 try:
-                    # Intentar login
                     auth_response = supabase.auth.sign_in_with_password({"email": email, "password": password})
                     if auth_response.user:
-                        # Forzar la carga de datos inmediatamente para evitar el delay
-                        if _fetch_and_set_user_profile(auth_response.user.id, auth_response.user.email):
-                            st.success("Accediendo...")
-                            st.rerun()
-                    else:
-                        st.error("No se pudo obtener el usuario.")
-                except Exception:
-                    st.error("Credenciales incorrectas o usuario no verificado.")
+                        # Cargamos perfil y disparamos rerun de inmediato
+                        _fetch_and_set_user_profile(auth_response.user.id, auth_response.user.email)
+                        st.rerun()
+                except:
+                    st.error("Credenciales incorrectas.")
             else:
-                st.warning("Por favor complete todos los campos.")
+                st.warning("Complete todos los campos.")
 
 def render_signup_form():
     st.subheader("📝 Registro de Nuevo Usuario")
-    email_reg = st.text_input("Correo institucional (validación)", key="reg_email_input").strip().lower()
+    email_reg = st.text_input("Correo institucional", key="reg_email_input").strip().lower()
     
     email_exists = False
     if email_reg and "@" in email_reg:
         email_exists = check_email_exists(email_reg)
         if email_exists:
-            st.error(f"⚠️ El correo {email_reg} ya existe.")
+            st.error(f"⚠️ El correo ya existe.")
 
     with st.form("signup_form_final"):
         full_name = st.text_input("Nombre completo")
@@ -164,10 +154,8 @@ def render_signup_form():
                         "password": pass_reg, 
                         "options": {"data": {"full_name": full_name}}
                     })
-                    st.success("✅ Registro enviado. Verifica tu correo.")
+                    st.success("✅ Verifica tu correo.")
                 except Exception as e: st.error(f"Error: {e}")
-            else:
-                st.error("Datos incompletos o contraseña muy corta.")
 
 def render_password_reset_form():
     st.subheader("🛠️ Gestión de Credenciales")
@@ -192,13 +180,19 @@ def render_password_reset_form():
                     try:
                         supabase.auth.verify_otp({"email": st.session_state.temp_email, "token": otp_code.strip(), "type": "recovery"})
                         supabase.auth.update_user({"password": new_pass})
-                        st.success("Cambiado. Volviendo al login...")
-                        time.sleep(1.5)
-                        handle_logout() # Redirige al login según tus instrucciones
+                        handle_logout() # Redirige al login limpio
                     except: st.error("Error en validación.")
     else:
-        # Lógica de cambio directo omitida para brevedad, igual a la tuya pero con handle_logout() al final
-        pass
+        with st.form("direct_update"):
+            email_d = st.text_input("Correo")
+            old_p = st.text_input("Clave actual", type="password")
+            new_p = st.text_input("Nueva clave", type="password")
+            if st.form_submit_button("Actualizar"):
+                try:
+                    supabase.auth.sign_in_with_password({"email": email_d, "password": old_p})
+                    supabase.auth.update_user({"password": new_p})
+                    handle_logout()
+                except: st.error("Error de clave.")
 
 def render_auth_page():
     _, col2, _ = st.columns([1, 2, 1])
@@ -210,7 +204,7 @@ def render_auth_page():
         with tabs[2]: render_password_reset_form()
 
 # ============================================================
-# 5. SIDEBAR Y MAIN FLOW
+# 5. SIDEBAR Y FLUJO PRINCIPAL
 # ============================================================
 
 def set_page(page_name):
@@ -237,9 +231,20 @@ def render_sidebar():
         if user_role in ["admin", "supervisor"]:
             render_survey_control_panel(supabase)
 
-# Ejecución Principal
-if check_session():
+# ============================================================
+# 6. LÓGICA DE EJECUCIÓN (ELIMINA EL LAG)
+# ============================================================
+
+# PASO 1: Determinar el estado antes de renderizar nada
+if "current_page" not in st.session_state:
+    st.session_state["current_page"] = "Mi Perfil"
+
+authenticated = check_session()
+
+# PASO 2: Renderizado condicional estricto
+if authenticated:
     render_sidebar()
+    
     page_map = {
         "Mi Perfil": lambda: render_profile_page(supabase, None),
         "Dashboard": render_rotacion_dashboard,
@@ -249,7 +254,10 @@ if check_session():
         "Reconocimiento": render_recognition_page,
         "Historial de Encuesta": historial_encuestas_module
     }
+    
     current = st.session_state.get("current_page", "Mi Perfil")
+    # Ejecutamos la función de la página
     page_map.get(current, lambda: None)()
 else:
+    # Si no está autenticado, solo mostramos el formulario de acceso
     render_auth_page()
