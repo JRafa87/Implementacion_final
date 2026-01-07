@@ -4,9 +4,23 @@ from datetime import datetime
 from typing import Optional
 
 # ==============================================================================
-# 0. CONFIGURACIÓN Y MAPEO
+# 1. CONFIGURACIÓN VISUAL Y ESTILOS
 # ==============================================================================
+st.set_page_config(page_title="Encuesta de Clima Laboral", layout="centered", page_icon="🗣️")
 
+# CSS para mejorar la apariencia de las tarjetas y mensajes
+st.markdown("""
+    <style>
+    .main { background-color: #f8f9fa; }
+    .stButton>button { width: 100%; border-radius: 5px; height: 3em; }
+    .stForm { background-color: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+    .welcome-box { padding: 15px; border-radius: 10px; border-left: 5px solid #28a745; background-color: #e9f7ef; margin-bottom: 20px; }
+    </style>
+""", unsafe_allow_html=True)
+
+# ==============================================================================
+# 2. CONFIGURACIÓN Y CONEXIÓN
+# ==============================================================================
 MAPEO_DEPTOS = {
     "Sales": "Ventas", 
     "Research & Development": "Investigación y Desarrollo", 
@@ -18,157 +32,151 @@ def get_supabase() -> Optional[Client]:
     url = st.secrets.get("SUPABASE_URL")
     key = st.secrets.get("SUPABASE_KEY")
     if not url or not key:
-        st.error("ERROR: Faltan credenciales de Supabase.")
+        st.error("Error: Credenciales de base de datos no configuradas.")
         st.stop()
     return create_client(url, key)
 
 supabase = get_supabase()
 
 # ==============================================================================
-# 1. FUNCIONES DE LÓGICA Y CONSULTA
+# 3. LÓGICA DE NEGOCIO (BACKEND)
 # ==============================================================================
 
-@st.cache_data(ttl=5)
+@st.cache_data(ttl=2)
 def get_survey_config():
-    """Obtiene la configuración de control (Global y Departamento)."""
+    """Obtiene la configuración de control."""
     try:
         response = supabase.table("configuracion_encuesta").select("*").execute()
         return {item['clave']: item['valor'] for item in response.data}
     except Exception:
         return {'encuesta_habilitada_global': 'false', 'departamento_habilitado': 'NINGUNO'}
 
-@st.cache_data(ttl=600)
-def get_employee_details(employee_id: int):
+def get_employee_status(employee_id: int):
     """
-    SIEMPRE verifica si el empleado está activo.
-    Retorna (is_active, department_name)
+    VALDIACIÓN ESTRICTA: 
+    Trae los datos y verifica en Python si el empleado es realmente activo.
     """
     try:
-        # Consultamos el empleado por su ID
-        response = supabase.table("empleados").select("Department, FechaSalida") \
-            .eq("EmployeeNumber", employee_id) \
-            .limit(1).execute()
+        res = supabase.table("empleados").select("Department, FechaSalida").eq("EmployeeNumber", employee_id).execute()
+        if not res.data:
+            return False, None, "ID no encontrado"
         
-        if not response.data: 
-            return False, None # No existe el ID
+        emp = res.data[0]
+        fecha_salida = emp.get('FechaSalida')
+        
+        # Un empleado es activo SOLO SI FechaSalida es NULL, None o vacío
+        es_activo = (fecha_salida is None or str(fecha_salida).strip() == "" or str(fecha_salida).lower() == "none")
+        
+        if not es_activo:
+            return False, None, "El colaborador ya no se encuentra activo en la empresa"
             
-        data = response.data[0]
-        # REGLA DE ORO: Solo es activo si 'FechaSalida' es NULL
-        is_active = data.get('FechaSalida') is None 
-        dept = data.get('Department')
-        
-        return is_active, dept
-    except Exception:
-        return False, None
-
-def save_survey_to_supabase(data: dict):
-    try:
-        response = supabase.table("encuestas").insert(data).execute()
-        return bool(response.data)
+        return True, emp.get('Department'), "OK"
     except Exception as e:
-        st.error(f"Error: Es posible que ya hayas respondido esta encuesta.")
+        return False, None, f"Error de conexión: {str(e)}"
+
+def save_response(data: dict):
+    try:
+        supabase.table("encuestas").insert(data).execute()
+        return True
+    except Exception as e:
+        st.error(f"Error al enviar: Es posible que ya hayas respondido esta encuesta anteriormente.")
         return False
 
 # ==============================================================================
-# 2. RENDERIZADO DE LA ENCUESTA
+# 4. INTERFAZ DE USUARIO (FRONTEND)
 # ==============================================================================
 
-def render_public_survey():
-    st.set_page_config(page_title="Encuesta Laboral", layout="centered")
-    st.title("🗣️ Encuesta de Satisfacción Laboral")
-    
-    if 'employee_verified' not in st.session_state:
-        st.session_state['employee_verified'] = False
-        st.session_state['employee_id_validated'] = 0
-        st.session_state['employee_dept'] = None
+def main():
+    if 'verified' not in st.session_state:
+        st.session_state.update({'verified': False, 'emp_id': 0, 'emp_dept': ""})
 
-    # --- LECTURA DE CONFIGURACIÓN DEL ADMIN ---
+    # --- CABECERA ---
+    st.image("https://cdn-icons-png.flaticon.com/512/3593/3593461.png", width=80) # Icono genérico de encuesta
+    st.title("Encuesta de Satisfacción")
+    st.write("Tu opinión es fundamental para mejorar nuestro entorno de trabajo.")
+
+    # --- CONFIGURACIÓN ACTUAL ---
     config = get_survey_config()
-    is_globally_enabled = config.get('encuesta_habilitada_global') == 'true'
-    enabled_dept_db = config.get('departamento_habilitado', 'NINGUNO')
+    is_global = config.get('encuesta_habilitada_global') == 'true'
+    allowed_dept = config.get('departamento_habilitado', 'NINGUNO')
 
-    # --- PASO 1: VERIFICACIÓN ---
-    with st.container(border=True):
-        st.subheader("Paso 1: Identificación")
-        
-        employee_id = st.number_input("Ingresa tu ID de Empleado:", min_value=1, step=1, key='id_input')
-        
-        if st.button("Verificar mi Acceso 🔎"):
-            # PRIMERA VALIDACIÓN: ¿ESTÁ ACTIVO? (Independiente de todo lo demás)
-            is_active, employee_dept_eng = get_employee_details(employee_id)
+    # --- PASO 1: VALIDACIÓN ---
+    if not st.session_state.verified:
+        with st.container(border=True):
+            st.subheader("🔑 Validación de Acceso")
+            emp_id_input = st.number_input("Ingresa tu número de empleado:", min_value=1, step=1)
             
-            if not is_active:
-                st.error("❌ Acceso Denegado. Este ID no existe o el colaborador ya no se encuentra activo en la empresa.")
-                st.session_state['employee_verified'] = False
-                return
-
-            # SEGUNDA VALIDACIÓN: ¿TIENE PERMISO POR ÁREA O GLOBAL?
-            is_permitted = is_globally_enabled or (employee_dept_eng == enabled_dept_db)
-
-            if not is_permitted:
-                st.session_state['employee_verified'] = False
-                if enabled_dept_db == "NINGUNO":
-                    st.error("🔒 La encuesta está cerrada temporalmente para todos los departamentos.")
+            if st.button("Verificar Identidad", type="secondary"):
+                active, dept_eng, msg = get_employee_status(emp_id_input)
+                
+                if not active:
+                    st.error(f"❌ {msg}")
                 else:
-                    depto_permitido_esp = MAPEO_DEPTOS.get(enabled_dept_db, enabled_dept_db)
-                    st.error(f"🔒 Acceso denegado. Actualmente la encuesta solo recibe respuestas del área de: **{depto_permitido_esp}**.")
-                return
+                    # Validar si tiene permiso por área
+                    if is_global or (dept_eng == allowed_dept):
+                        st.session_state.update({
+                            'verified': True,
+                            'emp_id': emp_id_input,
+                            'emp_dept': MAPEO_DEPTOS.get(dept_eng, dept_eng)
+                        })
+                        st.rerun()
+                    else:
+                        dept_esp = MAPEO_DEPTOS.get(allowed_dept, allowed_dept)
+                        st.warning(f"🔒 Acceso restringido: Actualmente esta encuesta solo recibe respuestas del área de **{dept_esp}**.")
 
-            # --- ACCESO EXITOSO ---
-            st.session_state['employee_verified'] = True
-            st.session_state['employee_id_validated'] = employee_id
-            st.session_state['employee_dept'] = MAPEO_DEPTOS.get(employee_dept_eng, employee_dept_eng)
-            st.toast("ID Verificado correctamente", icon="✅")
+    # --- PASO 2: FORMULARIO ---
+    else:
+        # Banner de bienvenida
+        st.markdown(f"""
+            <div class="welcome-box">
+                <b>¡Hola!</b> Identificación validada correctamente.<br>
+                <b>ID:</b> {st.session_state.emp_id} | <b>Área:</b> {st.session_state.emp_dept}
+            </div>
+        """, unsafe_allow_html=True)
+
+        with st.form("survey_form"):
+            st.info("Responde con total sinceridad. Las respuestas son para fines de mejora interna.")
+            
+            # Bloques de preguntas
+            col1, col2 = st.columns(2)
+            with col1:
+                env = st.select_slider("Ambiente de Trabajo", options=[1,2,3,4], value=3)
+                inv = st.select_slider("Compromiso", options=[1,2,3,4], value=3)
+                sat = st.select_slider("Satisfacción Tareas", options=[1,2,3,4], value=3)
+                rel = st.select_slider("Relaciones Laborales", options=[1,2,3,4], value=3)
+            with col2:
+                wlb = st.select_slider("Equilibrio Vida/Trabajo", options=[1,2,3,4], value=3)
+                per = st.select_slider("Intención de Permanencia", options=[1,2,3,4], value=3)
+                conf = st.select_slider("Confianza en Dirección", options=[1,2,3,4], value=3)
+            
+            st.divider()
+            carga = st.slider("Carga Laboral Percibida (1=Baja, 5=Muy Alta)", 1, 5, 3)
+            pago = st.slider("Satisfacción Salarial (1=Baja, 5=Muy Alta)", 1, 5, 3)
+
+            if st.form_submit_button("Enviar Encuesta", type="primary"):
+                final_data = {
+                    "EmployeeNumber": st.session_state.emp_id,
+                    "EnvironmentSatisfaction": env,
+                    "JobInvolvement": inv,
+                    "JobSatisfaction": sat,
+                    "RelationshipSatisfaction": rel,
+                    "WorkLifeBalance": wlb,
+                    "IntencionPermanencia": per,
+                    "ConfianzaEmpresa": conf,
+                    "CargaLaboralPercibida": carga,
+                    "SatisfaccionSalarial": pago,
+                    "Fecha": datetime.now().strftime('%Y-%m-%d')
+                }
+                
+                if save_response(final_data):
+                    st.balloons()
+                    st.success("🎉 ¡Encuesta enviada exitosamente! Gracias por tu tiempo.")
+                    st.session_state.verified = False
+                    if st.button("Volver al inicio"): st.rerun()
+
+        if st.button("Cerrar Sesión / Cancelar"):
+            st.session_state.verified = False
             st.rerun()
 
-    # --- MENSAJE DE BIENVENIDA ---
-    if st.session_state['employee_verified']:
-        st.success(f"✅ **Bienvenido.** Se ha validado tu ID como miembro activo del área de **{st.session_state['employee_dept']}**.")
-    
-    # --- PASO 2: EL FORMULARIO ---
-    is_verified = st.session_state.get('employee_verified', False)
-    
-    with st.form(key='survey_data_form'):
-        st.subheader("Paso 2: Cuestionario")
-        
-        if not is_verified:
-            st.warning("⚠️ Ingresa tu ID arriba y presiona 'Verificar mi Acceso' para habilitar las preguntas.")
-        
-        # --- PREGUNTAS (Bloqueadas si no está verificado) ---
-        env_sat = st.radio("1. Ambiente de Trabajo:", [4, 3, 2, 1], horizontal=True, disabled=not is_verified)
-        job_inv = st.radio("2. Compromiso:", [4, 3, 2, 1], horizontal=True, disabled=not is_verified)
-        job_sat = st.radio("3. Satisfacción:", [4, 3, 2, 1], horizontal=True, disabled=not is_verified)
-        rel_sat = st.radio("4. Relaciones:", [4, 3, 2, 1], horizontal=True, disabled=not is_verified)
-        wlb = st.radio("5. Equilibrio Vida:", [4, 3, 2, 1], horizontal=True, disabled=not is_verified)
-        int_perm = st.radio("6. Permanencia:", [4, 3, 2, 1], horizontal=True, disabled=not is_verified)
-        conf_dir = st.radio("7. Confianza:", [4, 3, 2, 1], horizontal=True, disabled=not is_verified)
-        
-        st.markdown("---")
-        carga = st.slider("8. Carga Laboral (1-5):", 1, 5, 3, disabled=not is_verified)
-        salario = st.slider("9. Satisfacción Salarial (1-5):", 1, 5, 3, disabled=not is_verified)
-
-        submit = st.form_submit_button("Enviar Respuestas 📤", disabled=not is_verified, type="primary")
-
-        if submit:
-            data = {
-                "EmployeeNumber": st.session_state['employee_id_validated'],
-                "EnvironmentSatisfaction": env_sat,
-                "JobInvolvement": job_inv,
-                "JobSatisfaction": job_sat,
-                "RelationshipSatisfaction": rel_sat,
-                "WorkLifeBalance": wlb,
-                "IntencionPermanencia": int_perm,
-                "ConfianzaEmpresa": conf_dir,
-                "CargaLaboralPercibida": carga,
-                "SatisfaccionSalarial": salario,
-                "Fecha": datetime.now().strftime('%Y-%m-%d')
-            }
-            
-            if save_survey_to_supabase(data):
-                st.balloons()
-                st.success("🎉 ¡Muchas gracias! Tu encuesta ha sido enviada con éxito.")
-                st.session_state['employee_verified'] = False # Resetear para el siguiente
-                st.info("Ya puedes cerrar esta pestaña.")
-
 if __name__ == "__main__":
-    render_public_survey()
+    main()
