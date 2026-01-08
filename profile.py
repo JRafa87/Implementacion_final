@@ -17,12 +17,19 @@ def format_datetime_local(iso_str, use_now_if_none=False, date_only=False):
             return now.strftime("%Y-%m-%d") if date_only else now.strftime("%Y-%m-%d %H:%M")
         return "N/A"
     try:
-        # Convertimos el ISO de Supabase a un objeto datetime local
-        dt = datetime.datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
-        # .astimezone(None) convierte a la hora local del sistema donde se visualiza
-        dt_local = dt.astimezone(None)
+        # 1. Limpiamos milisegundos si existen (ej: 2023-10-27T10:00:00.123456Z -> 2023-10-27T10:00:00Z)
+        clean_iso = re.sub(r"\.\d+", "", iso_str)
+        
+        # 2. Convertimos a objeto datetime
+        dt = datetime.datetime.fromisoformat(clean_iso.replace("Z", "+00:00"))
+        
+        # 3. Ajuste local automático
+        # Si detectas que sigue habiendo desfase en el servidor, 
+        # puedes usar .astimezone(pytz.timezone("America/Lima")) aquí.
+        dt_local = dt.astimezone(None) 
+        
         return dt_local.strftime("%Y-%m-%d") if date_only else dt_local.strftime("%Y-%m-%d %H:%M")
-    except:
+    except Exception as e:
         return "N/A"
 
 @st.cache_data(ttl=600)
