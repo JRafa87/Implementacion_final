@@ -152,17 +152,24 @@ def render_profile_page(supabase_client, request_password_reset_func=None):
     st.divider()
     st.markdown("### ℹ️ Detalles de la Cuenta")
     # Intentar obtener la última conexión real desde Supabase Auth
+    # Lógica para obtener la hora: Supabase Auth -> Fallback a hora actual del sistema
     try:
         user_response = supabase_client.auth.get_user()
+        raw_ts = None
         if user_response and user_response.user:
-            # Recuperamos el timestamp (ej: 2026-01-08T09:00:00Z)
             raw_ts = user_response.user.last_sign_in_at
-            # Tu función format_datetime_peru ya maneja la conversión a hora PE
-            last_login_display = format_datetime_peru(raw_ts, use_now_if_none=False, date_only=False)
-        else:
-            last_login_display = "No disponible"
+        
+        # Si raw_ts es None, la función format_datetime_peru con use_now_if_none=True
+        # tomará automáticamente la hora actual del sistema en zona horaria Perú.
+        last_login_display = format_datetime_peru(
+            raw_ts, 
+            use_now_if_none=True, # <--- Esto asegura que no salga N/A
+            date_only=False
+        )
     except Exception:
-        last_login_display = "N/A"
+        # En caso de error crítico, generamos la hora manualmente
+        now = datetime.datetime.now(TIMEZONE_PERU)
+        last_login_display = now.strftime("%Y-%m-%d %H:%M hrs (PE)")
 
     c_acc1, c_acc2, c_acc3 = st.columns(3)
     
@@ -175,7 +182,7 @@ def render_profile_page(supabase_client, request_password_reset_func=None):
                      value=st.session_state.get("user_role", "").upper(), 
                      disabled=True)
     with c_acc3:
-        # Aquí se muestra Fecha y Hora (PE)
+        # Se muestra la hora de la sesión o la hora actual del sistema
         st.text_input("🕒 Última Conexión", 
                      value=last_login_display, 
                      disabled=True)
