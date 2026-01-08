@@ -159,8 +159,6 @@ def render_profile_page(supabase_client, request_password_reset_func=None):
     last_login_display = st.session_state["session_time_pe"]
 
     # --- RENDER DE DETALLES DE CUENTA ---
-    st.divider()
-    st.markdown("### ℹ️ Detalles de la Cuenta")
 
     c_acc1, c_acc2, c_acc3 = st.columns(3)
     
