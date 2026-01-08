@@ -151,38 +151,41 @@ def render_profile_page(supabase_client, request_password_reset_func=None):
     # --- INFORMACIÓN DE CUENTA ---
     st.divider()
     st.markdown("### ℹ️ Detalles de la Cuenta")
-    # Intentar obtener la última conexión real desde Supabase Auth
-    # Lógica para obtener la hora: Supabase Auth -> Fallback a hora actual del sistema
-    try:
-        user_response = supabase_client.auth.get_user()
-        raw_ts = None
-        if user_response and user_response.user:
-            raw_ts = user_response.user.last_sign_in_at
-        
-        # Si raw_ts es None, la función format_datetime_peru con use_now_if_none=True
-        # tomará automáticamente la hora actual del sistema en zona horaria Perú.
-        last_login_display = format_datetime_peru(
-            raw_ts, 
-            use_now_if_none=True, # <--- Esto asegura que no salga N/A
-            date_only=False
-        )
-    except Exception:
-        # En caso de error crítico, generamos la hora manualmente
-        now = datetime.datetime.now(TIMEZONE_PERU)
-        last_login_display = now.strftime("%Y-%m-%d %H:%M hrs (PE)")
+    # 1. Intentar obtener el timestamp del usuario autenticado
+    user_response = supabase_client.auth.get_user()
+    raw_ts = None
+    
+    if user_response and user_response.user:
+        # Intentamos obtener la última conexión registrada en el objeto user
+        raw_ts = getattr(user_response.user, 'last_sign_in_at', None)
+
+    # 2. Si no hay timestamp (a veces el SDK no lo devuelve), 
+    # usamos una variable de sesión para mantener la hora de "esta" sesión.
+    if not raw_ts:
+        if "current_session_time" not in st.session_state:
+            st.session_state["current_session_time"] = datetime.datetime.now(TIMEZONE_PERU).isoformat()
+        raw_ts = st.session_state["current_session_time"]
+
+    # 3. Formatear para mostrar
+    last_login_display = format_datetime_peru(
+        raw_ts, 
+        use_now_if_none=True, 
+        date_only=False
+    )
 
     c_acc1, c_acc2, c_acc3 = st.columns(3)
     
     with c_acc1:
+        # Nota: Tus variables mantienen sus nombres originales según tus instrucciones
         st.text_input("📅 Registrado el", 
                      value=format_datetime_peru(st.session_state.get("created_at"), date_only=True), 
                      disabled=True)
     with c_acc2:
         st.text_input("🏷️ Nivel de Acceso", 
-                     value=st.session_state.get("user_role", "").upper(), 
+                     value=str(st.session_state.get("user_role", "")).upper(), 
                      disabled=True)
     with c_acc3:
-        # Se muestra la hora de la sesión o la hora actual del sistema
+        # Aquí ahora sí se mostrará la hora de la sesión actual si la de Supabase falla
         st.text_input("🕒 Última Conexión", 
                      value=last_login_display, 
                      disabled=True)
