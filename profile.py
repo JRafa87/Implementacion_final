@@ -151,32 +151,35 @@ def render_profile_page(supabase_client, request_password_reset_func=None):
     # --- INFORMACIÓN DE CUENTA ---
     st.divider()
     st.markdown("### ℹ️ Detalles de la Cuenta")
-    # 1. Intentar obtener el timestamp del usuario autenticado
-    user_response = supabase_client.auth.get_user()
-    raw_ts = None
-    
-    if user_response and user_response.user:
-        # Intentamos obtener la última conexión registrada en el objeto user
-        raw_ts = getattr(user_response.user, 'last_sign_in_at', None)
+    # Intentamos obtener la metadata del usuario de forma profunda
+    last_login_display = "N/A"
+    try:
+        # Obtenemos el usuario actual del cliente de autenticación
+        user_data = supabase_client.auth.get_user()
+        
+        if user_data and user_data.user:
+            # 1. Intentamos obtenerlo del atributo estándar
+            raw_ts = getattr(user_data.user, 'last_sign_in_at', None)
+            
+            # 2. Si es None, buscamos en los metadatos del usuario (algunas versiones lo guardan ahí)
+            if not raw_ts:
+                user_meta = getattr(user_data.user, 'user_metadata', {})
+                raw_ts = user_meta.get('last_sign_in_at')
 
-    # 2. Si no hay timestamp (a veces el SDK no lo devuelve), 
-    # usamos una variable de sesión para mantener la hora de "esta" sesión.
-    if not raw_ts:
-        if "current_session_time" not in st.session_state:
-            st.session_state["current_session_time"] = datetime.datetime.now(TIMEZONE_PERU).isoformat()
-        raw_ts = st.session_state["current_session_time"]
-
-    # 3. Formatear para mostrar
-    last_login_display = format_datetime_peru(
-        raw_ts, 
-        use_now_if_none=True, 
-        date_only=False
-    )
+            # 3. Si sigue siendo None, usamos el tiempo de la sesión actual de Streamlit
+            if not raw_ts:
+                if "session_start_time" not in st.session_state:
+                    st.session_state["session_start_time"] = datetime.datetime.now(TIMEZONE_PERU).isoformat()
+                raw_ts = st.session_state["session_start_time"]
+            
+            last_login_display = format_datetime_peru(raw_ts, use_now_if_none=True)
+    except Exception as e:
+        # Fallback de seguridad: Hora actual del sistema
+        last_login_display = datetime.datetime.now(TIMEZONE_PERU).strftime("%Y-%m-%d %H:%M hrs (PE)")
 
     c_acc1, c_acc2, c_acc3 = st.columns(3)
     
     with c_acc1:
-        # Nota: Tus variables mantienen sus nombres originales según tus instrucciones
         st.text_input("📅 Registrado el", 
                      value=format_datetime_peru(st.session_state.get("created_at"), date_only=True), 
                      disabled=True)
@@ -185,7 +188,7 @@ def render_profile_page(supabase_client, request_password_reset_func=None):
                      value=str(st.session_state.get("user_role", "")).upper(), 
                      disabled=True)
     with c_acc3:
-        # Aquí ahora sí se mostrará la hora de la sesión actual si la de Supabase falla
+        # Aquí forzamos la visualización
         st.text_input("🕒 Última Conexión", 
                      value=last_login_display, 
                      disabled=True)
