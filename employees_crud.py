@@ -28,15 +28,24 @@ def get_supabase() -> Client:
 
 supabase = get_supabase()
 
-@st.cache_data(ttl=2)
+@st.cache_data(ttl=5)
 def fetch_employees_fast():
     """
     SOLUCIÓN AL LÍMITE DE 1000:
-    Usamos .range(0, 4999) para pedir explícitamente los primeros 5000 registros.
-    Esto rompe el bloqueo de los 1000 registros por defecto de la API.
+    Usamos .range(0, 5000) para asegurar que el ID 2070 sea visible.
+    Convertimos las llaves a minúsculas para consistencia interna.
     """
-    res = supabase.table("empleados").select("*").range(0, 4999).order("EmployeeNumber", desc=True).execute()
-    return res.data
+    res = supabase.table("empleados").select("*").range(0, 5000).order("EmployeeNumber", desc=True).execute()
+    return [{k.lower(): v for k, v in r.items()} for r in res.data]
+
+def get_next_employee_number():
+    try:
+        res = supabase.table("empleados").select("EmployeeNumber").order("EmployeeNumber", desc=True).limit(1).execute()
+        if res.data:
+            return int(res.data[0]['EmployeeNumber']) + 1
+        return 1
+    except:
+        return 1
 
 def to_eng(mapeo, valor_esp):
     try:
@@ -55,31 +64,25 @@ def render_employee_management_page():
     if "show_add" not in st.session_state: st.session_state.show_add = False
 
     proceso_activo = st.session_state.edit_id is not None or st.session_state.show_add
-    
-    # Obtenemos los datos con el rango ampliado (hasta 5000)
     raw_data = fetch_employees_fast()
 
-    # --- TABLA DE ACTIVOS ---
+    # --- TABLA DE LISTADO (SOLO ACTIVOS) ---
     if raw_data:
-        activos_df = [e for e in raw_data if not e.get('FechaSalida')]
+        activos_df = [e for e in raw_data if not e.get('fechasalida')]
         if activos_df:
             df_view = pd.DataFrame(activos_df)
-            st.subheader("Listado de Personal")
-            cols_viz = {"EmployeeNumber": "ID", "Age": "Edad", "Department": "Depto", "JobRole": "Puesto", "MonthlyIncome": "Sueldo"}
-            
-            # Formateo para visualización
-            df_view['Department'] = df_view['Department'].replace(MAPEO_DEPTOS)
-            df_view['JobRole'] = df_view['JobRole'].replace(MAPEO_ROLES)
-            
+            st.subheader("Colaboradores Activos")
+            cols_viz = {"employeenumber": "ID", "age": "Edad", "department": "Depto", "jobrole": "Puesto", "monthlyincome": "Sueldo"}
+            df_view['department'] = df_view['department'].replace(MAPEO_DEPTOS)
+            df_view['jobrole'] = df_view['jobrole'].replace(MAPEO_ROLES)
             st.dataframe(df_view.rename(columns=cols_viz)[list(cols_viz.values())], use_container_width=True, hide_index=True)
 
     st.divider()
 
-    # --- BUSCADOR CORREGIDO (MUESTRA 2069, 2070, ETC.) ---
+    # --- BUSCADOR ---
     st.subheader("🔍 Localizar Colaborador")
-    # Al estar ordenados por desc=True, el 2070 aparecerá de los primeros
-    lista_ids = [str(e['EmployeeNumber']) for e in raw_data]
-    id_sel = st.selectbox("Buscar por ID de Empleado:", [None] + lista_ids, disabled=proceso_activo)
+    lista_ids = [str(e['employeenumber']) for e in raw_data]
+    id_sel = st.selectbox("Escriba o seleccione ID:", [None] + lista_ids, disabled=proceso_activo)
     
     c_b1, c_b2, c_b3 = st.columns(3)
     with c_b1:
@@ -96,85 +99,91 @@ def render_employee_management_page():
             st.session_state.show_add = True
             st.rerun()
 
-    # --- FORMULARIO CON TODAS LAS RESTRICCIONES ---
+    # --- FORMULARIO CON TODOS LOS CAMPOS SQL ---
     if proceso_activo:
         st.divider()
         es_edit = st.session_state.edit_id is not None
-        
-        # Búsqueda exacta del registro seleccionado
-        p = next((e for e in raw_data if int(e['EmployeeNumber']) == st.session_state.edit_id), {}) if es_edit else {}
-        
-        # Generar ID siguiente si es nuevo
-        if not es_edit:
-            try:
-                current_id = int(lista_ids[0]) + 1 if lista_ids else 1
-            except:
-                current_id = 1
-        else:
-            current_id = st.session_state.edit_id
+        p = next((e for e in raw_data if e['employeenumber'] == st.session_state.edit_id), {}) if es_edit else {}
+        current_id = st.session_state.edit_id if es_edit else get_next_employee_number()
 
-        st.subheader(f"📋 Ficha: ID {current_id}")
+        st.subheader(f"📋 Ficha de Datos: ID {current_id}")
         
-        # --- RESTRICCIÓN DE EDAD (MÍNIMO 18) ---
-        age = st.number_input("Edad", 0, 100, int(p.get('Age', 25)), disabled=es_edit)
-        permitir_registro = age >= 18
-        
-        if not permitir_registro:
-            st.error("🚫 Validación: El trabajador debe ser mayor de 18 años.")
+        # Fila de control superior
+        c_top1, c_top2 = st.columns(2)
+        with c_top1:
+            age = st.number_input("Edad", 0, 100, int(p.get('age', 25)), disabled=es_edit)
+            permitir = age >= 18
+            if not permitir: st.error("🚫 Edad mínima: 18 años.")
+        with c_top2:
+            gender = st.selectbox("Género", list(MAPEO_GENERO.values()), 
+                                 index=list(MAPEO_GENERO.values()).index(MAPEO_GENERO.get(p.get('gender'), "Masculino")), 
+                                 disabled=es_edit)
 
-        with st.form("form_integral"):
-            st.write("### 💼 Información del Cargo")
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                income = st.number_input("Sueldo Mensual", 0, 100000, int(p.get('MonthlyIncome', 1500)))
-                dept = st.selectbox("Departamento", list(MAPEO_DEPTOS.values()), index=list(MAPEO_DEPTOS.values()).index(MAPEO_DEPTOS.get(p.get('Department'), "Ventas")))
-            with c2:
-                role = st.selectbox("Puesto", list(MAPEO_ROLES.values()), index=list(MAPEO_ROLES.values()).index(MAPEO_ROLES.get(p.get('JobRole'), "Ejecutivo de Ventas")))
-                contract = st.selectbox("Contrato", ["Indefinido", "Tiempo Completo", "Temporal"], index=0)
-            with c3:
-                travel = st.selectbox("Viajes", list(MAPEO_VIAJES.values()), index=list(MAPEO_VIAJES.values()).index(MAPEO_VIAJES.get(p.get('BusinessTravel'), "Sin Viajes")))
-                overtime = st.selectbox("Horas Extra", ["No", "Yes"], index=0 if p.get('OverTime')=="No" else 1)
+        with st.form("full_employee_form"):
+            st.write("### 💼 Información Laboral")
+            f1, f2, f3, f4 = st.columns(4)
+            with f1:
+                income = st.number_input("Sueldo Mensual", 0, 100000, int(p.get('monthlyincome', 2000)))
+                contract = st.selectbox("Contrato", ["Indefinido", "Temporal", "Tiempo Completo"], index=0)
+            with f2:
+                dept = st.selectbox("Departamento", list(MAPEO_DEPTOS.values()), index=list(MAPEO_DEPTOS.values()).index(MAPEO_DEPTOS.get(p.get('department'), "Ventas")))
+                role = st.selectbox("Puesto", list(MAPEO_ROLES.values()), index=list(MAPEO_ROLES.values()).index(MAPEO_ROLES.get(p.get('jobrole'), "Ejecutivo de Ventas")))
+            with f3:
+                travel = st.selectbox("Viajes", list(MAPEO_VIAJES.values()), index=list(MAPEO_VIAJES.values()).index(MAPEO_VIAJES.get(p.get('businesstravel'), "Sin Viajes")))
+                job_lvl = st.number_input("Nivel Puesto", 1, 5, int(p.get('joblevel', 1)))
+            with f4:
+                overtime = st.selectbox("Horas Extra", ["No", "Yes"], index=0 if p.get('overtime')=="No" else 1)
+                stock = st.number_input("Nivel Acciones", 0, 3, int(p.get('stockoptionlevel', 0)))
 
-            st.write("### 🎓 Educación y Personal")
-            e1, e2, e3 = st.columns(3)
+            st.write("### 🎓 Educación y Perfil")
+            e1, e2, e3, e4 = st.columns(4)
             with e1:
-                gen_esp = MAPEO_GENERO.get(p.get('Gender'), "Masculino")
-                gender = st.selectbox("Género", list(MAPEO_GENERO.values()), index=list(MAPEO_GENERO.values()).index(gen_esp), disabled=es_edit)
+                ed_field = st.selectbox("Campo Estudio", list(MAPEO_EDUCACION.values()), index=list(MAPEO_EDUCACION.values()).index(MAPEO_EDUCACION.get(p.get('educationfield'), "Otros")))
             with e2:
-                civil = st.selectbox("Estado Civil", list(MAPEO_ESTADO_CIVIL.values()), index=list(MAPEO_ESTADO_CIVIL.values()).index(MAPEO_ESTADO_CIVIL.get(p.get('MaritalStatus'), "Soltero/a")))
+                ed_lvl = st.number_input("Nivel Educación (1-5)", 1, 5, int(p.get('education', 3)))
             with e3:
-                dist = st.number_input("Distancia Casa (km)", 0, 200, int(p.get('DistanceFromHome', 5)))
+                civil = st.selectbox("Estado Civil", list(MAPEO_ESTADO_CIVIL.values()), index=list(MAPEO_ESTADO_CIVIL.values()).index(MAPEO_ESTADO_CIVIL.get(p.get('maritalstatus'), "Soltero/a")))
+            with e4:
+                dist = st.number_input("Distancia Casa (km)", 0, 200, int(p.get('distancefromhome', 5)))
 
             st.write("### 📈 Trayectoria y Asistencia")
-            t1, t2, t3 = st.columns(3)
+            t1, t2, t3, t4 = st.columns(4)
             with t1:
-                y_com = st.number_input("Años en Empresa", 0, 50, int(p.get('YearsAtCompany', 0)))
-                tardanzas = st.number_input("N° Tardanzas", 0, 1000, int(p.get('NumeroTardanzas', 0)))
+                y_tot = st.number_input("Años Exp Total", 0, 50, int(p.get('totalworkingyears', 0)))
+                y_com = st.number_input("Años en Empresa", 0, 50, int(p.get('yearsatcompany', 0)))
             with t2:
-                y_tot = st.number_input("Años Exp. Total", 0, 50, int(p.get('TotalWorkingYears', 0)))
-                faltas = st.number_input("N° Faltas", 0, 1000, int(p.get('NumeroFaltas', 0)))
+                y_rol = st.number_input("Años Cargo Actual", 0, 50, int(p.get('yearsincurrentrole', 0)))
+                y_prm = st.number_input("Años Últ. Ascenso", 0, 50, int(p.get('yearssincelastpromotion', 0)))
             with t3:
-                perf = st.slider("Rating Desempeño", 1, 4, int(p.get('PerformanceRating', 3)))
+                y_mgr = st.number_input("Años con Jefe", 0, 50, int(p.get('yearswithcurrmanager', 0)))
+                train = st.number_input("Capacitaciones", 0, 20, int(p.get('trainingtimeslastyear', 0)))
+            with t4:
+                n_com = st.number_input("Empresas Previas", 0, 15, int(p.get('numcompaniesworked', 0)))
+                perf = st.slider("Rating Desempeño", 1, 4, int(p.get('performancerating', 3)))
 
-            st.write("### 📅 Fechas")
-            d1, d2 = st.columns(2)
+            st.write("### 📅 Fechas y Control")
+            d1, d2, d3 = st.columns(3)
             with d1:
-                f_ing = st.date_input("Fecha Ingreso", date.fromisoformat(p['FechaIngreso']) if p.get('FechaIngreso') else date.today())
+                tardanzas = st.number_input("N° Tardanzas", 0, 1000, int(p.get('numerotardanzas', 0)))
+                faltas = st.number_input("N° Faltas", 0, 1000, int(p.get('numerofaltas', 0)))
             with d2:
-                f_sal_val = p.get('FechaSalida')
-                dar_baja = st.checkbox("Registrar Salida", value=True if f_sal_val else False)
-                f_sal = st.date_input("Fecha Salida", date.fromisoformat(f_sal_val) if f_sal_val else date.today(), disabled=not dar_baja)
+                f_ing = st.date_input("Fecha Ingreso", date.fromisoformat(p['fechaingreso']) if p.get('fechaingreso') else date.today())
+            with d3:
+                f_sal_db = p.get('fechasalida')
+                dar_baja = st.checkbox("Registrar Salida", value=True if f_sal_db else False)
+                f_sal = st.date_input("Fecha Salida", date.fromisoformat(f_sal_db) if f_sal_db else date.today(), disabled=not dar_baja)
 
-            # Botón de Guardado
-            if st.form_submit_button("💾 GUARDAR", use_container_width=True, type="primary", disabled=not permitir_registro):
+            if st.form_submit_button("💾 GUARDAR", use_container_width=True, type="primary", disabled=not permitir):
                 payload = {
                     "EmployeeNumber": current_id, "Age": age, "Gender": to_eng(MAPEO_GENERO, gender),
                     "MonthlyIncome": income, "Department": to_eng(MAPEO_DEPTOS, dept), "JobRole": to_eng(MAPEO_ROLES, role),
-                    "BusinessTravel": to_eng(MAPEO_VIAJES, travel), "MaritalStatus": to_eng(MAPEO_ESTADO_CIVIL, civil),
-                    "DistanceFromHome": dist, "OverTime": overtime, "YearsAtCompany": y_com, "TotalWorkingYears": y_tot,
-                    "NumeroTardanzas": tardanzas, "NumeroFaltas": faltas, "PerformanceRating": perf,
-                    "Tipocontrato": contract, "FechaIngreso": f_ing.isoformat(), 
-                    "FechaSalida": f_sal.isoformat() if dar_baja else None
+                    "BusinessTravel": to_eng(MAPEO_VIA_ES, travel), "EducationField": to_eng(MAPEO_EDUCACION, ed_field),
+                    "Education": ed_lvl, "MaritalStatus": to_eng(MAPEO_ESTADO_CIVIL, civil), "DistanceFromHome": dist,
+                    "JobLevel": job_lvl, "OverTime": overtime, "TotalWorkingYears": y_tot, "YearsAtCompany": y_com,
+                    "YearsInCurrentRole": y_rol, "YearsSinceLastPromotion": y_prm, "YearsWithCurrManager": y_mgr,
+                    "TrainingTimesLastYear": train, "NumCompaniesWorked": n_com, "PerformanceRating": perf,
+                    "NumeroTardanzas": tardanzas, "NumeroFaltas": faltas, "Tipocontrato": contract, "StockOptionLevel": stock,
+                    "FechaIngreso": f_ing.isoformat(), "FechaSalida": f_sal.isoformat() if dar_baja else None
                 }
                 
                 if es_edit:
@@ -182,10 +191,10 @@ def render_employee_management_page():
                 else:
                     supabase.table("empleados").insert(payload).execute()
                 
-                st.cache_data.clear()
                 st.session_state.edit_id = None
                 st.session_state.show_add = False
-                st.success(f"ID {current_id} sincronizado.")
+                st.cache_data.clear()
+                st.success("¡Operación exitosa!")
                 st.rerun()
 
         if st.button("❌ Cancelar"):
