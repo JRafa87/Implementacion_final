@@ -151,31 +151,16 @@ def render_profile_page(supabase_client, request_password_reset_func=None):
     # --- INFORMACIÓN DE CUENTA ---
     st.divider()
     st.markdown("### ℹ️ Detalles de la Cuenta")
-    # Intentamos obtener la metadata del usuario de forma profunda
-    last_login_display = "N/A"
-    try:
-        # Obtenemos el usuario actual del cliente de autenticación
-        user_data = supabase_client.auth.get_user()
-        
-        if user_data and user_data.user:
-            # 1. Intentamos obtenerlo del atributo estándar
-            raw_ts = getattr(user_data.user, 'last_sign_in_at', None)
-            
-            # 2. Si es None, buscamos en los metadatos del usuario (algunas versiones lo guardan ahí)
-            if not raw_ts:
-                user_meta = getattr(user_data.user, 'user_metadata', {})
-                raw_ts = user_meta.get('last_sign_in_at')
+    # Si no existe en la sesión, la creamos ahora mismo
+    if "session_time_pe" not in st.session_state:
+        # datetime.datetime.now(TIMEZONE_PERU) obtiene la hora exacta de Lima
+        st.session_state["session_time_pe"] = datetime.datetime.now(TIMEZONE_PERU).strftime("%Y-%m-%d %H:%M hrs (PE)")
 
-            # 3. Si sigue siendo None, usamos el tiempo de la sesión actual de Streamlit
-            if not raw_ts:
-                if "session_start_time" not in st.session_state:
-                    st.session_state["session_start_time"] = datetime.datetime.now(TIMEZONE_PERU).isoformat()
-                raw_ts = st.session_state["session_start_time"]
-            
-            last_login_display = format_datetime_peru(raw_ts, use_now_if_none=True)
-    except Exception as e:
-        # Fallback de seguridad: Hora actual del sistema
-        last_login_display = datetime.datetime.now(TIMEZONE_PERU).strftime("%Y-%m-%d %H:%M hrs (PE)")
+    last_login_display = st.session_state["session_time_pe"]
+
+    # --- RENDER DE DETALLES DE CUENTA ---
+    st.divider()
+    st.markdown("### ℹ️ Detalles de la Cuenta")
 
     c_acc1, c_acc2, c_acc3 = st.columns(3)
     
@@ -188,7 +173,7 @@ def render_profile_page(supabase_client, request_password_reset_func=None):
                      value=str(st.session_state.get("user_role", "")).upper(), 
                      disabled=True)
     with c_acc3:
-        # Aquí forzamos la visualización
+        # Aquí se muestra la hora del sistema que capturamos arriba
         st.text_input("🕒 Última Conexión", 
                      value=last_login_display, 
                      disabled=True)
