@@ -151,16 +151,18 @@ def render_profile_page(supabase_client, request_password_reset_func=None):
     # --- INFORMACIÓN DE CUENTA ---
     st.divider()
     st.markdown("### ℹ️ Detalles de la Cuenta")
-    # Intentamos obtener datos de la sesión actual desde Supabase
+    # Intentar obtener la última conexión real desde Supabase Auth
     try:
-        session_info = supabase_client.auth.get_session()
-        last_login = "No disponible"
-        if session_info and session_info.user:
-            # Extraemos la última fecha de inicio de sesión de los metadatos del usuario
-            last_login_raw = session_info.user.last_sign_in_at
-            last_login = format_datetime_peru(last_login_raw)
+        user_response = supabase_client.auth.get_user()
+        if user_response and user_response.user:
+            # Recuperamos el timestamp (ej: 2026-01-08T09:00:00Z)
+            raw_ts = user_response.user.last_sign_in_at
+            # Tu función format_datetime_peru ya maneja la conversión a hora PE
+            last_login_display = format_datetime_peru(raw_ts, use_now_if_none=False, date_only=False)
+        else:
+            last_login_display = "No disponible"
     except Exception:
-        last_login = "N/A"
+        last_login_display = "N/A"
 
     c_acc1, c_acc2, c_acc3 = st.columns(3)
     
@@ -170,14 +172,14 @@ def render_profile_page(supabase_client, request_password_reset_func=None):
                      disabled=True)
     with c_acc2:
         st.text_input("🏷️ Nivel de Acceso", 
-                     value=st.session_state.get("user_role", "USER").upper(), 
+                     value=st.session_state.get("user_role", "").upper(), 
                      disabled=True)
     with c_acc3:
-        st.text_input("🕒 Última Sesión", 
-                     value=last_login, 
+        # Aquí se muestra Fecha y Hora (PE)
+        st.text_input("🕒 Última Conexión", 
+                     value=last_login_display, 
                      disabled=True)
 
-    # Correo en una fila completa para mejor visibilidad
     st.text_input("📧 Correo de Usuario", value=st.session_state.get("user_email"), disabled=True)
 
     # --- SEGURIDAD (PASSWORD RESET) ---
