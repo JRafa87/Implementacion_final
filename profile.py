@@ -151,12 +151,34 @@ def render_profile_page(supabase_client, request_password_reset_func=None):
     # --- INFORMACIÓN DE CUENTA ---
     st.divider()
     st.markdown("### ℹ️ Detalles de la Cuenta")
-    c_acc1, c_acc2 = st.columns(2)
+    # Intentamos obtener datos de la sesión actual desde Supabase
+    try:
+        session_info = supabase_client.auth.get_session()
+        last_login = "No disponible"
+        if session_info and session_info.user:
+            # Extraemos la última fecha de inicio de sesión de los metadatos del usuario
+            last_login_raw = session_info.user.last_sign_in_at
+            last_login = format_datetime_peru(last_login_raw)
+    except Exception:
+        last_login = "N/A"
+
+    c_acc1, c_acc2, c_acc3 = st.columns(3)
+    
     with c_acc1:
-        st.text_input("📅 Registrado el", value=format_datetime_peru(st.session_state["created_at"], date_only=True), disabled=True)
-        st.text_input("🏷️ Nivel de Acceso", value=st.session_state["user_role"].upper(), disabled=True)
+        st.text_input("📅 Registrado el", 
+                     value=format_datetime_peru(st.session_state.get("created_at"), date_only=True), 
+                     disabled=True)
     with c_acc2:
-        st.text_input("📧 Correo de Usuario", value=st.session_state["user_email"], disabled=True)
+        st.text_input("🏷️ Nivel de Acceso", 
+                     value=st.session_state.get("user_role", "USER").upper(), 
+                     disabled=True)
+    with c_acc3:
+        st.text_input("🕒 Última Sesión", 
+                     value=last_login, 
+                     disabled=True)
+
+    # Correo en una fila completa para mejor visibilidad
+    st.text_input("📧 Correo de Usuario", value=st.session_state.get("user_email"), disabled=True)
 
     # --- SEGURIDAD (PASSWORD RESET) ---
     st.markdown("---")
