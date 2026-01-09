@@ -8,7 +8,7 @@ from supabase import Client
 
 # ==========================================================
 # CONFIGURACIÓN Y UTILIDADES
-# ==========================================================
+# ==========================
 TIMEZONE_PERU = pytz.timezone("America/Lima")
 
 def format_datetime_peru(iso_str, use_now_if_none=False, date_only=False):
@@ -32,12 +32,13 @@ def load_user_profile_data(user_id: str):
 
 def hydrate_session(profile: dict):
     if not profile: return
+    # Sincronizamos los datos del perfil actual con el estado de la sesión
     st.session_state.update({
         "full_name": profile.get("full_name", ""),
         "phone_number": profile.get("phone_number", ""),
         "address": profile.get("address", ""),
         "date_of_birth": profile.get("date_of_birth"),
-        "avatar_url": profile.get("avatar_url"),
+        "avatar_url": profile.get("avatar_url"), # Foto específica del DB
         "user_role": profile.get("role", "supervisor"),
         "created_at": profile.get("created_at"),
         "profile_loaded": True
@@ -52,17 +53,14 @@ def update_profile(name, dob, phone, address, avatar):
     user_id = st.session_state["user_id"]
     
     payload = {
-        "full_name": name.strip().title(), # "juan pérez" -> "Juan Pérez"
+        "full_name": name.strip().title(),
         "phone_number": phone.strip() if phone else None,
         "address": address.strip() if address else None,
         "date_of_birth": dob.strftime("%Y-%m-%d") if dob else None
     }
     
     if avatar:
-        base64_image = "data:image/png;base64," + base64.b64encode(avatar).decode()
-        payload["avatar_url"] = base64_image
-        # ACTUALIZACIÓN CRUCIAL: Actualizamos el estado local antes del rerun
-        st.session_state["avatar_url"] = base64_image
+        payload["avatar_url"] = "data:image/png;base64," + base64.b64encode(avatar).decode()
     
     try:
         supabase.table("profiles").update(payload).eq("id", user_id).execute()
@@ -75,15 +73,10 @@ def update_profile(name, dob, phone, address, avatar):
         st.error(f"❌ Error al guardar: {e}")
 
 # ==========================================================
-# RENDER PRINCIPAL (CORREGIDO CON 2 ARGUMENTOS)
+# RENDER PRINCIPAL
 # ==========================================================
 
 def render_profile_page(supabase_client, request_password_reset_func=None):
-    """
-    Recibe 2 argumentos para ser compatible con tu app.py:
-    1. supabase_client: El cliente de base de datos.
-    2. request_password_reset_func: (Opcional) Función externa de reseteo.
-    """
     st.session_state["supabase"] = supabase_client
     user_id = st.session_state.get("user_id")
 
@@ -91,13 +84,22 @@ def render_profile_page(supabase_client, request_password_reset_func=None):
         st.warning("⚠️ Usuario no autenticado")
         return
 
+    # --- PROTECCIÓN DE IDENTIDAD (NUEVO) ---
+    # Si detectamos que el usuario en sesión es diferente al último cargado, 
+    # forzamos una limpieza para que no se vea la foto del anterior.
+    if st.session_state.get("current_profile_id") != user_id:
+        st.session_state["profile_loaded"] = False
+        st.session_state["temp_avatar_bytes"] = None
+        st.session_state["avatar_url"] = None
+        st.session_state["current_profile_id"] = user_id
+
     # Carga inicial de datos
     if not st.session_state.get("profile_loaded", False):
         profile = load_user_profile_data(user_id)
         hydrate_session(profile)
         st.rerun()
 
-    # Mostrar notificaciones de éxito/error
+    # Mostrar notificaciones
     if st.session_state.get("update_status_message"):
         t, msg = st.session_state.pop("update_status_message")
         st.success(msg) if t == "success" else st.error(msg)
@@ -106,9 +108,11 @@ def render_profile_page(supabase_client, request_password_reset_func=None):
 
     with col_img:
         st.subheader("Foto de Perfil")
+        # Prioridad: 1. Foto recién subida, 2. Foto de la DB de ESTE usuario, 3. Placeholder
         avatar_display = (st.session_state.get("temp_avatar_bytes") or 
                           st.session_state.get("avatar_url") or 
                           "https://placehold.co/200x200?text=Usuario")
+        
         st.image(avatar_display, width=150)
         
         file = st.file_uploader("Cambiar foto", type=["png", "jpg", "jpeg"])
@@ -117,33 +121,24 @@ def render_profile_page(supabase_client, request_password_reset_func=None):
 
     with col_data:
         st.header("Datos Personales")
+        name = st.text_input("👤 Nombre completo", st.session_state.get("full_name", ""))
+        phone = st.text_input("📞 Teléfono", st.session_state.get("phone_number", ""), max_chars=9)
+        address = st.text_area("🏠 Dirección", st.session_state.get("address", ""))
         
-        # Entradas de usuario
-        name = st.text_input("👤 Nombre completo", st.session_state["full_name"])
-        phone = st.text_input("📞 Teléfono", st.session_state["phone_number"], max_chars=9)
-        address = st.text_area("🏠 Dirección", st.session_state["address"])
-        
-        # Manejo de fecha de nacimiento
         initial_dob = st.session_state.get("date_of_birth")
         try:
             dob_val = datetime.date.fromisoformat(initial_dob) if initial_dob else datetime.date(2000, 1, 1)
         except: dob_val = datetime.date(2000, 1, 1)
         dob = st.date_input("🗓️ Fecha de nacimiento", value=dob_val)
 
-        # --- VALIDACIONES ESTRICTAS ---
         submit_disabled = False
-        
         if name:
-            # Regex: Solo letras, espacios y tildes. Bloquea números.
             if not re.match(r"^[a-zA-ZáéíóúÁÉÍÓÚñÑ\s]+$", name):
-                st.error("❌ El nombre no puede contener números ni caracteres especiales.")
-                submit_disabled = True
-            elif len(name.strip()) < 3:
-                st.error("❌ El nombre debe tener al menos 3 letras.")
+                st.error("❌ El nombre no puede contener números.")
                 submit_disabled = True
         
         if phone and not re.match(r"^9\d{8}$", phone):
-            st.error("❌ El teléfono debe iniciar con 9 y tener 9 dígitos.")
+            st.error("❌ El teléfono debe iniciar con 9.")
             submit_disabled = True
 
         with st.form("profile_form"):
@@ -151,33 +146,27 @@ def render_profile_page(supabase_client, request_password_reset_func=None):
             if st.form_submit_button("💾 Guardar cambios", disabled=submit_disabled, use_container_width=True):
                 update_profile(name, dob, phone, address, st.session_state.get("temp_avatar_bytes"))
 
-    # --- INFORMACIÓN DE CUENTA ---
+    # --- BOTÓN DE LOGOUT SEGURO ---
+    st.sidebar.divider()
+    if st.sidebar.button("🚪 Cerrar Sesión", use_container_width=True):
+        # Limpiamos todo el estado para que el siguiente no vea nada
+        st.session_state.clear()
+        st.rerun()
+
+    # --- DETALLES DE CUENTA ---
     st.divider()
     st.markdown("### ℹ️ Detalles de la Cuenta")
-    # Si no existe en la sesión, la creamos ahora mismo
+    
     if "session_time_pe" not in st.session_state:
-        # datetime.datetime.now(TIMEZONE_PERU) obtiene la hora exacta de Lima
         st.session_state["session_time_pe"] = datetime.datetime.now(TIMEZONE_PERU).strftime("%Y-%m-%d %H:%M hrs (PE)")
 
-    last_login_display = st.session_state["session_time_pe"]
-
-    # --- RENDER DE DETALLES DE CUENTA ---
-
     c_acc1, c_acc2, c_acc3 = st.columns(3)
-    
     with c_acc1:
-        st.text_input("📅 Registrado el", 
-                     value=format_datetime_peru(st.session_state.get("created_at"), date_only=True), 
-                     disabled=True)
+        st.text_input("📅 Registrado el", value=format_datetime_peru(st.session_state.get("created_at"), date_only=True), disabled=True)
     with c_acc2:
-        st.text_input("🏷️ Nivel de Acceso", 
-                     value=str(st.session_state.get("user_role", "")).upper(), 
-                     disabled=True)
+        st.text_input("🏷️ Nivel de Acceso", value=str(st.session_state.get("user_role", "")).upper(), disabled=True)
     with c_acc3:
-        # Aquí se muestra la hora del sistema que capturamos arriba
-        st.text_input("🕒 Última Conexión", 
-                     value=last_login_display, 
-                     disabled=True)
+        st.text_input("🕒 Última Conexión", value=st.session_state["session_time_pe"], disabled=True)
 
     st.text_input("📧 Correo de Usuario", value=st.session_state.get("user_email"), disabled=True)
 
@@ -204,21 +193,16 @@ def render_profile_page(supabase_client, request_password_reset_func=None):
                 if st.form_submit_button("✅ Actualizar ahora", use_container_width=True):
                     if new_pw == conf_pw and len(new_pw) >= 8:
                         try:
-                            supabase_client.auth.verify_otp({
-                                "email": st.session_state["user_email"], 
-                                "token": otp_code.strip(), 
-                                "type": "recovery"
-                            })
+                            supabase_client.auth.verify_otp({"email": st.session_state["user_email"], "token": otp_code.strip(), "type": "recovery"})
                             supabase_client.auth.update_user({"password": new_pw})
                             st.success("✅ Contraseña actualizada.")
-                            # REGLA PERSONALIZADA: Redirigir a login (limpiando todo el estado)
-                            st.session_state.clear()
+                            st.session_state.clear() # Redirigir a login borrando todo
                             time.sleep(2)
                             st.rerun()
                         except Exception:
                             st.error("Código incorrecto o expirado.")
                     else:
-                        st.error("Verifica que las contraseñas coincidan y tengan longitud mínima.")
+                        st.error("Verifica las contraseñas.")
             with b2:
                 if st.form_submit_button("❌ Cancelar", use_container_width=True):
                     st.session_state.show_reset_fields = False
