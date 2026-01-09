@@ -208,7 +208,7 @@ def render_password_reset_form():
                 #if new_p != conf_p:
                     #st.error("Las contraseñas no coinciden.")
                 #elif len(new_p) < 8:
-                    st.error("Mínimo 8 caracteres.")
+                    #st.error("Mínimo 8 caracteres.")
                 #elif not old_p:
                     #st.error("Ingrese su contraseña actual.")
                 #else:
