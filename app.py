@@ -167,8 +167,8 @@ def render_signup_form():
 
 def render_password_reset_form():
     st.subheader("🛠️ Gestión de Credenciales")
-    metodo = st.radio("Método:", ["Código OTP (Olvido)", "Cambio Directo"], horizontal=True)
-
+    #metodo = st.radio("Método:", ["Código OTP (Olvido)", "Cambio Directo"], horizontal=True)
+    st.info("Te enviaremos un código a tu correo para que puedas crear una nueva contraseña.")
     if metodo == "Código OTP (Olvido)":
         if "recovery_step" not in st.session_state:
             st.session_state.recovery_step = 1
@@ -198,25 +198,25 @@ def render_password_reset_form():
                     except:
                         st.error("Error en validación.")
 
-    else:
-        with st.form("direct_change_form"):
-            old_p = st.text_input("Contraseña Actual", type="password")
-            new_p = st.text_input("Nueva contraseña", type="password")
-            conf_p = st.text_input("Confirmar nueva contraseña", type="password")
+    #else:
+        #with st.form("direct_change_form"):
+            #old_p = st.text_input("Contraseña Actual", type="password")
+            #new_p = st.text_input("Nueva contraseña", type="password")
+            #conf_p = st.text_input("Confirmar nueva contraseña", type="password")
 
-            if st.form_submit_button("Actualizar", use_container_width=True):
-                if new_p != conf_p:
-                    st.error("Las contraseñas no coinciden.")
-                elif len(new_p) < 8:
+            #if st.form_submit_button("Actualizar", use_container_width=True):
+                #if new_p != conf_p:
+                    #st.error("Las contraseñas no coinciden.")
+                #elif len(new_p) < 8:
                     st.error("Mínimo 8 caracteres.")
-                elif not old_p:
-                    st.error("Ingrese su contraseña actual.")
-                else:
-                    try:
-                        supabase.auth.update_user({"password": new_p})
-                        st.success("Contraseña actualizada exitosamente.")
-                    except Exception as e:
-                        st.error(f"Error: {e}")
+                #elif not old_p:
+                    #st.error("Ingrese su contraseña actual.")
+                #else:
+                    #try:
+                        #supabase.auth.update_user({"password": new_p})
+                        #st.success("Contraseña actualizada exitosamente.")
+                    #except Exception as e:
+                        #st.error(f"Error: {e}")
 
 def render_auth_page():
     # Si estamos en proceso de entrada, ocultamos todo para evitar el flash
