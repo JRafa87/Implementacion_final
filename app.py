@@ -125,8 +125,11 @@ def handle_logout():
 # 4. COMPONENTES DE INTERFAZ (UI)
 # ============================================================
 
+# ============================================================
+# 4. COMPONENTES DE INTERFAZ (UI) - CORREGIDO
+# ============================================================
+
 def render_login_form():
-    # Si acabamos de loguearnos, no mostramos el formulario
     if st.session_state.get("just_logged_in"):
         st.empty()
         return
@@ -154,22 +157,29 @@ def render_signup_form():
         if submit_btn:
             if len(pass_reg) >= 8 and full_name and email_reg:
                 try:
-                    supabase.auth.sign_up({
-                        "email": email_reg,
-                        "password": pass_reg,
-                        "options": {"data": {"full_name": full_name}}
-                    })
-                    st.success("✅ Registro enviado. Verifica tu correo.")
+                    # --- VALIDACIÓN DE CORREO EXISTENTE ---
+                    # Consultamos la tabla profiles para ver si el correo ya está en uso
+                    check_user = supabase.table("profiles").select("id").eq("email", email_reg).execute()
+                    
+                    if check_user.data:
+                        st.error("⚠️ Este correo ya está registrado. Por favor, inicia sesión o recupera tu contraseña.")
+                    else:
+                        # Si no existe, procedemos con el registro normal
+                        supabase.auth.sign_up({
+                            "email": email_reg,
+                            "password": pass_reg,
+                            "options": {"data": {"full_name": full_name}}
+                        })
+                        st.success("✅ Registro enviado. Verifica tu correo para confirmar la cuenta.")
                 except Exception as e:
                     st.error(f"Error: {e}")
             else:
-                st.error("Datos incompletos o contraseña muy corta.")
+                st.error("Datos incompletos o contraseña muy corta (mín. 8 caracteres).")
 
 def render_password_reset_form():
     st.subheader("🛠️ Gestión de Credenciales")
     st.info("Te enviaremos un código a tu correo para que puedas crear una nueva contraseña.")
 
-    # Inicializamos el paso de recuperación si no existe
     if "recovery_step" not in st.session_state:
         st.session_state.recovery_step = 1
 
@@ -209,7 +219,7 @@ def render_password_reset_form():
                     st.success("✅ Contraseña cambiada con éxito.")
                     time.sleep(2)
                     
-                    # 3. Limpiamos TODO y redirigimos al login (siguiendo tus reglas)
+                    # 3. Limpiamos sesión y redirigimos al login (Preferencia guardada)
                     st.session_state.clear()
                     st.rerun()
                 except Exception as e:
@@ -220,7 +230,6 @@ def render_password_reset_form():
             st.rerun()
 
 def render_auth_page():
-    # Si estamos en proceso de entrada, ocultamos todo para evitar el flash
     if st.session_state.get("just_logged_in"):
         return
 
