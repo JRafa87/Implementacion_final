@@ -194,7 +194,7 @@ def render_employee_management_page():
                     "YearsInCurrentRole": y_rol, 
                     "YearsSinceLastPromotion": y_prm, 
                     "YearsWithCurrManager": y_mgr,
-                    "TrainingTimesLastyear": train, 
+                    "TrainingTimesLastYear": train, 
                     "NumCompaniesWorked": n_com, 
                     "PerformanceRating": perf,
                     "NumeroTardanzas": tardanzas, 
