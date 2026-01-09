@@ -167,56 +167,57 @@ def render_signup_form():
 
 def render_password_reset_form():
     st.subheader("🛠️ Gestión de Credenciales")
-    #metodo = st.radio("Método:", ["Código OTP (Olvido)", "Cambio Directo"], horizontal=True)
     st.info("Te enviaremos un código a tu correo para que puedas crear una nueva contraseña.")
-    if metodo == "Código OTP (Olvido)":
-        if "recovery_step" not in st.session_state:
-            st.session_state.recovery_step = 1
 
-        if st.session_state.recovery_step == 1:
-            with st.form("otp_request"):
-                email = st.text_input("Correo")
-                if st.form_submit_button("Enviar Código"):
-                    supabase.auth.reset_password_for_email(email.strip().lower())
-                    st.session_state.temp_email = email.strip().lower()
-                    st.session_state.recovery_step = 2
-                    st.rerun()
-        else:
-            with st.form("otp_verify"):
-                otp_code = st.text_input("Código OTP")
-                new_pass = st.text_input("Nueva contraseña", type="password")
-                if st.form_submit_button("Cambiar"):
+    # Inicializamos el paso de recuperación si no existe
+    if "recovery_step" not in st.session_state:
+        st.session_state.recovery_step = 1
+
+    if st.session_state.recovery_step == 1:
+        with st.form("otp_request"):
+            email = st.text_input("Correo electrónico institucional")
+            if st.form_submit_button("Enviar Código"):
+                if email:
                     try:
-                        supabase.auth.verify_otp({
-                            "email": st.session_state.temp_email,
-                            "token": otp_code.strip(),
-                            "type": "recovery"
-                        })
-                        supabase.auth.update_user({"password": new_pass})
-                        st.success("Contraseña cambiada con éxito.")
-                        st.session_state.recovery_step = 1
-                    except:
-                        st.error("Error en validación.")
+                        supabase.auth.reset_password_for_email(email.strip().lower())
+                        st.session_state.temp_email = email.strip().lower()
+                        st.session_state.recovery_step = 2
+                        st.success("✅ Código enviado. Revisa tu bandeja de entrada.")
+                        time.sleep(1)
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error al enviar: {e}")
+                else:
+                    st.error("Por favor, ingresa tu correo.")
+    else:
+        with st.form("otp_verify"):
+            st.write(f"📧 Enviando código a: **{st.session_state.temp_email}**")
+            otp_code = st.text_input("Código OTP (6 dígitos)")
+            new_pass = st.text_input("Nueva contraseña (mín. 8 caracteres)", type="password")
+            
+            if st.form_submit_button("Restablecer Contraseña"):
+                try:
+                    # 1. Validamos el código
+                    supabase.auth.verify_otp({
+                        "email": st.session_state.temp_email,
+                        "token": otp_code.strip(),
+                        "type": "recovery"
+                    })
+                    # 2. Actualizamos la contraseña
+                    supabase.auth.update_user({"password": new_pass})
+                    
+                    st.success("✅ Contraseña cambiada con éxito.")
+                    time.sleep(2)
+                    
+                    # 3. Limpiamos TODO y redirigimos al login (siguiendo tus reglas)
+                    st.session_state.clear()
+                    st.rerun()
+                except Exception as e:
+                    st.error("Código incorrecto, expirado o error de conexión.")
 
-    #else:
-        #with st.form("direct_change_form"):
-            #old_p = st.text_input("Contraseña Actual", type="password")
-            #new_p = st.text_input("Nueva contraseña", type="password")
-            #conf_p = st.text_input("Confirmar nueva contraseña", type="password")
-
-            #if st.form_submit_button("Actualizar", use_container_width=True):
-                #if new_p != conf_p:
-                    #st.error("Las contraseñas no coinciden.")
-                #elif len(new_p) < 8:
-                    #st.error("Mínimo 8 caracteres.")
-                #elif not old_p:
-                    #st.error("Ingrese su contraseña actual.")
-                #else:
-                    #try:
-                        #supabase.auth.update_user({"password": new_p})
-                        #st.success("Contraseña actualizada exitosamente.")
-                    #except Exception as e:
-                        #st.error(f"Error: {e}")
+        if st.button("⬅️ Volver a ingresar correo"):
+            st.session_state.recovery_step = 1
+            st.rerun()
 
 def render_auth_page():
     # Si estamos en proceso de entrada, ocultamos todo para evitar el flash
