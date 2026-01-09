@@ -177,7 +177,7 @@ def render_employee_management_page():
                 payload = {
                     "EmployeeNumber": current_id, "Age": age, "Gender": to_eng(MAPEO_GENERO, gender),
                     "MonthlyIncome": income, "Department": to_eng(MAPEO_DEPTOS, dept), "JobRole": to_eng(MAPEO_ROLES, role),
-                    "BusinessTravel": to_eng(MAPEO_VIA_ES, travel), "EducationField": to_eng(MAPEO_EDUCACION, ed_field),
+                    "BusinessTravel": to_eng(MAPEO_VIAJES, travel), "EducationField": to_eng(MAPEO_EDUCACION, ed_field),
                     "Education": ed_lvl, "MaritalStatus": to_eng(MAPEO_ESTADO_CIVIL, civil), "DistanceFromHome": dist,
                     "JobLevel": job_lvl, "OverTime": overtime, "TotalWorkingYears": y_tot, "YearsAtCompany": y_com,
                     "YearsInCurrentRole": y_rol, "YearsSinceLastPromotion": y_prm, "YearsWithCurrManager": y_mgr,
