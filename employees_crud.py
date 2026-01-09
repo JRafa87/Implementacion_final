@@ -2,6 +2,9 @@ import streamlit as st
 import pandas as pd
 from supabase import create_client, Client
 from datetime import date
+import base64
+import time
+import re
 
 # =================================================================
 # 1. CONFIGURACIÓN Y MAPEOS
@@ -30,12 +33,9 @@ supabase = get_supabase()
 
 @st.cache_data(ttl=5)
 def fetch_employees_fast():
-    """
-    SOLUCIÓN AL LÍMITE DE 1000:
-    Usamos .range(0, 5000) para asegurar que el ID 2070 sea visible.
-    Convertimos las llaves a minúsculas para consistencia interna.
-    """
+    # Usamos .range para asegurar visibilidad de IDs altos
     res = supabase.table("empleados").select("*").range(0, 5000).order("EmployeeNumber", desc=True).execute()
+    # Convertimos a minúsculas para el manejo interno del DataFrame
     return [{k.lower(): v for k, v in r.items()} for r in res.data]
 
 def get_next_employee_number():
@@ -99,7 +99,7 @@ def render_employee_management_page():
             st.session_state.show_add = True
             st.rerun()
 
-    # --- FORMULARIO CON TODOS LOS CAMPOS SQL ---
+    # --- FORMULARIO ---
     if proceso_activo:
         st.divider()
         es_edit = st.session_state.edit_id is not None
@@ -108,7 +108,6 @@ def render_employee_management_page():
 
         st.subheader(f"📋 Ficha de Datos: ID {current_id}")
         
-        # Fila de control superior
         c_top1, c_top2 = st.columns(2)
         with c_top1:
             age = st.number_input("Edad", 0, 100, int(p.get('age', 25)), disabled=es_edit)
@@ -129,11 +128,12 @@ def render_employee_management_page():
                 dept = st.selectbox("Departamento", list(MAPEO_DEPTOS.values()), index=list(MAPEO_DEPTOS.values()).index(MAPEO_DEPTOS.get(p.get('department'), "Ventas")))
                 role = st.selectbox("Puesto", list(MAPEO_ROLES.values()), index=list(MAPEO_ROLES.values()).index(MAPEO_ROLES.get(p.get('jobrole'), "Ejecutivo de Ventas")))
             with f3:
+                # CORRECCIÓN: Usar MAPEO_VIAJES que es el nombre definido arriba
                 travel = st.selectbox("Viajes", list(MAPEO_VIAJES.values()), index=list(MAPEO_VIAJES.values()).index(MAPEO_VIAJES.get(p.get('businesstravel'), "Sin Viajes")))
                 job_lvl = st.number_input("Nivel Puesto", 1, 5, int(p.get('joblevel', 1)))
             with f4:
                 overtime = st.selectbox("Horas Extra", ["No", "Yes"], index=0 if p.get('overtime')=="No" else 1)
-                stock = st.number_input("Nivel Acciones", 0, 3, int(p.get('stockoptionlevel', 0)))
+                
 
             st.write("### 🎓 Educación y Perfil")
             e1, e2, e3, e4 = st.columns(4)
@@ -174,28 +174,50 @@ def render_employee_management_page():
                 f_sal = st.date_input("Fecha Salida", date.fromisoformat(f_sal_db) if f_sal_db else date.today(), disabled=not dar_baja)
 
             if st.form_submit_button("💾 GUARDAR", use_container_width=True, type="primary", disabled=not permitir):
+                # PAYLOAD CORREGIDO CON MAYÚSCULAS PARA SQL
                 payload = {
-                    "EmployeeNumber": current_id, "Age": age, "Gender": to_eng(MAPEO_GENERO, gender),
-                    "MonthlyIncome": income, "Department": to_eng(MAPEO_DEPTOS, dept), "JobRole": to_eng(MAPEO_ROLES, role),
-                    "BusinessTravel": to_eng(MAPEO_VIAJES, travel), "EducationField": to_eng(MAPEO_EDUCACION, ed_field),
-                    "Education": ed_lvl, "MaritalStatus": to_eng(MAPEO_ESTADO_CIVIL, civil), "DistanceFromHome": dist,
-                    "JobLevel": job_lvl, "OverTime": overtime, "TotalWorkingYears": y_tot, "YearsAtCompany": y_com,
-                    "YearsInCurrentRole": y_rol, "YearsSinceLastPromotion": y_prm, "YearsWithCurrManager": y_mgr,
-                    "TrainingTimesLastYear": train, "NumCompaniesWorked": n_com, "PerformanceRating": perf,
-                    "NumeroTardanzas": tardanzas, "NumeroFaltas": faltas, "Tipocontrato": contract, "StockOptionLevel": stock,
-                    "FechaIngreso": f_ing.isoformat(), "FechaSalida": f_sal.isoformat() if dar_baja else None
+                    "EmployeeNumber": current_id, 
+                    "Age": age, 
+                    "Gender": to_eng(MAPEO_GENERO, gender),
+                    "MonthlyIncome": income, 
+                    "Department": to_eng(MAPEO_DEPTOS, dept), 
+                    "JobRole": to_eng(MAPEO_ROLES, role),
+                    "BusinessTravel": to_eng(MAPEO_VIAJES, travel), # CORREGIDO
+                    "EducationField": to_eng(MAPEO_EDUCACION, ed_field),
+                    "Education": ed_lvl, 
+                    "MaritalStatus": to_eng(MAPEO_ESTADO_CIVIL, civil), 
+                    "DistanceFromHome": dist,
+                    "JobLevel": job_lvl, 
+                    "OverTime": overtime, 
+                    "TotalWorkingYears": y_tot, 
+                    "YearsAtCompany": y_com,
+                    "YearsInCurrentRole": y_rol, 
+                    "YearsSinceLastPromotion": y_prm, 
+                    "YearsWithCurrManager": y_mgr,
+                    "TrainingTimesLastyear": train, 
+                    "NumCompaniesWorked": n_com, 
+                    "PerformanceRating": perf,
+                    "NumeroTardanzas": tardanzas, 
+                    "NumeroFaltas": faltas, 
+                    "Tipocontrato": contract, 
+                    "FechaIngreso": f_ing.isoformat(), 
+                    "FechaSalida": f_sal.isoformat() if dar_baja else None
                 }
                 
-                if es_edit:
-                    supabase.table("empleados").update(payload).eq("EmployeeNumber", current_id).execute()
-                else:
-                    supabase.table("empleados").insert(payload).execute()
-                
-                st.session_state.edit_id = None
-                st.session_state.show_add = False
-                st.cache_data.clear()
-                st.success("¡Operación exitosa!")
-                st.rerun()
+                try:
+                    if es_edit:
+                        supabase.table("empleados").update(payload).eq("EmployeeNumber", current_id).execute()
+                    else:
+                        supabase.table("empleados").insert(payload).execute()
+                    
+                    st.session_state.edit_id = None
+                    st.session_state.show_add = False
+                    st.cache_data.clear()
+                    st.success("¡Operación exitosa!")
+                    time.sleep(1)
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error al guardar en Supabase: {e}")
 
         if st.button("❌ Cancelar"):
             st.session_state.edit_id = None
