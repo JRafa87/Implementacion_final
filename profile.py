@@ -59,7 +59,10 @@ def update_profile(name, dob, phone, address, avatar):
     }
     
     if avatar:
-        payload["avatar_url"] = "data:image/png;base64," + base64.b64encode(avatar).decode()
+        base64_image = "data:image/png;base64," + base64.b64encode(avatar).decode()
+        payload["avatar_url"] = base64_image
+        # ACTUALIZACIÓN CRUCIAL: Actualizamos el estado local antes del rerun
+        st.session_state["avatar_url"] = base64_image
     
     try:
         supabase.table("profiles").update(payload).eq("id", user_id).execute()
