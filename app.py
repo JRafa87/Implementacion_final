@@ -156,40 +156,53 @@ def render_login_form():
 
 def render_signup_form():
     st.subheader("📝 Registro de Nuevo Usuario")
+    
+    # 1. Input de correo fuera del formulario para validación instantánea
     email_reg = st.text_input("Correo institucional", key="reg_email_input").strip().lower()
     
+    user_exists = False
+    
+    # 2. Validación inmediata (Reactiva)
+    if email_reg:
+        if re.match(r"[^@]+@[^@]+\.[^@]+", email_reg): # Validación básica de formato
+            try:
+                # Consultamos la tabla profiles gracias a tu política RLS para 'anon'
+                check_user = supabase.table("profiles").select("id").eq("email", email_reg).execute()
+                
+                if check_user.data and len(check_user.data) > 0:
+                    user_exists = True
+                    st.error("⚠️ Este correo ya está registrado. El botón de registro se ha desactivado.")
+            except Exception as e:
+                # Si hay error de permisos, fallamos silenciosamente o mostramos alerta técnica
+                pass
+        elif len(email_reg) > 5:
+            st.caption("Escribe un correo válido...")
+
+    # 3. Formulario de registro
     with st.form("signup_form_final"):
         full_name = st.text_input("Nombre completo")
         pass_reg = st.text_input("Contraseña (mín. 8 caracteres)", type="password")
-        submit_btn = st.form_submit_button("Registrarse", use_container_width=True)
+        
+        # El botón se bloquea si 'user_exists' es True
+        submit_btn = st.form_submit_button(
+            "Registrarse", 
+            use_container_width=True, 
+            disabled=user_exists
+        )
         
         if submit_btn:
-            if len(pass_reg) >= 8 and full_name and email_reg:
+            if not user_exists and len(pass_reg) >= 8 and full_name and email_reg:
                 try:
-                    # 1. VALIDACIÓN MANUAL (Gracias a tu nueva política RLS)
-                    # Consultamos si el correo ya existe en la tabla profiles
-                    check_user = supabase.table("profiles").select("id").eq("email", email_reg).execute()
-                    
-                    if check_user.data and len(check_user.data) > 0:
-                        st.error("⚠️ Este correo ya se encuentra registrado. Intenta iniciar sesión o recuperar tu contraseña.")
-                    else:
-                        # 2. PROCESO DE REGISTRO
-                        # Si no existe, procedemos con el sign_up de Auth
-                        res = supabase.auth.sign_up({
-                            "email": email_reg,
-                            "password": pass_reg,
-                            "options": {"data": {"full_name": full_name}}
-                        })
-                        
-                        if res.user:
-                            st.success("✅ Registro enviado con éxito. Por favor, verifica tu bandeja de entrada.")
-                
+                    res = supabase.auth.sign_up({
+                        "email": email_reg,
+                        "password": pass_reg,
+                        "options": {"data": {"full_name": full_name}}
+                    })
+                    st.success("✅ Registro enviado. Verifica tu correo institucional.")
                 except Exception as e:
-                    # Si todavía sale "Error de Autenticación", revisa que la política 
-                    # en Supabase esté aplicada específicamente para el rol 'anon'.
-                    st.error(f"Error en el proceso: {e}")
+                    st.error(f"Error: {e}")
             else:
-                st.error("Por favor, completa todos los campos correctamente.")
+                st.error("Por favor, verifica que todos los campos sean correctos.")
 
 def render_password_reset_form():
     st.subheader("🔄 Recuperar acceso")
