@@ -128,6 +128,9 @@ def handle_logout():
 # ============================================================
 # 4. COMPONENTES DE INTERFAZ (UI) - CORREGIDO
 # ============================================================
+# ============================================================
+# 4. COMPONENTES DE INTERFAZ (UI) - RESTAURADO Y MEJORADO
+# ============================================================
 
 def render_login_form():
     if st.session_state.get("just_logged_in"):
@@ -157,24 +160,23 @@ def render_signup_form():
         if submit_btn:
             if len(pass_reg) >= 8 and full_name and email_reg:
                 try:
-                    # --- VALIDACIÓN DE CORREO EXISTENTE ---
-                    # Consultamos la tabla profiles para ver si el correo ya está en uso
-                    check_user = supabase.table("profiles").select("id").eq("email", email_reg).execute()
+                    # Intentamos el registro directo. Supabase maneja la unicidad.
+                    response = supabase.auth.sign_up({
+                        "email": email_reg,
+                        "password": pass_reg,
+                        "options": {"data": {"full_name": full_name}}
+                    })
                     
-                    if check_user.data:
-                        st.error("⚠️ Este correo ya está registrado. Por favor, inicia sesión o recupera tu contraseña.")
+                    # VALIDACIÓN DE DUPLICADO: 
+                    # Si el usuario existe pero no tiene 'identities', es que ya estaba registrado.
+                    if response.user and not response.user.identities:
+                        st.warning("⚠️ Este correo ya está registrado. Intenta iniciar sesión.")
                     else:
-                        # Si no existe, procedemos con el registro normal
-                        supabase.auth.sign_up({
-                            "email": email_reg,
-                            "password": pass_reg,
-                            "options": {"data": {"full_name": full_name}}
-                        })
-                        st.success("✅ Registro enviado. Verifica tu correo para confirmar la cuenta.")
+                        st.success("✅ Registro enviado. Verifica tu correo para activar tu cuenta.")
                 except Exception as e:
                     st.error(f"Error: {e}")
             else:
-                st.error("Datos incompletos o contraseña muy corta (mín. 8 caracteres).")
+                st.error("Datos incompletos o contraseña muy corta.")
 
 def render_password_reset_form():
     st.subheader("🛠️ Gestión de Credenciales")
@@ -192,40 +194,36 @@ def render_password_reset_form():
                         supabase.auth.reset_password_for_email(email.strip().lower())
                         st.session_state.temp_email = email.strip().lower()
                         st.session_state.recovery_step = 2
-                        st.success("✅ Código enviado. Revisa tu bandeja de entrada.")
-                        time.sleep(1)
+                        st.success("✅ Código enviado.")
                         st.rerun()
                     except Exception as e:
-                        st.error(f"Error al enviar: {e}")
+                        st.error(f"Error: {e}")
                 else:
-                    st.error("Por favor, ingresa tu correo.")
+                    st.error("Ingresa tu correo.")
     else:
         with st.form("otp_verify"):
             st.write(f"📧 Enviando código a: **{st.session_state.temp_email}**")
-            otp_code = st.text_input("Código OTP (6 dígitos)")
-            new_pass = st.text_input("Nueva contraseña (mín. 8 caracteres)", type="password")
+            otp_code = st.text_input("Código OTP")
+            new_pass = st.text_input("Nueva contraseña", type="password")
             
             if st.form_submit_button("Restablecer Contraseña"):
                 try:
-                    # 1. Validamos el código
                     supabase.auth.verify_otp({
                         "email": st.session_state.temp_email,
                         "token": otp_code.strip(),
                         "type": "recovery"
                     })
-                    # 2. Actualizamos la contraseña
                     supabase.auth.update_user({"password": new_pass})
-                    
-                    st.success("✅ Contraseña cambiada con éxito.")
+                    st.success("✅ Contraseña cambiada.")
                     time.sleep(2)
                     
-                    # 3. Limpiamos sesión y redirigimos al login (Preferencia guardada)
+                    # Limpieza total para redirigir al Login
                     st.session_state.clear()
                     st.rerun()
                 except Exception as e:
-                    st.error("Código incorrecto, expirado o error de conexión.")
+                    st.error("Código incorrecto o expirado.")
 
-        if st.button("⬅️ Volver a ingresar correo"):
+        if st.button("⬅️ Volver"):
             st.session_state.recovery_step = 1
             st.rerun()
 
@@ -240,6 +238,7 @@ def render_auth_page():
         with tabs[0]: render_login_form()
         with tabs[1]: render_signup_form()
         with tabs[2]: render_password_reset_form()
+
 
 # ============================================================
 # 5. SIDEBAR Y FLUJO PRINCIPAL
