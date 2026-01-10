@@ -241,8 +241,8 @@ def render_password_reset_form():
                     time.sleep(2)
                     st.session_state.clear()
                     st.rerun()
-                except:
-                    st.error("Código incorrecto o expirado.")
+                #except:
+                    #st.error("Código incorrecto o expirado.")
 
 def render_auth_page():
     if st.session_state.get("just_logged_in"):
