@@ -166,21 +166,30 @@ def render_signup_form():
         if submit_btn:
             if len(pass_reg) >= 8 and full_name and email_reg:
                 try:
-                    # Supabase maneja la validación de duplicados automáticamente
-                    res = supabase.auth.sign_up({
-                        "email": email_reg,
-                        "password": pass_reg,
-                        "options": {"data": {"full_name": full_name}}
-                    })
+                    # 1. VALIDACIÓN MANUAL (Gracias a tu nueva política RLS)
+                    # Consultamos si el correo ya existe en la tabla profiles
+                    check_user = supabase.table("profiles").select("id").eq("email", email_reg).execute()
                     
-                    if res.user and not res.user.identities:
-                        st.warning("⚠️ Este correo ya está registrado. Intenta iniciar sesión.")
+                    if check_user.data and len(check_user.data) > 0:
+                        st.error("⚠️ Este correo ya se encuentra registrado. Intenta iniciar sesión o recuperar tu contraseña.")
                     else:
-                        st.success("✅ Registro enviado. Verifica tu correo para activar la cuenta.")
+                        # 2. PROCESO DE REGISTRO
+                        # Si no existe, procedemos con el sign_up de Auth
+                        res = supabase.auth.sign_up({
+                            "email": email_reg,
+                            "password": pass_reg,
+                            "options": {"data": {"full_name": full_name}}
+                        })
+                        
+                        if res.user:
+                            st.success("✅ Registro enviado con éxito. Por favor, verifica tu bandeja de entrada.")
+                
                 except Exception as e:
-                    st.error(f"Error: {e}")
+                    # Si todavía sale "Error de Autenticación", revisa que la política 
+                    # en Supabase esté aplicada específicamente para el rol 'anon'.
+                    st.error(f"Error en el proceso: {e}")
             else:
-                st.error("Datos incompletos o contraseña muy corta.")
+                st.error("Por favor, completa todos los campos correctamente.")
 
 def render_password_reset_form():
     st.subheader("🔄 Recuperar acceso")
