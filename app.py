@@ -301,13 +301,22 @@ def render_sidebar():
 # 6. EJECUCIÓN MAESTRA
 # ============================================================
 
+# ============================================================
+# 6. EJECUCIÓN MAESTRA (SIN FLASH)
+# ============================================================
+
+# Paso 1: Verificación de sesión
 is_logged_in = check_session()
 
+# Paso 2: Dibujar interfaz
 if is_logged_in:
+    # Si ya entramos, eliminamos cualquier rastro del formulario de login
     if "just_logged_in" in st.session_state:
         del st.session_state["just_logged_in"]
-        
+    
+    # IMPORTANTE: No renderizamos NADA del login si is_logged_in es True
     render_sidebar()
+    
     page_map = {
         "Mi Perfil": lambda: render_profile_page(supabase, None),
         "Dashboard": render_rotacion_dashboard,
@@ -317,7 +326,9 @@ if is_logged_in:
         "Reconocimiento": render_recognition_page,
         "Historial de Encuesta": historial_encuestas_module
     }
+    
     current = st.session_state.get("current_page", "Mi Perfil")
     page_map.get(current, lambda: None)()
 else:
+    # Solo si NO está logueado mostramos la página de auth
     render_auth_page()
