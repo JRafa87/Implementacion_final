@@ -76,10 +76,16 @@ def get_employee_status(employee_id: int):
 
 def save_response(data: dict):
     try:
-        supabase.table("encuestas").insert(data).execute()
+        # Usamos upsert para manejar conflictos. 
+        # Si la fecha es única en tu BD, esto actualizará el registro en lugar de fallar.
+        supabase.table("encuestas").upsert(data).execute()
         return True
     except Exception as e:
-        st.error(f"Error al enviar: Es posible que ya hayas respondido esta encuesta anteriormente.")
+        error_msg = str(e).lower()
+        if "duplicate key" in error_msg:
+            st.error("⚠️ Ya se registró una encuesta con esta marca de tiempo.")
+        else:
+            st.error(f"❌ Error al enviar: {e}")
         return False
 
 # ==============================================================================
@@ -176,6 +182,7 @@ def main():
 
         if st.button("Cerrar Sesión / Cancelar"):
             st.session_state.verified = False
+            time.sleep(2) # Pausa breve para que vean el éxito
             st.rerun()
 
 if __name__ == "__main__":
