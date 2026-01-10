@@ -76,18 +76,18 @@ def get_employee_status(employee_id: int):
 
 def save_response(data: dict):
     try:
-        # Usamos upsert para manejar conflictos. 
-        # Si la fecha es única en tu BD, esto actualizará el registro en lugar de fallar.
-        supabase.table("encuestas").upsert(data).execute()
+        # Apuntamos explícitamente a la tabla 'encuestas'
+        supabase.table("encuestas").insert(data).execute()
         return True
     except Exception as e:
-        error_msg = str(e).lower()
-        if "duplicate key" in error_msg:
-            st.error("⚠️ Ya se registró una encuesta con esta marca de tiempo.")
+        error_str = str(e)
+        # Si el error menciona 'violates foreign key constraint', 
+        # es porque el ID de empleado no está en la tabla consolidado.
+        if "foreign key" in error_str.lower():
+            st.error("❌ Error: El número de empleado no existe en el registro principal (consolidado).")
         else:
-            st.error(f"❌ Error al enviar: {e}")
+            st.error(f"❌ Error al enviar a 'encuestas': {e}")
         return False
-
 # ==============================================================================
 # 4. INTERFAZ DE USUARIO (FRONTEND)
 # ==============================================================================
