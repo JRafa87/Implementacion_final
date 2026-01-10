@@ -226,40 +226,38 @@ def render_password_reset_form():
                 else:
                     st.error("Por favor, ingresa tu correo.")
     else:
-        # Paso 2: Verificación y Cambio
         with st.form("otp_verify"):
             st.write(f"📧 Código enviado a: **{st.session_state.temp_email}**")
-            otp_code = st.text_input("Código OTP (6 dígitos)")
-            new_pass = st.text_input("Nueva contraseña (mín. 8 caracteres)", type="password")
+            otp_code = st.text_input("Código de 6 dígitos", key="recovery_otp")
+            new_pass = st.text_input("Nueva contraseña", type="password", key="recovery_pass")
             
-            submit_recovery = st.form_submit_button("Restablecer Contraseña")
-            
-            if submit_recovery:
+            if st.form_submit_button("Confirmar Cambio"):
                 try:
-                    # 1. Validamos el código OTP
-                    verify_res = supabase.auth.verify_otp({
+                    # 1. Validar el código (esto crea una sesión técnica)
+                    supabase.auth.verify_otp({
                         "email": st.session_state.temp_email,
                         "token": otp_code.strip(),
                         "type": "recovery"
                     })
                     
-                    # 2. Si la verificación es exitosa, actualizamos la contraseña
-                    if verify_res.user:
-                        supabase.auth.update_user({"password": new_pass})
-                        
-                        # USAMOS UN CONTENEDOR TEMPORAL PARA EL ÉXITO
-                        st.success("✅ Contraseña cambiada con éxito. Redirigiendo...")
-                        time.sleep(1.5)
-                        
-                        # LIMPIEZA Y REDIRECCIÓN (Regla persistente: al login)
-                        for key in list(st.session_state.keys()):
-                            del st.session_state[key]
-                        
-                        st.rerun()
-                        
+                    # 2. Actualizar a la nueva contraseña
+                    supabase.auth.update_user({"password": new_pass})
+                    
+                    # 3. CERRAR SESIÓN EN SUPABASE (Crucial para que no entre directo)
+                    supabase.auth.sign_out()
+                    
+                    # 4. Mensaje de éxito
+                    st.success("✅ Contraseña actualizada. Por seguridad, ingresa con tus nuevas credenciales.")
+                    time.sleep(2)
+                    
+                    # 5. Limpiar el estado de Streamlit y volver al Login
+                    st.session_state.clear()
+                    st.rerun()
+                    
                 except Exception as e:
-                    # Solo entra aquí si REALMENTE hubo un error en verify o update
-                    st.error("❌ Código incorrecto, expirado o error de conexión.")
+                    # Si no es un RerunException de Streamlit, mostrar error de código
+                    if "RerunData" not in str(type(e)):
+                        st.error("❌ Código incorrecto o expirado. Inténtalo de nuevo.")
 
 def render_auth_page():
     if st.session_state.get("just_logged_in"):
